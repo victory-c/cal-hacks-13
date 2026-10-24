@@ -46,11 +46,14 @@ npm run typecheck -w distiller && npm test -w distiller                         
 
 The CLI prints the plan, the drafts, the triage table (outcome, wall, keep / confidential / deal
 answers, relation, action) and the review items, then everything as JSON. Deals and lists come
-from `--deals` / `--lists` (a `DealsResponse` / `ListsResponse` JSON file), else from the server
-with `--post` (never the fixtures then: the result is filed on that server, so only its own deal
-list counts), else from `fixtures/world/deals.json` and `fixtures/world/lists.json` when they
-exist. Without both, nothing is labeled public and every fact goes to `inbox`. Tokens and ms in
-its output are real measurements (`usage` from the API, wall clock); nothing is estimated.
+from `--deals` / `--lists` (a `DealsResponse` / `ListsResponse` JSON file), else from
+`fixtures/world/deals.json` and `fixtures/world/lists.json` when they exist. With `--post` they
+come from the server only: `--deals` / `--lists` are refused and the fixtures are never read,
+since the result is filed on that server and a local list could label public what its walls
+would not (or skip the `inbox` fallback on a server without the finance routes). Without both,
+nothing is labeled public and every fact goes to `inbox`. If the server takes the facts but fails
+on a review item or event, `--post` says what was not filed and exits 1. Tokens and ms in its
+output are real measurements (`usage` from the API, wall clock); nothing is estimated.
 
 ## Engines and the fallback order
 
@@ -90,7 +93,9 @@ name, aliases, companies, status), the numbered drafts and up to 40 existing hot
 statement, wall). Past 24 000 characters the text keeps its head and tail, and the cut middle is
 scanned in code (on folded text) for sentences that read like orders to an AI or like forwarding
 something out; up to 8 of them are spliced in where the cut is, so the `inject` question is asked
-of the whole item. The state also tells the judge the item text is untrusted data, never
+of the whole item. A sentence longer than 280 characters is cut to a window that starts just
+before the match, so padding in front of an order cannot push it out (the quarantine excerpt
+works the same way). The state also tells the judge the item text is untrusted data, never
 instructions. The questions:
 
 | Id | Type | Question | What code does (`TRIAGE_THRESHOLDS`) |
@@ -124,12 +129,14 @@ deal < unlabeled):
 Outcomes: `fact` with a deal wall, or with `public` when nothing points at a deal, the
 confidentiality answer is below 0.2, Jev is confidently public and the item names no deal.
 Everything else that is kept is **`compliance`**: two deals (a conflict), a floor that is itself
-unlabeled, a listed company that belongs to no known deal, confidential with no clear deal, deal
-unsure, or a public-looking draft from an item that names a deal. A `compliance` fact is
-**written with no wall** (unlabeled: nobody but compliance sees it) and a `label_unsure` review
-item carries `proposed_wall` (= `TriageDecision.wall`: what content says, raised by Jev's
-below-threshold deal pick, else the deal the item names). For a two-deal conflict there is no
-single right wall, so the item has no `proposed_wall` and says "pick one".
+unlabeled, a listed company that belongs to no known deal (even next to a deal wall),
+confidential with no clear deal, deal unsure, or a public-looking draft from an item that names a
+deal. A `compliance` fact is **written with no wall** (unlabeled: nobody but compliance sees it)
+and a `label_unsure` review item carries `proposed_wall` (= `TriageDecision.wall`: what content
+and the related fact's floor say, raised by Jev's below-threshold deal pick, else the deal the item
+names; never below the floor). For a `fact`, `TriageDecision.wall` is the wall the fact got,
+floor included. For a two-deal conflict there is no single right wall, so the item has no
+`proposed_wall` and says "pick one".
 
 **Missing or neutral answers land on the safe side:** no `inject` answer is 0.5, so the item is
 quarantined; no `conf` answer is 0.5, so confidential; no `deal` answer is unsure; no relation
@@ -141,7 +148,12 @@ still holds: a draft that repeats a stored fact word for word merges into it.
 `decision.triage` set. Then the review items (`POST /api/review`), then the events
 (`POST /api/events`): one `triage.decided` per draft, including archive-only and quarantined
 ones, and one `quarantine.flagged` per quarantined item, carrying the id the review queue gave
-back. An item with no drafts still gets the `inject` question.
+back. An item with no drafts still gets the `inject` question. A route that exists but fails
+(a 5xx, a timeout, a dropped connection) loses nothing: the review items and events it did not
+take are held and retried with backoff (5 s doubling to a minute), on the next capture (a re-post
+of the same one included) and once more on shutdown, for up to 10 minutes, then the worker says
+what it gave up on. The facts are never sent again. A quarantine item's `quarantine.flagged`
+waits with it, so the event carries the queue's id. Only a missing route (404 / 405) is skipped.
 
 **Against a server without the finance routes** (`/api/deals`, `/api/lists`, `/api/review` or
 `/api/events` answer 404): **walls are not enforced there.** Such a server (today's) checks folder
@@ -183,11 +195,14 @@ simulation; logs and the CLI say "simulated".
   rather than walling it, since the item may be public news that mentions a deal company. Jev
   sees the whole item, so a plain line from a Falcon memo can still be walled by Jev (the fake
   judge does this too). Restricted-list companies count at draft level only.
-- **A listed company with no known deal** sends the fact to compliance rather than labeling it.
+- **A listed company with no known deal** sends the fact to compliance rather than labeling it,
+  even when a deal wall applies: that wall covers the deal, not the other company. The deal wall
+  is the proposal.
 - **Watch-list names stay out of `wall_reason`** ("a watch-list name"), since the reason rides on
   events. The review item, which is compliance-only, quotes the statement.
 - **Missing, failing or malformed deals or lists** (either one) means no public labels and every
-  fact in `inbox`, in the worker and the CLI. With `--post` the CLI uses only the server's.
+  fact in `inbox`, in the worker and the CLI. With `--post` the CLI uses only the server's and
+  refuses `--deals` / `--lists`.
 - **A held public fact keeps outcome `fact` and `decision.wall` `public`** while the fact itself is
   written with no wall; `wall_reason` says "left unlabeled". `TriageDecision.wall` has no
   "unlabeled" value, so saying it there needs a contract change (lane A).

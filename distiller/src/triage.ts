@@ -7,9 +7,10 @@
 //   wall      the code rule (names, walls.ts), raised by Jev's confident deal and by the wall of
 //             the fact it relates to. Content only ever raises a wall
 //   unsure    confidential with no clear deal, deal unsure, two deals, a related fact that is
-//             itself unlabeled, or a public draft from an item that names a deal (the code rule
-//             over the whole item): written with NO wall (deny all but compliance) plus a
-//             label_unsure review item carrying the proposed wall
+//             itself unlabeled, a restricted or watch-list company that belongs to no known deal
+//             (even next to a deal wall), or a public draft from an item that names a deal (the
+//             code rule over the whole item): written with NO wall (deny all but compliance) plus
+//             a label_unsure review item carrying the proposed wall
 //   relation  same → merge, replaces → supersede, anything else → add
 // A missing or neutral answer always lands on the safe side. Pure given a Judge: no I/O, no env.
 //
@@ -277,27 +278,30 @@ function decideDraft(draft: DraftFact, i: number, got: Map<string, Answer>, ctx:
   reasons.push(`jev: ${pick} ${fmt(deal_p)}${pick !== DEAL_UNSURE && deal_p < DEAL_CONFIDENT ? ` (below ${DEAL_CONFIDENT})` : ""}, confidential ${fmt(confidential_p)}`);
   if (target && floor) reasons.push(`${relation} ${target.id} (${floor})`);
 
-  // What code does with it.
+  // What code does with it. A listed company that belongs to no known deal goes to compliance
+  // even when a deal wall applies: that wall covers the deal, not the other company.
   let outcome: TriageOutcome = "fact";
   let unsure: string | undefined;
   if (ctx.quarantined) outcome = "quarantine";
   else if (keep_p < KEEP) outcome = "archive_only";
   else if (label === UNLABELED) unsure = conflict ? `names two deals (${conflict.join(", ")})` : `relates to unlabeled fact ${target?.id}`;
-  else if (label !== PUBLIC_WALL) outcome = "fact";
   else if (code.listed.length) unsure = `names ${code.listed.map((l) => (l.list === "restricted" ? `restricted-list company "${l.company}"` : "a watch-list company")).join(", ")}`;
+  else if (label !== PUBLIC_WALL) outcome = "fact";
   else if (confidential_p >= CONFIDENTIAL) unsure = `looks confidential (p ${fmt(confidential_p)}) but no deal is clear`;
   else if (deal === DEAL_UNSURE) unsure = `deal unsure (jev: ${pick} ${fmt(deal_p)})`;
   else if (ctx.itemDeals.length) unsure = `the item names ${ctx.itemDeals.join(", ")} and the draft reads as public`;
   if (unsure) outcome = "compliance";
 
-  // The wall code assigns, or for "compliance" the one it proposes: what content says, raised by
-  // Jev's below-threshold deal pick, else the deal the item names. Two deals have no single right
-  // wall; the first stands in.
+  // The wall code assigns (content raised by the related fact's floor, the same label the fact
+  // gets), or for "compliance" the one it proposes, raised by Jev's below-threshold deal pick, else
+  // the deal the item names. An unlabeled floor proposes what content says. Two deals have no
+  // single right wall; the first stands in.
+  const assigned = label === UNLABELED ? content : label;
   let wall: Wall;
   if (conflict) wall = conflict[0] as Wall;
-  else if (content === UNLABELED) wall = PUBLIC_WALL; // unreachable without a conflict; keeps the type honest
-  else if (outcome === "compliance" && content === PUBLIC_WALL) wall = lowPick ?? ctx.itemDeals[0] ?? PUBLIC_WALL;
-  else wall = content;
+  else if (assigned === UNLABELED) wall = PUBLIC_WALL; // unreachable without a conflict; keeps the type honest
+  else if (outcome === "compliance" && assigned === PUBLIC_WALL) wall = lowPick ?? ctx.itemDeals[0] ?? PUBLIC_WALL;
+  else wall = assigned;
 
   const written = outcome === "fact" || outcome === "compliance";
   const heldPublic = outcome === "fact" && label === PUBLIC_WALL && !ctx.labelPublic;
@@ -399,9 +403,9 @@ const FORWARD_PATTERN = /\b(?:forward|send|share)\b[^.!?\n]{0,120}\bto\b/i;
 export function injectionExcerpt(text: string): string {
   for (const re of [...INJECTION_PATTERNS, FORWARD_PATTERN]) {
     const m = re.exec(text);
-    if (m) return sentenceAt(text, m.index);
+    if (m) return sentenceAt(text, m.index, m[0].length);
   }
-  return clip(text, 280);
+  return clip(text, EXCERPT_CHARS);
 }
 
 /** At most this many sentences from the cut middle of a long item are spliced into the state. */
@@ -424,7 +428,7 @@ function clipForJudge(s: string, max: number): string {
   const found: string[] = [];
   for (const re of [...INJECTION_PATTERNS, FORWARD_PATTERN]) {
     for (const m of middle.matchAll(new RegExp(re.source, `${re.flags}g`))) {
-      const sentence = sentenceAt(middle, m.index);
+      const sentence = sentenceAt(middle, m.index, m[0].length);
       if (!found.includes(sentence)) found.push(sentence);
       if (found.length >= MAX_SPLICED) break;
     }
@@ -437,8 +441,18 @@ function clipForJudge(s: string, max: number): string {
   return `${s.slice(0, head)}${note}${s.slice(-tail)}`;
 }
 
-/** The sentence (or line) around `index`, clipped to 280 characters. */
-function sentenceAt(text: string, index: number): string {
+/** An excerpt's length: the quarantine item's, and each sentence spliced into the state. */
+const EXCERPT_CHARS = 280;
+/** A long sentence keeps this much text before the match. */
+const EXCERPT_LEAD = 80;
+
+/**
+ * The sentence (or line) around the match at `index` (`length` characters), clipped to
+ * EXCERPT_CHARS. A sentence too long for that is cut to a window that starts just before the
+ * match, so padding in front of an order cannot push the order out of what the judge and
+ * compliance read.
+ */
+function sentenceAt(text: string, index: number, length: number): string {
   const before = text.slice(0, index);
   let start = 0;
   for (const sep of ["\n", ". ", "! ", "? "]) {
@@ -447,7 +461,11 @@ function sentenceAt(text: string, index: number): string {
   }
   const endRel = text.slice(index).search(/[.!?](?:\s|$)|\n/);
   const end = endRel < 0 ? text.length : index + endRel + 1;
-  return clip(text.slice(start, end), 280);
+  const whole = clip(text.slice(start, end), EXCERPT_CHARS);
+  const hit = clip(text.slice(index, index + length), EXCERPT_CHARS);
+  if (whole.includes(hit)) return whole;
+  const from = Math.max(start, index - EXCERPT_LEAD);
+  return clip(`…${text.slice(from, end)}`, EXCERPT_CHARS);
 }
 
 function clip(s: string, max: number): string {

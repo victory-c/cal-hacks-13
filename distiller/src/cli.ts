@@ -1,11 +1,13 @@
 // Run the pipeline on one recorded item, no server needed:
-//   npm run distill -w distiller -- <session.json> [--engine heuristic|claude|droid] [--deals <file>] [--lists <file>] [--post]
+//   npm run distill -w distiller -- <session.json> [--engine heuristic|claude|droid] [--deals <file> --lists <file> | --post]
 // Prints the plan, the drafts and the triage (outcome, wall, Jev's answers, review items) as
 // tables and as JSON. Deals and lists come from --deals / --lists (DealsResponse / ListsResponse
-// JSON); else from the server with --post (never the fixtures then); else from
-// fixtures/world/deals.json and lists.json when those exist. Without both, nothing is labeled
-// public and every fact goes to inbox (the worker's v1 rule). --post files the result on the
-// running server exactly as the worker does: facts, review items, events.
+// JSON), else from fixtures/world/deals.json and lists.json when those exist. With --post they
+// come from the server only: --deals / --lists are refused and the fixtures are never read, since
+// the result is filed on that server and a local list could label public what its walls would
+// not. Without both, nothing is labeled public and every fact goes to inbox (the worker's v1
+// rule). --post files the result on the running server exactly as the worker does: facts, review
+// items, events.
 
 import { existsSync, readFileSync } from "node:fs";
 import { resolve } from "node:path";
@@ -19,10 +21,10 @@ import { createDistiller } from "./engines/index.ts";
 import { errorMessage } from "./log.ts";
 import { triage, triageJudge } from "./triage.ts";
 import type { TriageResult } from "./triage.ts";
-import { deliver, loadContext, onceWarner } from "./worker.ts";
+import { deliver, describeUnsent, loadContext, onceWarner } from "./worker.ts";
 import type { WarnOnce } from "./worker.ts";
 
-const USAGE = "usage: npm run distill -w distiller -- <session.json> [--engine heuristic|claude|droid] [--deals <file>] [--lists <file>] [--post]";
+const USAGE = "usage: npm run distill -w distiller -- <session.json> [--engine heuristic|claude|droid] [--deals <file> --lists <file> | --post]";
 const WORLD_DEALS = fileURLToPath(new URL("../fixtures/world/deals.json", import.meta.url));
 const WORLD_LISTS = fileURLToPath(new URL("../fixtures/world/lists.json", import.meta.url));
 
@@ -51,13 +53,14 @@ async function main(argv: string[]): Promise<number> {
     ? createClient({ baseUrl: env("CANON_URL", DEFAULT_SERVER_URL), token: env("CANON_TOKEN_DISTILLER", "dev-distiller") })
     : undefined;
   // Silent here: the deals / lists lines below say where each came from. With --post the result
-  // is filed on that server, so its own deals and lists are the only ones that count: a server
-  // without them gets no public labels (and every fact in inbox), never the fixtures' world.
+  // is filed on that server, so its own deals and lists are the only ones that count (parseArgs
+  // refuses --deals / --lists with it): a server without them gets no public labels (and every
+  // fact in inbox), never a local file's or the fixtures' world.
   const server = client ? await loadContext(client, () => {}) : undefined;
   const existing: Fact[] = server?.existing ?? [];
   const fromServer = server?.labelPublic ? server : undefined;
-  const deals = pickSource("deals", args.deals, fromServer?.deals, client ? undefined : WORLD_DEALS, readDeals);
-  const lists = pickSource("lists", args.lists, fromServer?.lists, client ? undefined : WORLD_LISTS, readLists);
+  const deals = client ? serverSource(fromServer?.deals) : pickSource("deals", args.deals, WORLD_DEALS, readDeals);
+  const lists = client ? serverSource(fromServer?.lists) : pickSource("lists", args.lists, WORLD_LISTS, readLists);
   const labelPublic = deals.value !== undefined && lists.value !== undefined;
 
   const t0 = performance.now();
@@ -123,26 +126,30 @@ async function main(argv: string[]): Promise<number> {
     ),
   );
 
-  if (client) await post(client, triaged, warnOnce);
-  return 0;
+  return client ? await post(client, triaged, warnOnce) : 0;
 }
 
-async function post(client: CanonClient, triaged: TriageResult, warnOnce: WarnOnce): Promise<void> {
+async function post(client: CanonClient, triaged: TriageResult, warnOnce: WarnOnce): Promise<number> {
   const res = await deliver(client, triaged, warnOnce);
   console.log(`\nposted: saved ${res.saved.length} (${res.saved.join(", ") || "none"}), retired ${res.retired.length}, ${res.reviews} review items, ${res.events} events`);
+  if (!res.unsent) return 0;
+  // One shot, no retry loop here: say what is missing instead of exiting 0.
+  console.error(`[distiller] not filed, the server failed: ${describeUnsent(res.unsent)}. The facts are saved; re-running --post would write them again.`);
+  return 1;
 }
 
-/**
- * --flag file, else what the server gave, else (without --post: `fixture` is undefined then) the
- * world fixture if it exists, else nothing.
- */
-function pickSource<T>(what: string, flag: string | undefined, fromServer: T | undefined, fixture: string | undefined, read: (path: string) => T): { value?: T; from: string } {
+/** With --post: what the server gave, or nothing. Never a local file. */
+function serverSource<T>(fromServer: T | undefined): { value?: T; from: string } {
+  if (fromServer !== undefined) return { value: fromServer, from: "the server" };
+  return { from: "the server did not give both deals and lists; --post never falls back to local files" };
+}
+
+/** Without --post: the --flag file, else the world fixture if it exists, else nothing. */
+function pickSource<T>(what: string, flag: string | undefined, fixture: string, read: (path: string) => T): { value?: T; from: string } {
   if (flag) {
     const path = findFile(flag);
     return { value: read(path), from: path };
   }
-  if (fromServer !== undefined) return { value: fromServer, from: "the server" };
-  if (fixture === undefined) return { from: `the server did not give both deals and lists; --post never falls back to the fixtures` };
   if (existsSync(fixture)) return { value: read(fixture), from: fixture };
   return { from: `no --${what} and no ${fixture}` };
 }
@@ -162,6 +169,12 @@ function parseArgs(argv: string[]): Args {
     else if (a === "--lists") out.lists = value(++i, a);
     else if (a.startsWith("--")) throw new Error(`unknown flag ${a}. ${USAGE}`);
     else out.file = a;
+  }
+  // A posted result is filed on the server, whose walls are checked against its own deal list. A
+  // local list could label public what the server would wall, and against a server without the
+  // finance routes it would skip the inbox fallback. Refused, not ignored, so nobody is surprised.
+  if (out.post && (out.deals || out.lists)) {
+    throw new Error(`--deals and --lists cannot be used with --post: a posted result is labeled with the server's deals and lists only. ${USAGE}`);
   }
   return out;
 }

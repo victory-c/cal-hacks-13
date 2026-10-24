@@ -293,6 +293,94 @@ describe("worker handler", () => {
   });
 });
 
+/** Rejects the first `n` calls with a fresh `err()`, then calls through. */
+function failing<A extends unknown[], R>(fn: (...args: A) => Promise<R>, err: () => Error, n = 1): (...args: A) => Promise<R> {
+  let left = n;
+  return async (...args) => {
+    if (left-- > 0) throw err();
+    return fn(...args);
+  };
+}
+const busy = (route: string) => () => new CanonApiError("POST", route, 503, `{"error":"busy"}`);
+
+describe("worker when a v2 route fails for a moment (5xx, timeout)", () => {
+  test("a label_unsure item the queue did not take is held and filed on a re-post, without posting the facts again", async () => {
+    const { client: base, calls } = fakeClient({ [memo.id]: memo }, [], { deals: [], lists: { restricted: [], watch: [] } });
+    const client: CanonClient = { ...base, postReview: failing(base.postReview, busy("/api/review")) };
+    const handler = createHandler({ client, distiller: fixedDistiller([{ statement: "We decided on 9x EBITDA", source }]), judge: await judge(), live: false, retryMs: 60_000 });
+
+    const first = await quiet(() => handler(captured(memo.id, 1, true)));
+    assert.equal(calls.posts.length, 1);
+    assert.equal(calls.posts[0].facts[0].fact.wall, undefined, "written unlabeled either way");
+    assert.equal(calls.reviews.length, 0, "the queue failed");
+    assert.ok(first.lines.some((l) => l.includes("held for retry: 1 review item")), first.lines.join("\n"));
+
+    // Re-posting the same capture skips the pipeline but retries what is held.
+    const again = await quiet(async () => {
+      await handler(captured(memo.id, 1, true));
+      await handler.settle();
+    });
+    assert.equal(calls.posts.length, 1, "facts are not sent twice");
+    assert.equal(calls.reviews.length, 1);
+    assert.equal(calls.reviews[0].kind, "label_unsure");
+    assert.equal(calls.reviews[0].fact_id, calls.posts[0].facts[0].fact.id);
+    assert.ok(again.lines.some((l) => l.includes("already processed at 1 messages")), again.lines.join("\n"));
+    assert.ok(again.lines.some((l) => l.includes(`session ${memo.id}: retry 1: filed 1 review items`)), again.lines.join("\n"));
+  });
+
+  test("a quarantine item is held with its quarantine.flagged event, which goes out with the id once the queue takes it", async () => {
+    const drafts: DraftFact[] = [{ statement: "Revised LOI attached", source: { ...source, session: planted.id } }];
+    const { client: base, calls } = fakeClient({ [planted.id]: planted });
+    // A dropped connection (not an HTTP status) counts as a failure too, never as a missing route.
+    const client: CanonClient = { ...base, postReview: failing(base.postReview, () => new Error("POST /api/review failed: fetch failed")) };
+    const handler = createHandler({ client, distiller: fixedDistiller(drafts), judge: await judge(), live: false, retryMs: 60_000 });
+
+    await quiet(() => handler(captured(planted.id, 1, true)));
+    assert.equal(calls.posts.length, 0, "nothing written");
+    assert.equal(calls.reviews.length, 0);
+    assert.deepEqual(calls.events.map((e) => e.type), ["triage.decided"], "the flag waits for its review item");
+
+    await quiet(() => handler.settle()); // one more try now, not on the timer
+    assert.equal(calls.reviews.length, 1);
+    assert.equal(calls.reviews[0].kind, "quarantine");
+    assert.deepEqual(calls.events.map((e) => e.type), ["triage.decided", "quarantine.flagged"]);
+    const flagged = calls.events[1];
+    assert.ok(flagged.type === "quarantine.flagged");
+    assert.equal(flagged.review_id, "rev_0001", "the id the queue gave back on the retry");
+  });
+
+  test("events the relay did not take are retried; after the retry window the worker gives up and says so", async () => {
+    const { client: base, calls } = fakeClient({ [memo.id]: memo });
+    const client: CanonClient = { ...base, publishEvent: failing(base.publishEvent, busy("/api/events")) };
+    const drafts: DraftFact[] = [{ statement: "Offsite is Nov 14", source }];
+    const handler = createHandler({ client, distiller: fixedDistiller(drafts), judge: await judge(), live: false, retryMs: 60_000 });
+    await quiet(async () => {
+      await handler(captured(memo.id, 1, true));
+      await handler.settle();
+    });
+    assert.equal(calls.posts.length, 1);
+    assert.deepEqual(calls.events.map((e) => e.type), ["triage.decided"], "relayed on the retry");
+
+    // A queue that never comes back: held for retryForMs, then dropped with a warning.
+    let tries = 0;
+    const down: CanonClient = {
+      ...fakeClient({ [memo.id]: memo }, [], { deals: [], lists: { restricted: [], watch: [] } }).client,
+      postReview: async () => {
+        tries++;
+        throw busy("/api/review")();
+      },
+    };
+    const gives = createHandler({ client: down, distiller: fixedDistiller([{ statement: "We decided on 9x EBITDA", source }]), judge: await judge(), live: false, retryMs: 60_000, retryForMs: 0 });
+    const { lines } = await quiet(async () => {
+      await gives(captured(memo.id, 1, true));
+      await gives.settle();
+      await gives.settle(); // nothing left to try
+    });
+    assert.equal(tries, 2, "the first delivery and one retry");
+    assert.ok(lines.some((l) => l.includes(`session ${memo.id}: gave up after 1 retries: 1 review item not filed`)), lines.join("\n"));
+  });
+});
+
 describe("worker against a v1 server (v2 routes 404)", () => {
   test("a confidential draft is filed in inbox, not team: a v1 server checks folders, not walls", async () => {
     const missing = (route: string) => async () => {
@@ -368,6 +456,7 @@ describe("worker against a v1 server (v2 routes 404)", () => {
         assert.equal(said.length, 1, `${route} is warned exactly once:\n${lines.join("\n")}`);
       }
       assert.ok(hits.filter((h) => h === "POST /api/events").length <= 3, "after a 404 a delivery stops trying that route");
+      assert.ok(!lines.some((l) => l.includes("held for retry")), "a missing route is skipped, never held for retry");
       assert.ok(lines.some((l) => /saved \d+, retired 0, filed 0 review items, relayed 0 events/.test(l)));
     } finally {
       await close();
