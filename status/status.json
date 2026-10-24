@@ -1,6 +1,6 @@
 {
   "project": "Canon",
-  "updated": "2026-10-24T11:30:12.788922+00:00",
+  "updated": "2026-10-24T11:55:58.971470+00:00",
   "team": [
     {
       "id": "A",
@@ -109,7 +109,7 @@
       "priority": "must",
       "state": "todo",
       "title": "Cold archive for raw sessions",
-      "note": ""
+      "note": "Scaffold archive exists in server/src/store.ts (JSON per session, atomic writes; see server/README.md). Confirm what the finance build still needs before marking done."
     },
     {
       "id": "A4",
@@ -202,6 +202,15 @@
       "note": "Lift permitted restrictions or cancel work; maintain audit records."
     },
     {
+      "id": "A16",
+      "owner": "A",
+      "milestone": "M2",
+      "priority": "must",
+      "state": "todo",
+      "title": "Pinned profile per person and agent: role, desk and current clearances",
+      "note": "PRD must-ship #7 (about 200 tokens). Sent on every handoff, including when the inject-nothing check sends no facts."
+    },
+    {
       "id": "B1",
       "owner": "B",
       "milestone": "M1",
@@ -217,7 +226,7 @@
       "priority": "must",
       "state": "todo",
       "title": "Droid finance-agent dispatch with isolated context, steps and files",
-      "note": "Confirm headless non-coding work by Sat 11:00 (Q1); fallback drops the Factory track."
+      "note": "Confirm headless non-coding work by Sat 11:00 (Q1); fallback drops the Factory track. Until then, FACTORY_API_KEY makes the distiller default to the stub droid engine; set DISTILLER=claude (distiller/README.md)."
     },
     {
       "id": "B4",
@@ -479,6 +488,15 @@
       "state": "done",
       "title": "Align product docs, agent guidance, ownership and task board",
       "note": "Current guidance, ownership and board aligned; source and fixtures preserved. Status, links, stale-reference scan and archive exclusions verified."
+    },
+    {
+      "id": "C18",
+      "owner": "C",
+      "milestone": "M3",
+      "priority": "must",
+      "state": "todo",
+      "title": "Memory browser: view, edit and retire facts",
+      "note": "PRD must-ship #6. Retire moves a fact to cold with history kept; no hard delete. Needs fact edit and retire REST endpoints from A."
     }
   ],
   "tracks": [

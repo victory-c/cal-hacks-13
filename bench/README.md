@@ -80,8 +80,9 @@ is the end-to-end plumbing test for lane A. The canon baseline also flags itself
 
 - **Anthropic:** `src/responder.ts` is the answering model (raw Messages API, no SDK dependency
   here). The judge and distiller it measures live in `shared/` and `distiller/`.
-- **Microsoft (Built for the Real World):** `results/chart.json` is the benchmark chart,
-  `results/latest.json` feeds the scale slide.
+- **Microsoft (Built for the Real World):** the pitch chart is leak rate against wrongly blocked
+  rate (PRD), which needs the A8 finance evaluator. Today's `results/chart.json` is the scaffold's
+  accuracy-vs-tokens chart; `results/latest.json` feeds the scale slide.
 
 `npm run typecheck -w bench && npm test -w bench`: offline, ~2 s, fake Canon server on port 0,
 injected fetch, tmp dirs.

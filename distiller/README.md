@@ -46,6 +46,11 @@ in its output are real measurements (`usage` from the API, wall clock); nothing 
 when it is. The worker never switches engine on its own: a failing engine is a logged error, not
 a silent downgrade.
 
+**Until B2 wires the Droid SDK, set `DISTILLER=claude` (or `heuristic`) whenever `FACTORY_API_KEY`
+is in `.env`.** Otherwise the worker picks the `droid` engine, which throws `NotConfiguredError` on
+every session, and no facts are written. In the product plan Claude writes facts and Droid runs
+dispatched agents (B2), so adding the Factory key for agent work must not switch the distiller.
+
 | Engine | Real? | Needs | Where it plugs in |
 |---|---|---|---|
 | `droid` | **Pending blocker Q1.** Constructs; `distill()` throws `NotConfiguredError` until the SDK is wired (task B2). | `FACTORY_API_KEY` | `src/engines/droid.ts` |
