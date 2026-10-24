@@ -1,15 +1,17 @@
-// Scopes REST surface (A2) and the scope builder + living scopes (A4+A6).
+// Scopes REST surface (A2), the scope builder + living scopes (A4+A6) and the handoff pipeline
+// with the pinned profile (A7+A16).
 //
 // REAL here: tier enforcement (member vs moderator vs internal client), the no-existence-signals
 // rule (a member is told "moderators only" BEFORE anything is looked up, so the same bytes come
-// back whether the target exists or not), and the PRD scope pipeline — exclusions removed in code
+// back whether the target exists or not), the PRD scope pipeline — exclusions removed in code
 // before any model, one retriever query for Moss candidates, one batched judge() call per Jev
 // decision with thresholds applied in code, scope.stage events with measured times, the agent-
-// subset check at build time, and living-scope updates on fact.saved / fact.retired. SIMULATED
-// without credentials: the keyword retriever stands in for Moss and the fake judge answers the
-// scope questions from keyword overlap (see scope-judge.ts); both are named in the scope.built
-// audit detail and GET /health. STILL A STUB: handoff relevance is keyword overlap, not
-// Moss-inside-the-scope + Jev (task A7).
+// subset check at build time, living-scope updates on fact.saved / fact.retired — and the PRD
+// handoff order: search inside the fixed scope → inject-nothing check → Jev relevance (one
+// batched call) → token budget in code → audit, with the pinned profile on every handoff.
+// SIMULATED without credentials: the keyword retriever stands in for Moss and the fake judge
+// answers the scope and handoff questions from keyword overlap (see scope-judge.ts); both are
+// named in the audit detail and GET /health.
 
 import { randomBytes } from "node:crypto";
 import { readFileSync } from "node:fs";
@@ -34,6 +36,7 @@ import {
   folderAllows,
   grantFor,
   nowIso,
+  timed,
 } from "@canon/shared";
 import type {
   Answer,
@@ -57,8 +60,7 @@ import type {
 import type { EventBus } from "./events.ts";
 import { HttpError, isRecord, readJsonBody, sendJson } from "./http.ts";
 import type { Retriever } from "./retrieval/index.ts";
-import { tokenize } from "./retrieval/keyword.ts";
-import { excludeFactQ, excludeGroupQ, inScopeQ } from "./scope-judge.ts";
+import { excludeFactQ, excludeGroupQ, helpsRequestQ, inScopeQ, needsContextQ } from "./scope-judge.ts";
 import type { FileStore } from "./store.ts";
 
 // ---------------------------------------------------------------------------------- fixtures
@@ -440,14 +442,28 @@ function parseRuleBody(body: unknown, principal: string, setBy: string, where = 
 }
 
 // --------------------------------------------------------------------------------- handoff
+//
+// The PRD order, always (A7): permission (the fixed scope is the whole candidate universe) →
+// search inside the scope → inject-nothing check → Jev relevance, one batched ask → token budget
+// in code → audit. Never a refusal: what is outside the scope was never a candidate, so an
+// out-of-scope request just gets an ordinary (possibly empty) slice.
 
 /**
- * STUB relevance: the keyword tokenizer's overlap share stands in for Moss + Jev until the real
- * pipeline lands. Everything else is the real shape: only facts already in the fixed scope are
- * ever candidates, the budget cut, the pinned profile (never the exclusions), the audit row and
- * the handoff.served event.
+ * The pinned profile (A16, PRD must-ship #7): who this principal is and their standing task, in
+ * well under 200 tokens, sent on every handoff including inject-nothing. It is built from the
+ * principal and the rule's task only — never the exclusions, never an excluded group's name,
+ * never a count of anything hidden.
  */
-function runHandoff(deps: ScopesDeps, client: string, body: unknown): HandoffResult {
+export function pinnedProfile(deps: ScopesDeps, who: Principal): string {
+  const rule = deps.world.rules.get(who.id);
+  const role = who.kind === "agent" ? `an agent created by ${who.created_by ?? "unknown"}` : who.tier === "moderator" ? "a moderator" : "a member";
+  return (
+    `${who.name} (${who.id}), ${role}. Standing task: ${rule?.task ?? "none set"}. ` +
+    `Any facts handed over with this profile are the complete stored context for this request; work from them and the request alone.`
+  );
+}
+
+async function runHandoff(deps: ScopesDeps, client: string, body: unknown): Promise<HandoffResult> {
   const t0 = performance.now();
   if (!isRecord(body)) throw new HttpError(400, "body must be a HandoffBody object");
   const { principal, task, budget_tokens, run_id } = body;
@@ -462,41 +478,81 @@ function runHandoff(deps: ScopesDeps, client: string, body: unknown): HandoffRes
   const scope = deps.world.scopes.get(principal);
   if (!scope) throw new HttpError(404, `no scope for "${principal}"`);
   const budget = budget_tokens ?? DEFAULT_BUDGET_TOKENS;
+  const request = task.trim();
 
-  // Only facts inside the fixed scope are ever candidates; what is outside was never considered.
+  // 1. Permission: only facts inside the fixed scope are ever candidates. An agent uses its own
+  // scope (⊆ its creator's by construction); what is outside was never considered.
   const inScope = scope.fact_ids.map((fid) => deps.store.getFact(fid)).filter((f): f is Fact => f !== undefined);
-  const query = tokenize(task);
-  const scored = inScope.map((fact) => {
-    const tokens = tokenize(`${fact.statement} ${fact.detail ?? ""} ${fact.folder.replaceAll("/", " ")}`);
-    let matched = 0;
-    for (const t of query) if (tokens.has(t)) matched++;
-    return { fact, p: query.size === 0 ? 0 : matched / query.size };
-  });
-  const relevant = scored
-    .filter((s) => s.p > 0)
+
+  // 2. Search inside the scope: the retriever query is narrowed to the scope's groups and every
+  // hit is re-checked against the scope's fact ids in code (the PRD fallback until Moss filters
+  // by id), so a stale index can never surface an out-of-scope fact. If the retriever fails,
+  // every in-scope fact stays a candidate and Jev still filters.
+  const byId = new Map(inScope.map((f) => [f.id, f]));
+  let retrieval_ms = 0;
+  let candidates: Fact[];
+  try {
+    const r = await timed(() => deps.retriever.search(request, { folders: [...new Set(inScope.map((f) => f.folder))], k: inScope.length }));
+    retrieval_ms = r.ms;
+    candidates = r.result.map((h) => byId.get(h.fact.id)).filter((f): f is Fact => f !== undefined);
+  } catch (err) {
+    console.warn(`[scopes] ${deps.retriever.name} search failed on handoff (${err instanceof Error ? err.message : String(err)}); every in-scope fact stays a candidate`);
+    candidates = [...inScope];
+  }
+
+  // 3 + 4. Two Jev decisions, one batched ask() each: first "does this request need any stored
+  // context at all?" (below the bar nothing is injected and relevance is never asked), then
+  // "does fact i help answer it?" per candidate. No candidates means nothing to ask. A judge
+  // failure serves nothing unjudged — the handoff still succeeds with the pinned profile alone.
+  let judge_ms = 0;
+  const pById = new Map<string, number>();
+  let needsNoContext = false;
+  if (candidates.length > 0) {
+    const state = [`Handoff for ${principal}.`, "Candidate facts:", ...candidates.map((f, i) => `${i + 1}. [${f.id}] ${f.statement}`)].join("\n");
+    try {
+      const needs = await timed(() => deps.judge.ask(state, [needsContextQ("needs", request)]));
+      judge_ms += needs.ms;
+      needsNoContext = noulP(needs.result, "needs", 1) < TRIAGE_THRESHOLDS.NEEDS_CONTEXT;
+      if (!needsNoContext) {
+        const judged = await timed(() => deps.judge.ask(state, candidates.map((f) => helpsRequestQ(`hf:${f.id}`, f, request))));
+        judge_ms += judged.ms;
+        for (const f of candidates) pById.set(f.id, noulP(judged.result, `hf:${f.id}`, 0));
+      }
+    } catch (err) {
+      console.warn(`[scopes] ${deps.judge.name} failed on handoff for ${principal} (${err instanceof Error ? err.message : String(err)}); nothing unjudged is served`);
+    }
+  }
+
+  // 5. The token budget, in code: the best facts that fit, best first.
+  const relevant = candidates
+    .map((fact) => ({ fact, p: pById.get(fact.id) ?? 0 }))
+    .filter((s) => s.p >= TRIAGE_THRESHOLDS.RELEVANT)
     .sort((a, b) => (b.p !== a.p ? b.p - a.p : a.fact.updated !== b.fact.updated ? (a.fact.updated < b.fact.updated ? 1 : -1) : a.fact.id < b.fact.id ? -1 : 1));
-  const { kept, tokens } = cutToBudget(relevant.map((s) => s.fact), budget);
+  const { kept, tokens } = needsNoContext ? { kept: [] as Fact[], tokens: 0 } : cutToBudget(relevant.map((s) => s.fact), budget);
   const keptIds = new Set(kept.map((f) => f.id));
 
-  const candidates: HandoffCandidate[] = scored.map(({ fact, p }) => ({
-    fact_id: fact.id,
-    group: fact.folder,
-    cut: keptIds.has(fact.id) ? null : p > 0 ? "budget" : "relevance",
-    p,
-    tokens: factTokens(fact),
-  }));
-  const byId = new Map(scored.map((s) => [s.fact.id, s.p]));
+  // What the inspector sees: every candidate the pipeline considered and which stage cut it.
+  // On inject-nothing (or a failed judge) nothing was individually scored, so `p` is omitted.
+  const candidatesOut: HandoffCandidate[] = candidates.map((fact) => {
+    const p = pById.get(fact.id);
+    const out: HandoffCandidate = {
+      fact_id: fact.id,
+      group: fact.folder,
+      cut: keptIds.has(fact.id) ? null : needsNoContext || (p ?? 0) < TRIAGE_THRESHOLDS.RELEVANT ? "relevance" : "budget",
+      tokens: factTokens(fact),
+    };
+    if (p !== undefined) out.p = p;
+    return out;
+  });
   const facts: ContextFact[] = kept.map((f) => {
-    const out: ContextFact = { id: f.id, statement: f.statement, folder: f.folder, updated: f.updated, source: f.source, relevance: byId.get(f.id) ?? 0 };
+    const out: ContextFact = { id: f.id, statement: f.statement, folder: f.folder, updated: f.updated, source: f.source, relevance: pById.get(f.id) ?? 0 };
     if (f.detail) out.detail = f.detail;
     return out;
   });
 
-  // The pinned profile: who they are and their task. Never the exclusions, groups or counts.
-  const rule = deps.world.rules.get(principal);
-  const tier = who.kind === "agent" ? `agent created by ${who.created_by ?? "unknown"}` : (who.tier ?? "member");
-  const profile = `${who.name} (${tier}). Task: ${rule?.task ?? "none set"}.`;
-
+  // 6. Audit: exactly the facts sent, the actor, the principal and the run when there is one.
+  const profile = pinnedProfile(deps, who);
+  const inject_nothing = facts.length === 0;
   const latency_ms = Math.round(performance.now() - t0);
   const entry = logAudit(deps, {
     kind: "handoff",
@@ -504,22 +560,27 @@ function runHandoff(deps: ScopesDeps, client: string, body: unknown): HandoffRes
     principal,
     fact_ids: kept.map((f) => f.id),
     ...(typeof run_id === "string" ? { run_id } : {}),
-    detail: task.trim(),
+    detail:
+      `Handoff for "${request}": ${inScope.length} in scope → ${deps.retriever.name} ${candidates.length} candidate(s) → ` +
+      `${deps.judge.name} ${relevant.length} relevant → budget kept ${kept.length} (${tokens} est. tokens)` +
+      `${inject_nothing ? "; only the pinned profile went out" : ""}${simLabel(deps)}.`,
   });
   deps.bus.emit({
     type: "handoff.served",
     principal,
     client,
     ...(typeof run_id === "string" ? { run_id } : {}),
-    task: task.trim(),
-    candidates,
+    task: request,
+    candidates: candidatesOut,
     fact_ids: kept.map((f) => f.id),
     tokens,
     budget_tokens: budget,
     latency_ms,
-    inject_nothing: facts.length === 0,
+    retrieval_ms,
+    judge_ms,
+    inject_nothing,
   });
-  return { facts, profile, tokens, latency_ms, inject_nothing: facts.length === 0, candidates, audit_id: entry.id };
+  return { facts, profile, tokens, latency_ms, inject_nothing, candidates: candidatesOut, audit_id: entry.id };
 }
 
 // ---------------------------------------------------------------------------------- router
@@ -683,7 +744,7 @@ export async function handleScopesRoute(
   // ---- POST /api/handoff (internal: the dispatcher and the MCP layer call this, never members).
   if (path === ROUTES.handoff && method === "POST") {
     if (!isInternal) return sendJson(res, 403, INTERNAL_ONLY), true;
-    return sendJson(res, 200, runHandoff(deps, client, await readJsonBody(req))), true;
+    return sendJson(res, 200, await runHandoff(deps, client, await readJsonBody(req))), true;
   }
 
   // ---- POST /api/dispatch (the agent's creator or a moderator).

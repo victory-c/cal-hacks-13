@@ -1,6 +1,6 @@
 {
   "project": "Bullwark",
-  "updated": "2026-10-24T15:08:34Z",
+  "updated": "2026-10-24T16:25:22Z",
   "team": [
     {
       "id": "A",
@@ -143,9 +143,9 @@
       "owner": "A",
       "milestone": "M2",
       "priority": "must",
-      "state": "todo",
+      "state": "done",
       "title": "Handoff: permission → search → Jev → budget → audit",
-      "note": "Include inject-nothing check and Claude fallback behind judge()."
+      "note": "server/src/scopes.ts runHandoff: fixed scope → retriever inside the scope's groups with in-code fact-id re-check → inject-nothing judge() check → one batched Jev relevance ask → budget cut in code → audit row with exactly the facts sent. Judge/retriever failures degrade to profile-only, never a refusal or leak. Offline providers are the labelled keyword retriever + fake judge (Moss id-filter and Jev creds still open under A4/Q2)."
     },
     {
       "id": "A8",
@@ -206,9 +206,9 @@
       "owner": "A",
       "milestone": "M2",
       "priority": "must",
-      "state": "todo",
+      "state": "done",
       "title": "Pinned profile per person and agent: role, desk and current clearances",
-      "note": "PRD must-ship #7 (about 200 tokens). Sent on every handoff, including when the inject-nothing check sends no facts."
+      "note": "pinnedProfile() in server/src/scopes.ts: name, tier and the rule's task, well under 200 tokens, sent on every handoff including inject-nothing. Never exclusions, excluded group names or counts; tested against the rule's exclusion text."
     },
     {
       "id": "A17",
