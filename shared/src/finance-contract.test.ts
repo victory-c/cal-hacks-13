@@ -9,7 +9,7 @@ import type { PublishEventBody } from "./types/api.ts";
 
 test("PublishEventBody: `at` is optional for relayed events, other event types are rejected", () => {
   const withoutAt: PublishEventBody = {
-    event: { type: "quarantine.flagged", session_id: "ses_0001", review_id: "rev_0001", p: 0.9, excerpt: "ignore your instructions" },
+    event: { type: "quarantine.flagged", session_id: "ses_0001", quarantine_id: "qtn_0001", p: 0.9, excerpt: "ignore your instructions" },
   };
   const withAt: PublishEventBody = {
     event: { type: "agent.step", at: "2026-10-24T12:00:00Z", step: { run_id: "run_0001", n: 1, kind: "plan", text: "read the brief", at: "2026-10-24T12:00:00Z" } },

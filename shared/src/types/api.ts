@@ -2,12 +2,12 @@
 // Auth on every /api and /mcp call: `Authorization: Bearer <client token>`.
 
 import type { CanonEvent, RelayedEventType } from "./events.ts";
-import type { Fact } from "./fact.ts";
+import type { Fact, GroupId } from "./fact.ts";
 import type { Grant } from "./grants.ts";
 import type { SaveDecision } from "./judge.ts";
 import type { ContextFact } from "./mcp.ts";
 import type { CapturedSession } from "./session.ts";
-import type { AuditEvent, Deal, DealStatus, Entitlement, Principal, RestrictedEntry, ReviewItem, WatchEntry, Wall } from "./walls.ts";
+import type { AuditEvent, Group, Principal, PrincipalTier, QuarantineItem, Scope, ScopeRule } from "./scopes.ts";
 
 export const DEFAULT_PORTS = { server: 4100, web: 4200, status: 4173 } as const;
 export const DEFAULT_SERVER_URL = `http://localhost:${DEFAULT_PORTS.server}`;
@@ -25,28 +25,27 @@ export const ROUTES = {
   /** GET the grants table, for the dashboard. */
   grants: "/api/grants",
 
-  // ---- Finance contract (A1). Auth as above. "internal" = INTERNAL_CLIENTS only (distiller, dispatcher).
-  /** GET Deal[]. POST /api/deals/:id/status { status } changes it (compliance; emits deal.status_changed). */
-  deals: "/api/deals",
-  /** GET Principal[] (people and agents). POST registers an agent principal (dispatcher). */
+  // ---- Scopes (A1). "moderator" = a moderator's client; "internal" = INTERNAL_CLIENTS (distiller,
+  // dispatcher). Members never see groups, rules, other people's scopes or the audit log.
+  /** GET GroupsResponse (moderator, internal). Triage reads it to file facts. */
+  groups: "/api/groups",
+  /** GET Principal[] (moderator). POST AddPersonBody (moderator). POST /api/principals/:id/tier { tier } (moderator). */
   principals: "/api/principals",
-  /** GET Entitlement[] (who is over each wall, expired ones included and marked by date). */
-  entitlements: "/api/entitlements",
-  /** GET ListsResponse. `watch` is present only for internal clients and compliance. */
-  lists: "/api/lists",
-  /** GET ReviewItem[] (?state=open). POST creates one (internal). POST /api/review/:id/decision resolves it. */
-  review: "/api/review",
-  /** POST WallCrossingBody: request access; Jev pre-screens; lands in the review queue. */
-  wallCrossings: "/api/wall-crossings",
-  /** POST HandoffBody → HandoffResult. The full pipeline: permission filter → search → Jev → budget → audit. Internal. */
+  /** GET /api/scope-rules/:principal, PUT ScopeRule (moderator; the creator for their own agents). A PUT rebuilds the scope. */
+  scopeRules: "/api/scope-rules",
+  /** GET /api/scopes/:principal → Scope (moderator). GET /api/scopes/:principal/facts → Fact[] (internal: an agent's sandbox). */
+  scopes: "/api/scopes",
+  /** POST CreateAgentBody → Principal (any person, for themselves; built from the creator's scope). DELETE /api/agents/:id. */
+  agents: "/api/agents",
+  /** GET QuarantineItem[] (moderator). POST PostQuarantineBody (internal). POST /api/quarantine/:id/release (moderator). */
+  quarantine: "/api/quarantine",
+  /** POST HandoffBody → HandoffResult: Moss inside the scope → Jev relevance → budget → audit. Internal. */
   handoff: "/api/handoff",
-  /** POST ExitCheckBody → ExitCheckResult. Code names + restricted companies in code, indirect refs via Jev. Internal. */
-  exitCheck: "/api/exit-check",
-  /** GET AuditEvent[] (?principal=&deal=&since=). */
+  /** GET AuditEvent[] (?principal=&since=) (moderator). */
   audit: "/api/audit",
   /** POST PublishEventBody (internal): re-broadcast one RELAYED_EVENTS event on /events. */
   publish: "/api/events",
-  /** POST DispatchRequest (dashboard) → { id }. The server emits dispatch.requested; lane B's dispatcher picks it up. */
+  /** POST DispatchRequest → { id } (the agent's creator or a moderator). Emits dispatch.requested. */
   dispatch: "/api/dispatch",
 } as const;
 
@@ -82,47 +81,47 @@ export interface GrantsResponse {
   grants: Grant[];
 }
 
-// ---- Finance contract (A1)
+// ---- Scopes (A1)
 
-export interface DealsResponse {
-  deals: Deal[];
+export interface GroupsResponse {
+  groups: Group[];
 }
-export interface DealStatusBody {
-  status: DealStatus;
-}
+
 export interface PrincipalsResponse {
   principals: Principal[];
 }
-export interface EntitlementsResponse {
-  entitlements: Entitlement[];
-}
-export interface ListsResponse {
-  restricted: RestrictedEntry[];
-  /** Only for internal clients and compliance. Never sent to anyone else. */
-  watch?: WatchEntry[];
-}
-
-export interface ReviewResponse {
-  items: ReviewItem[];
-}
-/** The server fills id, state ("open") and created_at. */
-export type PostReviewBody = Omit<ReviewItem, "id" | "state" | "created_at" | "resolved_by" | "resolved_at">;
-export interface ReviewDecisionBody {
-  decision: "approved" | "denied";
-  by: string;
-  /** access_request approvals: when the entitlement lapses. */
-  expires_at?: string;
+export interface AddPersonBody {
+  id: string;
+  name: string;
+  tier: PrincipalTier;
+  /** The new person's scope rule (members). Moderators see everything and need none. */
+  rule?: Pick<ScopeRule, "task" | "exclude">;
 }
 
-export interface WallCrossingBody {
-  principal: string;
-  deal: string;
-  reason: string;
+export interface CreateAgentBody {
+  /** The person creating it. A member may only create agents for themselves. */
+  created_by: string;
+  name: string;
+  /** Same form a moderator uses: the task plus optional exclusions. */
+  rule: Pick<ScopeRule, "task" | "exclude">;
 }
+
+export type ScopeResponse = Scope;
+export interface ScopeFactsResponse {
+  facts: Fact[];
+}
+
+export interface QuarantineResponse {
+  items: QuarantineItem[];
+}
+/** The server fills id, state ("held") and created_at, and returns the QuarantineItem. */
+export type PostQuarantineBody = Pick<QuarantineItem, "session_id" | "p" | "excerpt" | "principal">;
+export type PostQuarantineResponse = QuarantineItem;
 
 export interface HandoffBody {
-  /** Whose slice: a person or an agent principal. Their entitlements decide what is visible. */
+  /** Whose slice: a person or an agent principal. Only facts in their scope are ever candidates. */
   principal: string;
+  /** The request (a question, or an agent's next step). */
   task: string;
   /** Default DEFAULT_BUDGET_TOKENS. */
   budget_tokens?: number;
@@ -130,49 +129,27 @@ export interface HandoffBody {
   run_id?: string;
 }
 
-/** One fact the pipeline considered. `cut` says which stage dropped it; null = handed over. */
+/** One in-scope fact the pipeline considered. `cut` says which stage dropped it; null = handed over. */
 export interface HandoffCandidate {
   fact_id: string;
-  wall: Wall | "unlabeled";
-  /** Dropped by the permission filter, by Jev relevance, or by the token budget. */
-  cut: "wall" | "relevance" | "budget" | null;
-  /** Jev's P(relevant). Absent for wall cuts: Jev never sees those. */
+  group: GroupId;
+  cut: "relevance" | "budget" | null;
+  /** Jev's P(helps with this request). */
   p?: number;
   tokens?: number;
 }
 
-export type HandoffResult =
-  | {
-      refused: false;
-      facts: ContextFact[];
-      /** ~200 tokens: role, desk, current clearances. Always sent. */
-      profile: string;
-      tokens: number;
-      latency_ms: number;
-      inject_nothing: boolean;
-      candidates: HandoffCandidate[];
-      audit_id: string;
-    }
-  | {
-      refused: true;
-      /** One of NEUTRAL_REFUSALS. The only thing the requester sees. */
-      message: string;
-      audit_id: string;
-    };
-
-export interface ExitCheckBody {
-  /** The agent (or person) whose output is about to leave its side. */
-  principal: string;
-  text: string;
-  run_id?: string;
-}
-export interface ExitCheckResult {
-  blocked: boolean;
-  /** Compliance only. Never shown to the agent. */
-  hits: string[];
-  p?: number;
-  /** Set when blocked: the exit_check review item. */
-  review_id?: string;
+/** Never a refusal: what is outside the scope was never a candidate, so there is nothing to refuse. */
+export interface HandoffResult {
+  facts: ContextFact[];
+  /** About 200 tokens: name, tier and task description. Never the exclusions. Always sent. */
+  profile: string;
+  tokens: number;
+  latency_ms: number;
+  inject_nothing: boolean;
+  /** Moderators and internal clients only; members never see what was considered. */
+  candidates: HandoffCandidate[];
+  audit_id: string;
 }
 
 export interface AuditResponse {

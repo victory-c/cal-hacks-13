@@ -1,12 +1,8 @@
-// Agent dispatch contract (PRD "Agents and dispatch"). Lane B's dispatcher process owns runs,
-// sandboxes and inboxes; it publishes every change as an event (POST /api/events) so the
-// dashboard draws one lane per agent and the audit log has the record. Agents get their slice
-// from POST /api/handoff as their own principal, so the permission filter always runs first.
-
-import type { Wall } from "./walls.ts";
-
-export const AGENT_ROLES = ["deal_analyst", "research_analyst", "desk_assistant"] as const;
-export type AgentRole = (typeof AGENT_ROLES)[number];
+// Agent runs contract (PRD "Agents and dispatch"). An agent is a Principal (kind "agent") with
+// its own ScopeRule, created by a person; the server builds its scope from its creator's scope
+// only. Lane B's dispatcher owns runs, sandboxes and inboxes and publishes every change as an
+// event (POST /api/events), so the dashboard draws one lane per agent and the audit log has the
+// record. The sandbox holds the agent's scope as markdown files and nothing else.
 
 /** droid: Factory `droid exec` (the real one). claude: fallback runner. fake: offline, simulated. */
 export const AGENT_RUNTIMES = ["droid", "claude", "fake"] as const;
@@ -18,13 +14,11 @@ export type RunState = (typeof RUN_STATES)[number];
 export interface AgentRun {
   /** `run_` + hex */
   id: string;
-  /** The agent's principal id (`agt_research_1`). Its entitlements decide its slice. */
+  /** The agent's principal id. Its scope decides everything it can see. */
   agent: string;
-  role: AgentRole;
-  /** The person who dispatched it. */
-  acts_for: string;
-  /** Which side of the wall it works on: `public` or a deal id. */
-  side: Wall;
+  /** The person who created the agent. The agent's new facts are their memories. */
+  created_by: string;
+  /** The agent's task, from its scope rule (never its exclusions). */
   task: string;
   state: RunState;
   runtime: AgentRuntime;
@@ -32,9 +26,11 @@ export interface AgentRun {
   sandbox: string;
   /** Steps finished so far. Each step is one short runtime invocation. */
   steps: number;
+  /** Times the run was restarted from the plan step in a fresh folder because its scope narrowed. */
+  restarts: number;
   started_at: string;
   ended_at?: string;
-  /** cancelled / failed: why, in one line (compliance-safe on the dashboard). */
+  /** cancelled / failed: why, in one line. Never names facts outside the agent's scope. */
   reason?: string;
 }
 
@@ -55,26 +51,31 @@ export interface AgentStep {
   at: string;
 }
 
-/** What live routing delivers to a running agent between steps. */
+/**
+ * What live routing delivers to a running agent between steps. new_fact: a fact that joined its
+ * scope and that Jev says it needs now. scope_narrowed: urgent; the run folder is discarded and
+ * the run restarts from the plan step in a fresh folder built from the new scope. cancel: the
+ * agent was deleted.
+ */
 export interface InboxItem {
   /** `inb_` + hex */
   id: string;
   run_id: string;
-  kind: "new_fact" | "wall_change" | "cancel";
-  /** Wall changes and cancels are urgent: applied before the next step starts. */
+  kind: "new_fact" | "scope_narrowed" | "cancel";
+  /** scope_narrowed and cancel are urgent: applied before the next step starts. */
   urgent: boolean;
   text: string;
   fact_id?: string;
-  /** Jev: P(agent needs this) and P(this cancels the agent's work). */
+  /** Jev: P(the agent needs this new fact now). */
   p_needs?: number;
-  p_cancels?: number;
   at: string;
   delivered_at?: string;
 }
 
-/** A person's task, before Canon splits it into agent runs. */
+/** Someone asked for an agent profile to run (POST /api/dispatch). */
 export interface DispatchRequest {
-  /** Principal id of the person typing it. */
+  /** The agent's principal id. */
+  agent: string;
+  /** Who asked: the agent's creator or a moderator. */
   by: string;
-  task: string;
 }

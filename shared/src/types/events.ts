@@ -6,7 +6,7 @@ import type { AgentRun, AgentStep, DispatchRequest, InboxItem } from "./agents.t
 import type { HandoffCandidate } from "./api.ts";
 import type { ClientId, Fact, Folder } from "./fact.ts";
 import type { SaveDecision, TriageDecision } from "./judge.ts";
-import type { AuditEvent, DealStatus, Entitlement, ReviewItem } from "./walls.ts";
+import type { AuditEvent, Principal, QuarantineItem, ScopeStage } from "./scopes.ts";
 
 export type DistillEngine = "droid" | "claude" | "heuristic";
 
@@ -64,12 +64,38 @@ export type CanonEvent =
       /** relayed (distiller): a captured item held for instructions aimed at an AI. */
       type: "quarantine.flagged";
       session_id: string;
-      review_id: string;
+      /** The QuarantineItem id, when the server's queue returned one. */
+      quarantine_id: string;
       p: number;
       excerpt: string;
     })
-  | (Base & { type: "review.created"; item: ReviewItem })
-  | (Base & { type: "review.resolved"; item: ReviewItem })
+  | (Base & { type: "quarantine.released"; item: QuarantineItem })
+  | (Base & {
+      /** One scope-builder stage finished, with its measured time. Moderators only. */
+      type: "scope.stage";
+      principal: string;
+      stage: ScopeStage;
+      ms: number;
+      /** Facts left after this stage. */
+      remaining: number;
+    })
+  | (Base & {
+      /** A scope changed: built, rebuilt after a rule edit, or a new fact joined. Moderators only. */
+      type: "scope.updated";
+      principal: string;
+      reason: "built" | "rule_changed" | "fact_joined" | "fact_left" | "fact_filed";
+      added: string[];
+      removed: string[];
+      /** Facts in the scope after the change. */
+      size: number;
+    })
+  | (Base & {
+      /** People, tiers and agent profiles. Moderators see all; a member's view shows only their own agents. */
+      type: "principal.changed";
+      principal: Principal;
+      change: "added" | "tier_changed" | "agent_created" | "agent_deleted";
+      by: string;
+    })
   | (Base & {
       /** Every handoff, for the inspector: what was considered, what was cut, and why. */
       type: "handoff.served";
@@ -87,44 +113,16 @@ export type CanonEvent =
       /** Jev said the task needed no stored context: only the pinned profile went out. */
       inject_nothing: boolean;
     })
-  | (Base & {
-      type: "refusal";
-      principal: string;
-      client?: ClientId;
-      run_id?: string;
-      /** What the requester saw: one of NEUTRAL_REFUSALS. */
-      message: string;
-      audit_id: string;
-    })
-  | (Base & {
-      /** Urgent: routing cancels or updates running agents on this. */
-      type: "deal.status_changed";
-      deal: string;
-      from: DealStatus;
-      to: DealStatus;
-      by: string;
-    })
-  | (Base & { type: "entitlement.changed"; entitlement: Entitlement; granted: boolean })
   | (Base & { type: "audit.logged"; entry: AuditEvent })
   | (Base & {
-      /** A person typed a task in the dashboard (POST /api/dispatch). The dispatcher splits it into agent runs. */
+      /** Someone asked an agent profile to run (POST /api/dispatch). The dispatcher picks it up. */
       type: "dispatch.requested";
       id: string;
       request: DispatchRequest;
     })
   | (Base & { /** relayed (dispatcher) */ type: "agent.run"; run: AgentRun })
   | (Base & { /** relayed (dispatcher) */ type: "agent.step"; step: AgentStep })
-  | (Base & { /** relayed (dispatcher) */ type: "agent.inbox"; item: InboxItem })
-  | (Base & {
-      type: "exit_check";
-      run_id?: string;
-      principal: string;
-      blocked: boolean;
-      /** Code-matched names (aliases, restricted companies). Compliance only. */
-      hits: string[];
-      /** Jev's P(points at a restricted deal indirectly). */
-      p?: number;
-    });
+  | (Base & { /** relayed (dispatcher) */ type: "agent.inbox"; item: InboxItem });
 
 /** Event types lane B's internal workers may publish through POST /api/events. */
 export const RELAYED_EVENTS = ["triage.decided", "quarantine.flagged", "agent.run", "agent.step", "agent.inbox"] as const;
