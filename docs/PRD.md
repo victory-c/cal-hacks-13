@@ -67,7 +67,7 @@ with the full reason recorded for compliance.
 3. **Two dates per fact** (when it happened, when Canon learned it). Old facts are replaced, not deleted, so history stays.
 4. **Search** by meaning (Moss) plus simple keyword search.
 5. **MCP server** with `canon_context`, `canon_search`, `canon_save`, `canon_whoami`, and one access token per AI client.
-6. **Memory browser:** view, edit and delete facts.
+6. **Memory browser:** view and edit facts, and retire them (a retired fact moves to cold storage with its history kept; nothing is hard-deleted).
 7. **Pinned profile** per person and agent: role, desk, current clearances (about 200 tokens).
 
 **Must ship: walls (the new core)**
@@ -237,7 +237,7 @@ Captured text is triaged and stored with wall labels; every request is filtered 
 | --- | --- | --- |
 | 0:00 | Leo asks the desk assistant: "Anything going on with Nimbus Logistics? Should we add to our position?" It refuses neutrally. Maya's panel lights up with the full record. | The moment: the wall holds, and the refusal leaks nothing |
 | 0:15 | One line: "Canon is the control room for a small finance team's AI." Introduce Maya. | Who it's for |
-| 0:25 | Dan's ChatGPT session and a new memo arrive. Jev flags them as Falcon, live. The lawyers' email is quarantined for its planted instruction. | Capture, triage, injection resistance |
+| 0:25 | Dan's ChatGPT session (through the ingest API if the ChatGPT extension is cut) and a new memo arrive. Jev flags them as Falcon, live. The lawyers' email is quarantined for its planted instruction. | Capture, triage, injection resistance |
 | 0:45 | Dan types: "Prep Falcon board materials and update our logistics sector note." Two Droid lanes start: the deal analyst gets Falcon facts, the research analyst gets public facts only. The inspector shows a Falcon fact cut by the wall, not by relevance. | Dispatch, slices, permission before relevance |
 | 1:10 | Priya requests access to Falcon. Jev rates it borderline and sends it to Maya, who approves it with an expiry date. The wall map updates. | Knowing when to ask a human |
 | 1:25 | Falcon is announced. Restrictions lift: the desk assistant can now answer Leo, and the research agent gets the now-public facts at its next step. | Live updates when walls change |
@@ -296,7 +296,7 @@ Captured text is triaged and stored with wall labels; every request is filtered 
 | Add | Notability | 1 yr Pro + merch | C keeps design notes, sketches and decisions there from Saturday on | Notes showing how the idea evolved |
 | Auto | Cal Hacks general | Overall, Most Technically Complex, Best People-First, Hacker's Choice | Every project is entered | Nothing extra |
 
-**Check on Devpost Saturday:** whether there is a cap on sponsor tracks per project, and Armadin's and Elastic's posted criteria.
+**Check on Devpost Saturday:** whether there is a cap on sponsor tracks per project, and Armadin's posted criteria.
 
 ## Competitors and positioning
 

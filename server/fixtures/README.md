@@ -13,3 +13,7 @@ Partners / Project Falcon / Nimbus Logistics world: memos, chat, a meeting trans
 session and a lawyers email containing a planted instruction. C5 reviews realism; C6 writes
 legitimate tasks and attacks against that world. Replace fixtures only alongside the required
 schema, permission behavior and tests. Use synthetic data throughout.
+
+Two seeded facts predate the finance product: `facts/team/decisions/fct_80a2c4e6.md` records an
+earlier cut order, and `facts/career/projects/fct_3c5e7f91.md` describes the earlier general-purpose
+product. The current cut order and scope are in `../../CLAUDE.md` and `../../docs/PRD.md`.
