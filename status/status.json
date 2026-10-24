@@ -1,6 +1,6 @@
 {
   "project": "Bullwark",
-  "updated": "2026-10-24T15:34:32Z",
+  "updated": "2026-10-24T15:51:30Z",
   "team": [
     {
       "id": "A",
@@ -251,9 +251,9 @@
       "owner": "B",
       "milestone": "M2",
       "priority": "must",
-      "state": "todo",
+      "state": "doing",
       "title": "Jev triage: keep, group and labels, instructions (quarantine) and relation to existing facts",
-      "note": "Reworking b/triage (PR #10) for the scopes PRD: unsure group goes to inbox (moderators only); planted instructions are quarantined."
+      "note": "Reworked on b/triage (PR #10) for the scopes PRD, merged with the group-suggesting writer (#17, #18), and tested offline: the worker reads GET /api/groups once per item and passes the same list to the writer (a hint) and to triage; one batched Jev ask per item (inject, keep, group over the server's groups + new + unsure, labels, relation); facts carry group, labels, author, happened; unsure, new, alias/Jev disagreement and cross-group relations go to inbox; exact duplicates of hot or cold facts keep the stored group, labels, content and source; injections (sends to an outside address included, even in a long item's cut middle) go to POST /api/quarantine. Without /api/groups every fact goes to inbox. Remaining: lane A's /api/groups, /api/quarantine and /api/events routes, a distiller grant that writes every group, parseSession keeping principal/kind/external, then a run with a real Jev/Claude judge."
     },
     {
       "id": "B6",
