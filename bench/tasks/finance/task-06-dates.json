@@ -1,0 +1,16 @@
+{
+  "title": "When does the board sign off, and when do we announce?",
+  "principal": "axe",
+  "question": "When does the board sign off, and when do we announce?",
+  "needed_fact_ids": [
+    "fct_570007",
+    "fct_570005"
+  ],
+  "answer_key": {
+    "must_include": [
+      "6",
+      "10"
+    ]
+  },
+  "notes": "Asked from the deal side (scope includes deal/stonewall)."
+}

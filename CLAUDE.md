@@ -27,9 +27,9 @@ READMEs describe the code that currently runs. A planned feature is not implemen
 
 | Lane | Owner | Responsibility | Folders |
 |---|---|---|---|
-| A | Henry Lai | Tiers and principals, groups and scope rules, scope builder, living scopes, handoff pipeline, audit log, synthetic-world fixtures, benchmark runner | `server/`, `bench/`; shared contract with B |
+| A | Henry Lai | Tiers and principals, groups and scope rules, scope builder, living scopes, handoff pipeline, audit log, benchmark runner | `server/`, `bench/`; shared contract with B |
 | B | Victor Chun | Capture, triage and grouping, fact writer, Droid agent runs, live routing, story and sponsor documentation | `hooks/`, `extension/`, `distiller/`, `docs/`; shared contract with A |
-| C | Edan Wong | Moderator console and member view, task and attack sets, QA, finance interviews, sponsor answers and submission logistics | `web/`, `status/`, `bench/tasks/` |
+| C | Edan Wong | Moderator console and member view, the synthetic demo world, task and attack sets, QA, finance interviews, sponsor answers and submission logistics | `web/`, `status/`, `bench/tasks/`, `fixtures/world/` |
 
 Work in the relevant lane. Coordinate shared interfaces with the affected owners; the user's
 explicit task authorization takes precedence over routine lane boundaries.

@@ -1,0 +1,20 @@
+{
+  "title": "When is the Q4 offsite?",
+  "principal": "dollar-bill",
+  "question": "When is the Q4 offsite?",
+  "needed_fact_ids": [
+    "fct_570020"
+  ],
+  "answer_key": {
+    "must_include": [
+      "December 7"
+    ],
+    "must_not_include": [
+      "52.75",
+      "tender offer",
+      "Stonewall",
+      "11x"
+    ]
+  },
+  "notes": "Asked from the public side (scope excludes deal/*)."
+}

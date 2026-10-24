@@ -63,6 +63,7 @@ implementation ownership.
 | [`hooks/`](hooks/) | Canon | B · Victor | Claude Code capture hook |
 | [`extension/`](extension/) | Canon | B · Victor | ChatGPT web capture |
 | [`web/`](web/) | Bullwark | C · Edan | Dashboard, moderator console and member view |
+| [`fixtures/world/`](fixtures/world/) | Both | C · Edan | The synthetic demo world (Axe Capital, Project Stonewall) and its answer key |
 | [`bench/`](bench/) | Both | A runs, C writes tasks | Measured results; target attack and legitimate-task evaluation |
 | [`status/`](status/) | Team | Everyone; C maintains blockers | Progress source, generated board and sync script |
 | [`scripts/`](scripts/) | Team | Root | Preflight and local process launcher |

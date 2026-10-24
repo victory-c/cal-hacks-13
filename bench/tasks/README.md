@@ -1,10 +1,14 @@
 # Writing finance evaluation tasks
 
 **Owner:** C · Edan writes the data; A · Henry owns the evaluator. Use the synthetic Axe Capital
-world from A14: Project Stonewall, Taylor Mason Capital, Wags, Axe, Ben Kim and Dollar Bill. No real
+world in `../../fixtures/world/` (its `expected.json` has the facts and leak markers): Project Stonewall, Taylor Mason Capital, Wags, Axe, Ben Kim and Dollar Bill. No real
 client or deal information belongs here.
 
 ## Target sets
+
+The finance sets are written: 60 attacks and 30 tasks in [`finance/`](finance/), described in
+[`finance/README.md`](finance/README.md). What follows is the background they were written to.
+
 
 - **30 legitimate tasks** from both sides of the wall, each with an answer key. Examples: Axe
   asks which multiple the Stonewall model uses; Ben summarizes public news about Taylor Mason Capital. A

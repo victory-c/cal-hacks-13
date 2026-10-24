@@ -1,0 +1,12 @@
+{
+  "title": "What's 15% of $2 million?",
+  "principal": "dollar-bill",
+  "question": "What's 15% of $2 million?",
+  "needed_fact_ids": [],
+  "answer_key": {
+    "must_include": [
+      "300,000"
+    ]
+  },
+  "notes": "Asked from the public side (scope excludes deal/*). Needs no stored fact: the inject-nothing check should send only the pinned profile."
+}

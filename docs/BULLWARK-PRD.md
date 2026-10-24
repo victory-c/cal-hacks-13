@@ -82,24 +82,28 @@ the prompt" setups.
 8. **Inbox and quarantine:** facts Jev couldn't place, and items held for planted instructions, with
    file and release actions. The same "file" action moves any fact to another group, which is how a
    moderator makes announced deal terms public.
-9. **Audit view:** "who knew what, when" for a person, an agent or a group, from Canon's audit log.
+9. **Add item:** paste a memo, chat excerpt, email, transcript or note, with its source and (for
+   moderators) the person it came from. It goes through Canon's normal triage, so a planted
+   instruction is quarantined and a deal memo lands in its deal group, live on the feed.
+10. **Audit view:** "who knew what, when" for a person, an agent or a group, from Canon's audit log.
 
 ### Must ship: member view
 
-10. **My agents:** the member's own agents and their lanes.
-11. **Create an agent:** the same form the moderator uses (task + exclusions), always inside the
+11. **My agents:** the member's own agents and their lanes.
+12. **Create an agent:** the same form the moderator uses (task + exclusions), always inside the
     member's own scope.
-12. **My memory:** browse, edit and retire facts in the member's own scope.
+13. **My memory:** browse, edit and retire facts in the member's own scope, and add items of their own
+    with the same form (the facts join their scope).
 
 ### Must ship: presentation rules
 
-13. **No existence signals on member screens:** never show the people list, other scopes, exclusions,
+14. **No existence signals on member screens:** never show the people list, other scopes, exclusions,
     counts of hidden facts, group names outside the member's scope, or the audit view.
-14. **Honest numbers:** token counts say "est.", simulated providers say "simulated", and anything not
+15. **Honest numbers:** token counts say "est.", simulated providers say "simulated", and anything not
     measured shows "—". Only measured numbers appear on screen or in the pitch.
-15. **Finance words:** groups such as `deal/stonewall` display as "Project Stonewall"; the moderator
+16. **Finance words:** groups such as `deal/stonewall` display as "Project Stonewall"; the moderator
     tier is shown as "Compliance".
-16. **Works from mock data:** every screen runs against fixtures that follow the integration contract,
+17. **Works from mock data:** every screen runs against fixtures that follow the integration contract,
     then switches to Canon with one setting.
 
 ### Should ship
@@ -129,8 +133,9 @@ they may try their own scenario.
   Stonewall, member), Ben Kim (research analyst, member), Dollar Bill (Bill Stearn, portfolio manager,
   member).
 - **Groups:** `deal/stonewall` (the bid), `research/asset-managers` (sector research),
-  `market/public` (public news and filings), `desk/dollar-bill` (his own trading notes); label
-  `taylor-mason` on anything about the target.
+  `market/public` (public news and filings), `desk/dollar-bill` (his own trading notes), `firm/ops`
+  (offsites and admin); label `taylor-mason` on anything about the target. The full world, with an
+  answer key, is in `fixtures/world/`.
 - **Content:** two Stonewall memos (bid terms; the valuation model), a week of team chat, one deal
   team meeting transcript, Axe's ChatGPT session about bid financing, Taylor Mason Capital's public Q3
   letter, and an email from Taylor Mason Capital's outside counsel about a standstill agreement that
@@ -150,7 +155,7 @@ they may try their own scenario.
 | --- | --- | --- |
 | 0:00 | Dollar Bill asks his desk assistant: "Anything going on with Taylor Mason Capital? Should we add to our position?" It answers from Taylor Mason's public Q3 letter only. No refusal, no hint. Wags's scope inspector shows Dollar Bill's scope never held a Stonewall fact. | The moment: there is nothing to break into |
 | 0:15 | One line: "Bullwark is the control room for a small fund's AI." Introduce Wags. | Who it's for |
-| 0:25 | Axe's ChatGPT session (through the ingest API if the ChatGPT extension is cut) and a new memo arrive. They're grouped as `deal/stonewall` live and join Axe's scope. Counsel's email is quarantined for its planted instruction. | Capture, grouping, injection resistance |
+| 0:25 | Axe's ChatGPT session (through the ingest API if the ChatGPT extension is cut) and a new memo arrive; Wags pastes counsel's email with Add item. They're grouped as `deal/stonewall` live and join Axe's scope. Counsel's email is quarantined for its planted instruction. | Capture, grouping, injection resistance |
 | 0:40 | Wags adds Ben Kim: "Write the asset management sector note from public market data", excluding "anything about pending deals". The builder runs on screen: deal groups removed in code, Moss candidates, Jev's yes/no, the final scope and each stage's measured time. | The scope builder, fast |
 | 1:00 | Ben creates a research agent from his scope and Axe creates a deal analyst from his. Two Droid lanes run side by side. A judge-style attempt: Ben creates an agent told to "include everything about Stonewall" and it gets nothing, because his scope has none. | Agents inherit, never exceed |
 | 1:20 | Axe Capital announces its bid. Wags moves the announced terms (the offer price and timing) from `deal/stonewall` to `market/public`; the valuation model and financing stay walled. Ben's and Dollar Bill's scopes pick up the public facts live, the research agent gets them at its next step, and Dollar Bill's desk assistant can now answer him. | Moderators move the wall; agents keep up |
@@ -217,7 +222,7 @@ person's memory should hold, then what's relevant."
 
 | Owner | Bullwark work |
 | --- | --- |
-| C · Edan | Moderator console and member view against mock fixtures, then Canon; attack and task sets; finance interviews, sponsor answers, QA after each sync, Notability notes, recording, Devpost logistics, submission and timekeeping |
+| C · Edan | The synthetic demo world (`fixtures/world/`); moderator console and member view against mock fixtures built from it, then Canon; attack and task sets; finance interviews, sponsor answers, QA after each sync, Notability notes, recording, Devpost logistics, submission and timekeeping |
 | B · Victor | Devpost text, README sponsor lines, video script and the two-minute pitch |
 
 | When | Done means |
@@ -237,10 +242,10 @@ person's memory should hold, then what's relevant."
 | Risk | Mitigation |
 | --- | --- |
 | A judge gets deal information outside their scope | Canon enforces scopes in code; rehearse the full attack set; the audit view shows exactly what each scope held |
-| A screen hints that hidden data exists | Presentation rules 13–15; QA checks every member screen after each sync |
+| A screen hints that hidden data exists | Presentation rules 14–16; QA checks every member screen after each sync |
 | Scopes are so narrow that work suffers | Show the missing-context rate; Wags edits the rule and the scope rebuilds in seconds |
 | No real finance quote | Edan asks at the Hyphenate and other finance sponsor booths; fallback is published regulator guidance |
-| Synthetic data looks fake (Hyphenate asks "is it real enough?") | Henry generates the world; Edan reviews it against how a hedge fund actually works (a bidder's own desk is restricted on the target; announced terms become public, models and financing don't) and writes the task and attack sets |
+| Synthetic data looks fake (Hyphenate asks "is it real enough?") | Edan builds the world in `fixtures/world/` and checks it against how a hedge fund actually works (a bidder's own desk is restricted on the target; announced terms become public, models and financing don't) and writes the task and attack sets |
 | Venue Wi-Fi fails | Local stack plus a recorded run of the full demo |
 
 **Open questions:**

@@ -37,6 +37,7 @@ nothing, because the action itself is public knowledge). `404` = not found or no
 | `GET /api/facts` | anyone | Facts visible to you, filterable by `group`, `label`, `q` |
 | `PATCH /api/facts/:id` · `POST /api/facts/:id/retire` | anyone, inside their scope | Edit the statement, or retire to cold storage |
 | `POST /api/facts/:id/file` | moderator | Refile a fact `{ group, labels }` (for example announced terms to `market/public`); affected scopes update and emit `scope.changed` |
+| `POST /api/items` | anyone | Add an item `{ kind, source, text, author? }` (kind: memo, chat, email, transcript or note). `author` defaults to you; only moderators may name someone else. Returns `{ item_id }`; Canon then archives, triages and writes facts, and the results arrive as `item.captured`, `item.quarantined` and `fact.saved` events |
 | `GET /api/inbox` | moderator | Unplaced facts, filed with `POST /api/facts/:id/file` |
 | `GET /api/quarantine` · `POST /api/quarantine/:id/release` | moderator | Held items; release one |
 | `GET /api/agents` · `POST /api/agents` | anyone (members see only their own) | List, or create `{ name, task, exclusions }` inside your own scope; returns `{ id, build_id }` |
@@ -49,6 +50,7 @@ nothing, because the action itself is public knowledge). `404` = not found or no
 
 ```ts
 Principal  { id, kind: "person" | "agent", name, tier?: "moderator" | "member", creator?: id }
+Item       { id, kind: "memo" | "chat" | "email" | "transcript" | "note" | "session", source, author, text, captured_at }
 Fact       { id, statement, group, labels[], source, author, happened_at, learned_at, status: "hot" | "cold" }
 ScopeRule  { task: string, exclusions: { groups[], labels[], text[] } }   // text[] = plain-language exclusions
 Scope      { principal, rule: ScopeRule, fact_ids[], built_at }
@@ -86,4 +88,5 @@ from the member's own scope, so no count reveals anything outside it.
 - Additive changes (a new optional field, a new event) need a note to the other owner and a fixture update.
 - Renaming or removing anything needs both owners' agreement first, then server, fixtures and console
   change together.
-- Fixtures for every route and event live with the console in `web/`, built from the synthetic world.
+- Fixtures for every route and event live with the console in `web/`, built from the synthetic world
+  in `fixtures/world/`.

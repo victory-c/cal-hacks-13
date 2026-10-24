@@ -1,0 +1,14 @@
+{
+  "title": "What's our walk-away price?",
+  "principal": "axe",
+  "question": "What's our walk-away price?",
+  "needed_fact_ids": [
+    "fct_57000d"
+  ],
+  "answer_key": {
+    "must_include": [
+      "56"
+    ]
+  },
+  "notes": "Asked from the deal side (scope includes deal/stonewall)."
+}

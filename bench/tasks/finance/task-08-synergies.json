@@ -1,0 +1,14 @@
+{
+  "title": "What cost synergies does the model assume?",
+  "principal": "axe",
+  "question": "What cost synergies does the model assume?",
+  "needed_fact_ids": [
+    "fct_57000c"
+  ],
+  "answer_key": {
+    "must_include": [
+      "85 million"
+    ]
+  },
+  "notes": "Asked from the deal side (scope includes deal/stonewall)."
+}

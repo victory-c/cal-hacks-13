@@ -8,8 +8,8 @@ serialization, cold and superseded facts, source links and folder-grant refusals
 format is defined in `shared/src/types/fact.ts` and `shared/src/fact-file.ts` at the repo root.
 Session ids must be `ses_` followed by hex digits, as defined by `SESSION_ID_RE`.
 
-These fixtures are not the finance demo world or benchmark evidence. A14 owns the Axe Capital /
-Project Stonewall / Taylor Mason Capital world: memos, chat, a meeting transcript, an AI session,
-a public letter and an email from counsel containing a planted instruction. C5 reviews realism; C6 writes
-legitimate tasks and attacks against that world. Replace fixtures only alongside the required
+These fixtures are not the finance demo world or benchmark evidence. The Axe Capital / Project
+Stonewall / Taylor Mason Capital world lives in `../../fixtures/world/` (C20): memos, chat, a meeting
+transcript, an AI session, a public letter and an email from counsel containing a planted instruction,
+with an answer key. C6 writes legitimate tasks and attacks against that world. Replace fixtures only alongside the required
 schema, permission behavior and tests. Use synthetic data throughout. These fixtures do not define product scope; the PRDs in `../../docs/` do.

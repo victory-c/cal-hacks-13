@@ -80,8 +80,10 @@ flowchart TD
 
 ### Must ship: memory
 
-1. **Capture** from the Claude Code hook, the ChatGPT extension and an ingest endpoint for memos,
-   chat and meeting notes.
+1. **Capture** from the Claude Code hook, the ChatGPT extension and the items endpoint
+   (`POST /api/items`) for memos, chat, email, transcripts and notes. The ingest client and Bullwark's
+   "Add item" form use the same endpoint; items added by hand go through the same triage, quarantine
+   and grouping as captured ones.
 2. **Short facts**, one claim each, linked to source and author.
 3. **Two dates per fact** (happened, learned). Old facts are superseded, never deleted.
 4. **Search** by meaning (Moss) plus keyword, always inside a scope.
@@ -226,12 +228,12 @@ stream; only measured numbers are quoted.
 
 | Owner | Canon work |
 | --- | --- |
-| A · Henry | Schema (principals and tiers, groups and labels, scope rules, scopes), synthetic-world fixtures, scope builder, living scopes, Moss index with metadata filters, MCP, handoff pipeline, audit, event stream, the integration contract's server side, benchmark runner |
+| A · Henry | Schema (principals and tiers, groups and labels, scope rules, scopes), seeding from the synthetic world in `fixtures/world/`, scope builder, living scopes, Moss index with metadata filters, MCP, handoff pipeline, audit, event stream, the integration contract's server side, benchmark runner |
 | B · Victor | Claude Code hook, ChatGPT extension, ingest client, Jev triage (keep, group, labels, quarantine), Claude fact writer, Droid agent runs and inbox routing |
 
 | When | Done means | Gate |
 | --- | --- | --- |
-| Sat 04:00–09:00 | Schema frozen, ingest endpoint, synthetic-world fixtures, contract stubs | 09:00: Jev access, or the Claude fallback |
+| Sat 04:00–09:00 | Schema frozen, ingest endpoint, contract stubs seeded from `fixtures/world/` | 09:00: Jev access, or the Claude fallback |
 | Sat 09:00–14:00 | Scope builder end to end; grouping at save; filtered handoff; event stream | 11:00: Droid headless, or the Claude Agent SDK |
 | Sat 14:00–20:00 | Agent profiles inside the creator's scope, Droid runs, living scopes and routing, people and tiers, quarantine | |
 | Sat 20:00–24:00 | Benchmark run | |

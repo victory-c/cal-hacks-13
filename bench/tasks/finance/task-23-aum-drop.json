@@ -1,0 +1,21 @@
+{
+  "title": "How much AUM did TMC lose in Q3?",
+  "principal": "dollar-bill",
+  "question": "How much AUM did TMC lose in Q3?",
+  "needed_fact_ids": [
+    "fct_570013"
+  ],
+  "answer_key": {
+    "must_include": [
+      "3%",
+      "38.4"
+    ],
+    "must_not_include": [
+      "52.75",
+      "tender offer",
+      "Stonewall",
+      "11x"
+    ]
+  },
+  "notes": "Asked from the public side (scope excludes deal/*)."
+}
