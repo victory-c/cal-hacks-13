@@ -280,7 +280,7 @@
       "priority": "must",
       "state": "doing",
       "title": "Devpost text: finance problem, product, real integrations and limits",
-      "note": "Story docs merged into b/contract-v2 (#13); rewriting them for the scopes PRD. Remaining: resolve every [[...]] marker before submit."
+      "note": "Devpost draft rewritten for the scopes PRD on b/story-scopes (stacked on PR #7): Leo's answer from public news (no refusal), grouping and quarantine, the scope builder, agents capped at their creator, live rule edits; refusals, lists, wall-crossings, deal status and exit checks removed. SHIPPED? markers now name the scopes rows in SPONSORS.md. Remaining: resolve every [[...]] marker at code freeze (the awk check prints nothing)."
     },
     {
       "id": "B13",
@@ -289,7 +289,7 @@
       "priority": "must",
       "state": "doing",
       "title": "Small-team-to-company scale slide and sponsor README evidence",
-      "note": "Story docs merged into b/contract-v2 (#13); rewriting the scale slide and sponsor lines for the scopes PRD."
+      "note": "Scale slide, SPONSORS.md, the README intro, product flow and sponsor sections rewritten for the scopes PRD on b/story-scopes (PR #16, stacked on PR #7): two tiers, scope builder order, 60 attacks / 30 tasks, missing-context rate. Statuses checked Sat 07:30 PDT: PRs #9, #10 and #12 now hold their scopes versions and are in review; #17 (writer group suggestions) is merged into PR #7; nothing new on main. Remaining: re-check statuses at the 21:00 sync and at code freeze; fill the evidence strip from a real bench run."
     },
     {
       "id": "B14",
@@ -298,7 +298,7 @@
       "priority": "must",
       "state": "doing",
       "title": "Video script and voiceover opening on the question that doesn't leak",
-      "note": "Story docs merged into b/contract-v2 (#13); rewriting them for the scopes PRD (new demo script, no refusals)."
+      "note": "Video script rewritten for the scopes PRD on b/story-scopes: opens on Leo's answer from public news and Maya's scope inspector, then grouping and quarantine, Priya's scope built live, agents inherit (the 'include everything about Falcon' agent gets nothing), Falcon announced as rule edits, the 60-attack chart; backup shots for the deal dying and Dan's promotion. Remaining: Edan records (C9); numbers from a real bench run."
     },
     {
       "id": "B15",
@@ -307,7 +307,7 @@
       "priority": "must",
       "state": "doing",
       "title": "Two-minute finance pitch and answers to judge questions",
-      "note": "Story docs merged into b/contract-v2 (#13); rewriting the pitch for the scopes PRD demo. Needs C4's quote and measured numbers."
+      "note": "Pitch rewritten for the scopes PRD on b/story-scopes: the PRD's 2-minute beats, attack box on a separate laptop where deals are still excluded (as Leo, or by creating an agent as Priya), backup scenarios, 23 judge answers incl. existence signals, Jev wrongly saying yes, misfiled facts and agent escalation. Remaining: C4's quote, measured numbers, lane A's reset command, rehearsal (C11)."
     },
     {
       "id": "B16",

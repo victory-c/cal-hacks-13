@@ -90,8 +90,8 @@
 | ID | Owner | Task | Priority | State | Note |
 |---|---|---|---|---|---|
 | A8 | A | Finance benchmark runner: four setups, leak and wrongly blocked rates, accuracy, tokens, latency and cost | must | ⬜ todo | C6 supplies 30 legitimate tasks and 50 attacks; existing three strategies are scaffold only. |
-| B12 | B | Devpost text: finance problem, product, real integrations and limits | must | 🔵 doing | Story docs merged into b/contract-v2 (#13); rewriting them for the scopes PRD. Remaining: resolve every [[...]] marker before submit. |
-| B14 | B | Video script and voiceover opening on the question that doesn't leak | must | 🔵 doing | Story docs merged into b/contract-v2 (#13); rewriting them for the scopes PRD (new demo script, no refusals). |
+| B12 | B | Devpost text: finance problem, product, real integrations and limits | must | 🔵 doing | Devpost draft rewritten for the scopes PRD on b/story-scopes (stacked on PR #7): Leo's answer from public news (no refusal), grouping and quarantine, the scope builder, agents capped at their creator, live rule edits; refusals, lists, wall-crossings, deal status and exit checks removed. SHIPPED? markers now name the scopes rows in SPONSORS.md. Remaining: resolve every [[...]] marker at code freeze (the awk check prints nothing). |
+| B14 | B | Video script and voiceover opening on the question that doesn't leak | must | 🔵 doing | Video script rewritten for the scopes PRD on b/story-scopes: opens on Leo's answer from public news and Maya's scope inspector, then grouping and quarantine, Priya's scope built live, agents inherit (the 'include everything about Falcon' agent gets nothing), Falcon announced as rule edits, the 60-attack chart; backup shots for the deal dying and Dan's promotion. Remaining: Edan records (C9); numbers from a real bench run. |
 | C8 | C | Devpost logistics: teammates added, cover image, GitHub link, screenshots | must | ⬜ todo | Victor writes the text (B12) |
 
 ### M5 · Sun 00:00–07:00 — Polish, fallback recording, sponsor READMEs
@@ -99,7 +99,7 @@
 | ID | Owner | Task | Priority | State | Note |
 |---|---|---|---|---|---|
 | B11 | B | Quarantine review view | stretch | ⬜ todo | Optional view; quarantine enforcement belongs to B5. |
-| B13 | B | Small-team-to-company scale slide and sponsor README evidence | must | 🔵 doing | Story docs merged into b/contract-v2 (#13); rewriting the scale slide and sponsor lines for the scopes PRD. |
+| B13 | B | Small-team-to-company scale slide and sponsor README evidence | must | 🔵 doing | Scale slide, SPONSORS.md, the README intro, product flow and sponsor sections rewritten for the scopes PRD on b/story-scopes (PR #16, stacked on PR #7): two tiers, scope builder order, 60 attacks / 30 tasks, missing-context rate. Statuses checked Sat 07:30 PDT: PRs #9, #10 and #12 now hold their scopes versions and are in review; #17 (writer group suggestions) is merged into PR #7; nothing new on main. Remaining: re-check statuses at the 21:00 sync and at code freeze; fill the evidence strip from a real bench run. |
 | C9 | C | Screen-record demo footage per Victor's script + fallback recording | must | ⬜ todo |  |
 | C15 | C | Wall map | stretch | ⬜ todo |  |
 | C16 | C | Judge attack box | stretch | ⬜ todo |  |
@@ -108,7 +108,7 @@
 
 | ID | Owner | Task | Priority | State | Note |
 |---|---|---|---|---|---|
-| B15 | B | Two-minute finance pitch and answers to judge questions | must | 🔵 doing | Story docs merged into b/contract-v2 (#13); rewriting the pitch for the scopes PRD demo. Needs C4's quote and measured numbers. |
+| B15 | B | Two-minute finance pitch and answers to judge questions | must | 🔵 doing | Pitch rewritten for the scopes PRD on b/story-scopes: the PRD's 2-minute beats, attack box on a separate laptop where deals are still excluded (as Leo, or by creating an agent as Priya), backup scenarios, 23 judge answers incl. existence signals, Jev wrongly saying yes, misfiled facts and agent escalation. Remaining: C4's quote, measured numbers, lane A's reset command, rehearsal (C11). |
 | C10 | C | Final Devpost submit + track opt-ins | must | ⬜ todo | Target 08:30 |
 | C11 | C | Rehearsal: time the pitch, play the judge with hard questions | must | ⬜ todo |  |
 | C12 | C | Timekeeping: call cuts when a deadline slips, enforce sleep rotation | must | ⬜ todo |  |

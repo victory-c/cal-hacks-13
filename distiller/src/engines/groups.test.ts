@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { describe, test } from "node:test";
 
 import type { Group } from "@canon/shared";
-import { aliasGroup, filingGroups, foreignName, itemText, namesWord, startsWordIn } from "./groups.ts";
+import { aliasGroup, filingGroups, foreignName, itemText, namesWord } from "./groups.ts";
 
 // An invented firm, so these unit tests say nothing about the demo world's answers.
 const GROUPS: Group[] = [
@@ -33,18 +33,29 @@ describe("engine group helpers", () => {
     assert.deepEqual(filingGroups(undefined), []);
   });
 
-  test("namesWord matches whole words and phrases in any case; startsWordIn matches word starts", () => {
+  test("namesWord matches whole words and phrases in any case", () => {
     assert.ok(namesWord("Sam priced ACMR at 8x", "ACMR"));
     assert.ok(namesWord("the project heron LOI", "Project Heron"));
     assert.ok(namesWord("filed under deal/heron.", "deal/heron"));
     assert.ok(namesWord("Heron's board", "Heron"));
+    assert.ok(namesWord("Q3 2026 markets", "q3"));
     assert.ok(!namesWord("ACMRX rallied", "ACMR"), "a longer ticker is not the alias");
     assert.ok(!namesWord("herons nest", "Heron"));
+    assert.ok(!namesWord("Q3 2026 markets", "market"), "the start of a longer word is not the word");
+    assert.ok(!namesWord("supermarket", "market"), "nor is the middle of one");
     assert.ok(!namesWord("anything", "  "));
-    assert.ok(startsWordIn("Q3 2026 markets", "market"));
-    assert.ok(startsWordIn("Q3 2026 markets", "q3"));
-    assert.ok(!startsWordIn("supermarket", "market"), "the middle of a word is not a word start");
-    assert.ok(!startsWordIn("x", ""));
+  });
+
+  test("namesWord treats any run of whitespace inside a name as one space, and still wants whole words", () => {
+    // Greptile on PR #17: an email wraps "Acme\nRail"; the writer writes "Acme Rail".
+    assert.ok(namesWord("Acme\nRail reported Q3 results", "Acme Rail"), "a name wrapped onto the next line");
+    assert.ok(namesWord("Acme \r\n  Rail", "Acme Rail"));
+    assert.ok(namesWord("Acme  Rail", "Acme Rail"), "a double space");
+    assert.ok(namesWord("Acme Rail", "Acme Rail"), "a no-break space");
+    assert.ok(namesWord("Acme Rail", " Acme \t Rail "), "the alias's own spacing does not matter either");
+    assert.ok(!namesWord("Acme Railways bid", "Acme Rail"), "still a whole word at the end");
+    assert.ok(!namesWord("AcmeRail", "Acme Rail"), "a space is still needed between the words");
+    assert.equal(aliasGroup("Sam: the Acme\nRail board meets Friday", GROUPS), "deal/heron");
   });
 
   test("aliasGroup: one group's names → that group; none or two groups → no suggestion", () => {
@@ -67,6 +78,21 @@ describe("engine group helpers", () => {
     assert.equal(foreignName("Sam priced Project Heron at 8x", "sanity check on heron terms", GROUPS), undefined, "a longer form of a name the item says is not new");
     assert.equal(foreignName("Sam priced Project Heron at 8x", "sanity check on rail terms", GROUPS), "Project Heron", "unless the item says neither");
     assert.equal(foreignName("Filed under deal/heron", "sanity check on heron terms", GROUPS), "deal/heron", "a group id is never a longer form of an alias");
+  });
+
+  test("foreignName keeps a draft whose name the item wraps across a line break", () => {
+    // Greptile on PR #17: the item says "Acme\nRail", so a draft saying "Acme Rail" brings in nothing new.
+    const item = "Acme\nRail reported Q3 results. ACMR fell 4%.";
+    assert.equal(foreignName("Acme Rail reported Q3 results", item, GROUPS), undefined);
+    assert.equal(foreignName("Acme Rail is the target of Project Heron", item, GROUPS), "Project Heron", "a name the item never says is still caught");
+  });
+
+  test("security: foreignName still catches a name the item never says when the draft spaces it differently", () => {
+    // Basin Power has no shorter alias the check could fall back on, so only the phrase match can catch it.
+    const item = "Lee trimmed the book into the print.";
+    for (const said of ["Lee is long Basin Power", "Lee is long Basin  Power", "Lee is long Basin Power", "Lee is long Basin\nPower", "Lee is long basin \t power"]) {
+      assert.equal(foreignName(said, item, GROUPS), "Basin Power", JSON.stringify(said));
+    }
   });
 
   test("itemText is the title and every message", () => {

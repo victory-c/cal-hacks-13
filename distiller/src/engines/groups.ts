@@ -38,18 +38,18 @@ function escapeRe(s: string): string {
   return s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }
 
-/** True when `text` names `name` as a whole word or phrase, in any case ("NMBL", "Project Falcon", "deal/falcon"). */
+/**
+ * True when `text` names `name` as a whole word or phrase, in any case ("NMBL", "Project Falcon",
+ * "deal/falcon"). The start of a longer word does not count ("NMBL" is not in "NMBLX"). Any run of
+ * whitespace inside the name matches any run in the text, so a name an email wraps onto the next
+ * line ("Acme\nRail") or spaces with a no-break space is still that name. Both sides need it: the
+ * item, so a wrapped name the writer copies onto one line is not taken for a new one, and a draft,
+ * so an odd space cannot hide a name the item never says from foreignName.
+ */
 export function namesWord(text: string, name: string): boolean {
-  const n = name.trim();
-  if (!n) return false;
-  return new RegExp(`(?<![\\p{L}\\p{N}])${escapeRe(n)}(?![\\p{L}\\p{N}])`, "iu").test(text);
-}
-
-/** True when a word in `text` starts with `part`, in any case: "market" is in "markets", "q3" in "Q3 2026". */
-export function startsWordIn(text: string, part: string): boolean {
-  const p = part.trim();
-  if (!p) return false;
-  return new RegExp(`(?<![\\p{L}\\p{N}])${escapeRe(p)}`, "iu").test(text);
+  const words = name.trim().split(/\s+/).filter(Boolean);
+  if (!words.length) return false;
+  return new RegExp(`(?<![\\p{L}\\p{N}])${words.map(escapeRe).join("\\s+")}(?![\\p{L}\\p{N}])`, "iu").test(text);
 }
 
 /**
