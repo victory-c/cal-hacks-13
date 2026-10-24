@@ -466,9 +466,13 @@ describe("triage", () => {
     assert.deepEqual(result.drafts.map((d) => d.decision.outcome), ["inbox", "inbox", "inbox", "inbox", "fact", "fact"]);
     assert.match(result.drafts[0].decision.reason, /replaces fct_aaaa0001 in deal\/falcon: content does not move groups on its own/);
     assert.equal(result.drafts[0].decision.relation_to, "fct_aaaa0001");
-    // The relation → action mapping holds wherever the fact lands.
-    assert.deepEqual(result.drafts.map((d) => d.save?.action), ["supersede", "add", "merge", "add", "supersede", "add"]);
-    assert.equal(result.drafts[0].fact?.supersedes, "fct_aaaa0001");
+    // A draft sent to inbox never retires the group's fact: its readers keep it until a moderator
+    // files the replacement. Within one group the relation → action mapping holds.
+    assert.deepEqual(result.drafts.map((d) => d.save?.action), ["add", "add", "add", "add", "supersede", "add"]);
+    assert.equal(result.drafts[0].fact?.supersedes, undefined);
+    assert.match(result.drafts[0].decision.reason, /fct_aaaa0001 stays in deal\/falcon: a supersede only retires a fact in the group the draft is filed in/);
+    assert.match(result.drafts[2].decision.reason, /fct_aaaa0001 stays in deal\/falcon: a merge only retires/);
+    assert.equal(result.drafts[4].fact?.supersedes, "fct_aaaa0002");
     assert.equal(result.drafts[4].fact?.folder, "firm/ops");
   });
 

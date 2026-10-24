@@ -23,7 +23,8 @@
 //             yes/no; LABEL_RE is checked in code. A label only ever lets an exclusion remove a
 //             fact, so a neutral answer applies it, and a merge or supersede keeps every label of
 //             the fact it retires
-//   relation  same → merge, replaces → supersede, anything else → add
+//   relation  same → merge, replaces → supersede, anything else → add. A merge or supersede only
+//             retires a fact in the group the draft is filed in; otherwise it is an add
 // A missing or neutral answer always lands on the safe side. So does a missing `external`, `kind`
 // or `principal` on the item: each reads as "unknown" (possibly from outside the firm, not a
 // trusted AI session, no one vouching for it), never as the friendly default (see provenance()).
@@ -437,6 +438,15 @@ function decideDraft(draft: DraftFact, i: number, got: Map<string, Answer>, ctx:
   // or supersede also keeps every label of the fact it retires, asked about or not
   // (MAX_LABEL_QUESTIONS): a label only narrows who sees a fact, and one dropped on a re-distill
   // would let the replacement reach members whose rule excludes that label.
+  const group: GroupId = outcome === "quarantine" || !filed ? INBOX : filed;
+  // A merge or supersede retires only a fact in the group the draft is filed in. A draft sent to
+  // inbox (or anywhere else) must not retire a group's fact: its readers would lose it while the
+  // replacement waits for a moderator, which moves content between groups on its own.
+  if (action !== "add" && target && target.folder !== group) {
+    reasons.push(`${target.id} stays in ${target.folder}: a ${action} only retires a fact in the group the draft is filed in`);
+    action = "add";
+  }
+
   const asked = outcome === "quarantine" ? [] : ctx.candidates[i].filter((l) => isLabel(l) && noul(got, `label:${i}:${l}`) >= LABEL_APPLIES);
   const retired = action === "add" ? undefined : target;
   const kept = outcome === "quarantine" || !retired ? [] : [...new Set(Array.isArray(retired.labels) ? retired.labels : [])].filter((l) => isLabel(l) && !asked.includes(l));
@@ -444,7 +454,6 @@ function decideDraft(draft: DraftFact, i: number, got: Map<string, Answer>, ctx:
   if (asked.length) reasons.push(`labels ${asked.join(", ")}`);
   if (retired && kept.length) reasons.push(`labels kept from ${retired.id}: ${kept.join(", ")}`);
 
-  const group: GroupId = outcome === "quarantine" || !filed ? INBOX : filed;
   const lead =
     outcome === "quarantine"
       ? `held with its item: instructions aimed at an AI (p ${fmt(ctx.injection_p)})`
