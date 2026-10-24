@@ -2,10 +2,13 @@
 // normalizeSettings() is pure so tests can cover the defaults; readSettings() needs chrome.*.
 
 import { DEFAULT_SERVER_URL } from "@canon/shared";
+import { normalizePrincipal } from "./session.ts";
 
 export const STORAGE = {
   canonUrl: "canonUrl",
   token: "token",
+  /** Whose sessions these are (`dan`): the author of their facts. Sent as CapturedSession.principal. */
+  principal: "principal",
   /** Written by the service worker after each POST, read by the options page status line. */
   lastSuccess: "lastSuccess",
   lastError: "lastError",
@@ -15,6 +18,14 @@ export interface Settings {
   canonUrl: string;
   /** The `chatgpt=…` value from CANON_CLIENT_TOKENS. Empty until the user pastes it. */
   token: string;
+  /**
+   * The person's principal id at the firm (`dan`, `priya`), normalized by normalizePrincipal
+   * (trimmed and lowercased; a name or email is not an id and becomes "", as in the hook and the
+   * ingest CLI). It becomes the author of the session's facts, which then join that person's
+   * scope as their own. Empty = not set: the session goes out with no principal, so its facts
+   * have no author.
+   */
+  principal: string;
 }
 
 export interface PostResult {
@@ -23,11 +34,14 @@ export interface PostResult {
 }
 
 export function normalizeSettings(raw: Record<string, unknown>): Settings {
-  const url = typeof raw[STORAGE.canonUrl] === "string" ? (raw[STORAGE.canonUrl] as string).trim() : "";
-  const token = typeof raw[STORAGE.token] === "string" ? (raw[STORAGE.token] as string).trim() : "";
-  return { canonUrl: url || DEFAULT_SERVER_URL, token };
+  const text = (key: string): string => (typeof raw[key] === "string" ? (raw[key] as string).trim() : "");
+  return {
+    canonUrl: text(STORAGE.canonUrl) || DEFAULT_SERVER_URL,
+    token: text(STORAGE.token),
+    principal: normalizePrincipal(raw[STORAGE.principal]),
+  };
 }
 
 export async function readSettings(): Promise<Settings> {
-  return normalizeSettings(await chrome.storage.local.get([STORAGE.canonUrl, STORAGE.token]));
+  return normalizeSettings(await chrome.storage.local.get([STORAGE.canonUrl, STORAGE.token, STORAGE.principal]));
 }

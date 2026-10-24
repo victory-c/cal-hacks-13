@@ -12,7 +12,9 @@ SSE  session.captured ─▶ GET /api/sessions/:id ─▶ engine.distill() ─�
 ```
 
 Distills when `session.ended` is true, or on every capture with `DISTILL_LIVE=1` (debounced 3 s
-per session). Idempotent on `<session id>:<message count>`, and a `session.captured` stamped more
+per session). Idempotent on the session id plus a hash of what it distills (messages, principal,
+kind, external), fetched each time: an unchanged re-send is a no-op, and a corrected memo that
+keeps its id and message count is distilled again. A `session.captured` stamped more
 than 5 s before the worker started is the server's SSE replay and is skipped (logged `replayed,
 skipping`), so a `tsx watch` restart does not re-distill the last 100 events. One bad session is
 logged and skipped; the loop never dies.

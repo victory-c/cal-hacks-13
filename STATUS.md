@@ -8,7 +8,7 @@
 | Owner | Role | Name | Must done | Doing | Blocked |
 |---|---|---|---|---|---|
 | A | Server, walls & benchmark runner | Henry Lai | 0/14 | 0 | 0 |
-| B | Capture, triage, agents & story | Victor Chun | 2/13 | 7 | 0 |
+| B | Capture, triage, agents & story | Victor Chun | 2/13 | 9 | 0 |
 | C | Frontend, QA & logistics | Edan Wong | 1/16 | 0 | 0 |
 
 ## Deadlines
@@ -47,7 +47,7 @@
 | A17 | A | Visual HTML PRD for review and handoff | stretch | ✅ done | docs/prd/backlog/Bullwark_Web-MCP-Agents_SmallFinanceTeams.html, generated from docs/PRD.md (two tiers, task-built scopes). |
 | B1 | B | Claude Code capture hook | must | ✅ done | Committed project hook (.claude/settings.json, $CLAUDE_PROJECT_DIR). Parser fixed for real transcripts (turn merge, harness tags). Verified: claude -p → SessionEnd → server → distiller → fact → dashboard. |
 | B16 | B | Repo layering: npm workspaces, shared/ contract package, lane stubs, doctor/dev scripts, CI | must | ✅ done | Completed workspace scaffold, capture-to-fact plumbing, local dashboard, runner and CI. Finance features remain separate tasks. |
-| B19 | B | Ingest client for synthetic memos, chat and meeting notes | must | ⬜ todo |  |
+| B19 | B | Ingest client for synthetic memos, chat and meeting notes | must | 🔵 doing | Built and tested on b/ingest (PR #12), updated for the scopes PRD: principal = fact author, never guessed from a chat or meeting speaker, an email recipient or a name's first token (names and addresses only via --principals; outside mail has no author); Greptile fixes (merged lines keep their times; one-word aliases resolve through --principals; JSON in a shape we cannot read fails the run; the worker re-distills a re-imported item whose content changed, also one restored to an earlier text); unreadable JSON/JSONL rows (incl. Claude text blocks, ChatGPT parts) are read or reported and exit 1, and so are rows read only in part (text next to an image). Remaining: lane A keeping principal/kind/external on POST /api/sessions, then a run on Henry's official world. |
 | C1 | C | Sponsor answers: Droid finance runs, Moss credentials, Jev access and track cap | must | ⬜ todo | Resolve Q1–Q5; share keys directly with builders. |
 | C2 | C | Relevant sponsor workshop schedule and attendance | must | ⬜ todo |  |
 | C3 | C | Team accounts, repo access and required sponsor signups | must | ⬜ todo | Hand keys to builders directly, never through Git. |
@@ -74,7 +74,7 @@
 | A13 | A | Exit checks for agent output | must | ⬜ todo | Code checks names; Jev checks indirect references; block and alert compliance. |
 | A15 | A | Deal announced and terminated transitions with urgent updates | must | ⬜ todo | Lift permitted restrictions or cancel work; maintain audit records. |
 | B2 | B | Droid agent runs inside the creator's scope: sandbox of scope facts, steps and files | must | 🔵 doing | Reworked on b/dispatch (PR #9) for scopes: runs an agent profile from its rule's task and its server-built scope (one fact file per scope fact), brief via handoff, outputs saved as the creator's memory; sides, entitlements and exit check removed. Greptile review addressed: a cancel or narrowing heard while the outputs are posted aborts the post and is honoured (cancelled, or restart); a deletion during the rule read never starts the run. Offline --demo built from fixtures/world by group (simulated). Remaining: lane A's scope-rule, scope-facts and sessions routes for the dispatcher token (and a server-side refusal of a save whose facts left the scope); one real droid exec run (Q1 gate 11:00). |
-| B4 | B | ChatGPT capture for the synthetic finance demo | must | ⬜ todo | Optional capture path in the cut order; hook and ingest are guaranteed paths. |
+| B4 | B | ChatGPT capture for the synthetic finance demo | must | 🔵 doing | Built and tested on b/ingest (PR #12), updated for the scopes PRD: the options-page principal is documented as the author of the chat's facts. Remaining: lane A keeping principal and kind on POST /api/sessions and binding the principal to the token, then a live chatgpt.com run. |
 | B6 | B | ChatGPT MCP read connector configured and demo-tested | must | ⬜ todo | Capture remains through the extension; enforce the requesting principal clearance. |
 | B18 | B | Route newly in-scope facts and scope narrowing to agent inboxes | must | 🔵 doing | Built on b/dispatch (PR #9): scope.updated added facts get one batched Jev ask (ROUTE_NEEDS) and only facts the server's scope read holds are written before the next step; removed facts restart the run from the plan step in a fresh folder; agent_deleted cancels; stale scope reads are re-read. Every step and the save check the folder against the server's scope (a missed scope.updated still restarts the run); resync on reconnect stops a step it cannot check; a read an addition overtook is read again, so a restored fact is not withdrawn. Remaining: end-to-end on the live server once it emits scope.updated and principal.changed. |
 | C4 | C | Finance or compliance interview: raw notes and at least one exact quote | must | ⬜ todo | Victor selects the quote for the pitch (B15). |

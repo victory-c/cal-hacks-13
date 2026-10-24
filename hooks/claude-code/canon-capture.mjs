@@ -47,7 +47,7 @@ async function main() {
   const messages = parseTranscript(readFileSync(transcriptPath, "utf8"));
   if (messages.length === 0) return debug("skip: transcript has 0 messages");
 
-  const { url, token, devToken } = resolveConfig();
+  const { url, token, devToken, principal } = resolveConfig();
   // Folded into the one debug line below (never a second line): the fallback stays visible.
   const tokenNote = devToken ? " (dev token: CANON_TOKEN_CLAUDE_CODE not set)" : "";
 
@@ -56,6 +56,7 @@ async function main() {
     messages,
     hookEvent: payload.hook_event_name,
     git: gitInfo(payload.cwd ?? process.cwd()),
+    principal,
   });
 
   const endpoint = `${url.replace(/\/$/, "")}/api/sessions`;
@@ -73,14 +74,16 @@ async function main() {
     const why = err?.cause?.code ?? err?.cause?.message ?? err?.name ?? String(err?.message ?? err);
     return debug(`POST ${endpoint} failed: ${why} (is the Bullwark server running?)${tokenNote}`);
   }
-  debug(`${payload.hook_event_name ?? "?"} ${session.id} ${messages.length} msgs → ${res.status}${res.ok ? "" : " (server rejected)"}${tokenNote}`);
+  const as = session.principal ? ` as ${session.principal}` : principal.trim() ? ` with no principal (CANON_PRINCIPAL is not an id like dan)` : "";
+  debug(`${payload.hook_event_name ?? "?"} ${session.id} ${messages.length} msgs${as} → ${res.status}${res.ok ? "" : " (server rejected)"}${tokenNote}`);
 }
 
 /**
- * CANON_URL / CANON_TOKEN_CLAUDE_CODE: process env wins, then the repo .env. The repo is
- * CANON_REPO_ROOT when set, else the checkout this script lives in (hooks/claude-code → ../../).
- * No token anywhere → DEV_TOKEN, the same default the server accepts without a .env; `devToken`
- * says so, so the fallback can be surfaced in the debug line.
+ * CANON_URL / CANON_TOKEN_CLAUDE_CODE / CANON_PRINCIPAL: process env wins, then the repo .env.
+ * The repo is CANON_REPO_ROOT when set, else the checkout this script lives in
+ * (hooks/claude-code → ../../). No token anywhere → DEV_TOKEN, the same default the server
+ * accepts without a .env; `devToken` says so, so the fallback can be surfaced in the debug line.
+ * No principal anywhere → none is sent, and the session's facts have no author.
  */
 function resolveConfig() {
   const candidates = [];
@@ -96,7 +99,7 @@ function resolveConfig() {
   }
   const pick = (name) => process.env[name] || fileEnv[name] || "";
   const token = pick("CANON_TOKEN_CLAUDE_CODE");
-  return { url: pick("CANON_URL") || DEFAULT_URL, token: token || DEV_TOKEN, devToken: !token };
+  return { url: pick("CANON_URL") || DEFAULT_URL, token: token || DEV_TOKEN, devToken: !token, principal: pick("CANON_PRINCIPAL") };
 }
 
 function readStdin() {

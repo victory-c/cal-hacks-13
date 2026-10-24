@@ -29,14 +29,19 @@ async function load(): Promise<void> {
   const settings = normalizeSettings(raw);
   field("canonUrl").value = settings.canonUrl;
   field("token").value = settings.token;
+  field("principal").value = settings.principal;
   showLastResult(raw);
 }
 
 async function save(): Promise<void> {
-  const settings = normalizeSettings({ canonUrl: field("canonUrl").value, token: field("token").value });
-  await chrome.storage.local.set({ [STORAGE.canonUrl]: settings.canonUrl, [STORAGE.token]: settings.token });
+  const typed = field("principal").value.trim();
+  const settings = normalizeSettings({ canonUrl: field("canonUrl").value, token: field("token").value, principal: typed });
+  await chrome.storage.local.set({ [STORAGE.canonUrl]: settings.canonUrl, [STORAGE.token]: settings.token, [STORAGE.principal]: settings.principal });
   field("canonUrl").value = settings.canonUrl;
-  show(settings.token ? "ok" : "err", settings.token ? "Saved." : "Saved, but the token is empty: posts will fail until you paste it.");
+  field("principal").value = settings.principal;
+  if (typed && !settings.principal) return show("err", `Saved with no principal: "${typed}" is not an id. Type your id (e.g. dan), not your name or email.`);
+  if (!settings.token) return show("err", "Saved, but the token is empty: posts will fail until you paste it.");
+  show("ok", settings.principal ? `Saved. Sessions go out as ${settings.principal}, and their facts are saved as ${settings.principal}'s memories.` : "Saved. No principal set: sessions go out with no author.");
 }
 
 /** GET /health needs no token, so this checks the URL and that the server is up, nothing more. */
