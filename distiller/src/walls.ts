@@ -1,8 +1,9 @@
 // Wall labels by code rule (PRD v2 Security: "Labels only move one way on their own"). Two pure
 // functions that triage applies around Jev's answers:
-//   codeWall()  finds deal code names, aliases and companies, and restricted / watch-list
-//               companies, in a piece of text. Exact names, matched in code, so no wording in a
-//               memo can talk the label down.
+//   codeWall()  finds deal ids, code names, aliases and companies, and restricted / watch-list
+//               companies, in a piece of text. Names matched in code, on text folded first
+//               (matchForms: look-alike letters, zero-width characters, "_" joiners,
+//               camelCase), so the usual spelling tricks in a memo cannot talk the label down.
 //   raiseWall() joins two labels on the order public < any deal < unlabeled. It never lowers,
 //               and two different deals meet at unlabeled: a conflict, which goes to compliance.
 // No I/O, no model, no env.
@@ -35,11 +36,15 @@ const MIN_NAME = 2;
 const CODE_NAME_PREFIX = /^(?:project|operation)\s+/i;
 
 /**
- * Which deals (and listed companies) a text names. Case-insensitive, on word boundaries, any
- * whitespace between words ("Project  Falcon" across a line break still matches). Tickers on
- * the restricted and watch lists match case-sensitively, so "ON" or "IT" in prose does not.
+ * Which deals (and listed companies) a text names. Case-insensitive, on letter/digit boundaries
+ * ("_" is a separator, so "Falcon_LOI_v3" names Falcon), with any run of non-letters or none
+ * between the words of a name ("Project  Falcon" across a line break, "#project_falcon" and
+ * "ProjectFalcon" all match). Text and names are folded alike first (foldText, matchForms).
+ * Tickers on the restricted and watch lists match case-sensitively, so "ON" or "IT" in prose does
+ * not.
  */
 export function codeWall(text: string, deals: readonly DealNames[], lists?: Partial<ListsResponse>): CodeWall {
+  const forms = matchForms(text);
   const hits = new Map<string, string[]>(); // deal id → matched names
   const listed: CodeWall["listed"] = [];
   const hit = (dealId: string, name: string) => {
@@ -49,16 +54,17 @@ export function codeWall(text: string, deals: readonly DealNames[], lists?: Part
   };
 
   for (const deal of deals) {
-    for (const name of dealNames(deal)) if (nameMatches(text, name)) hit(deal.id, name);
+    for (const name of dealNames(deal)) if (nameMatches(forms, name)) hit(deal.id, name);
   }
 
   const entries = [
-    ...(lists?.restricted ?? []).map((e) => ({ ...e, list: "restricted" as const })),
-    ...(lists?.watch ?? []).map((e) => ({ ...e, list: "watch" as const })),
+    ...(Array.isArray(lists?.restricted) ? lists.restricted : []).map((e) => ({ ...e, list: "restricted" as const })),
+    ...(Array.isArray(lists?.watch) ? lists.watch : []).map((e) => ({ ...e, list: "watch" as const })),
   ];
   for (const entry of entries) {
-    const byName = nameMatches(text, entry.company);
-    const byTicker = entry.ticker ? nameMatches(text, entry.ticker, true) : false;
+    if (typeof entry?.company !== "string") continue; // client.ts drops these; belt and braces
+    const byName = nameMatches(forms, entry.company);
+    const byTicker = typeof entry.ticker === "string" && entry.ticker ? nameMatches(forms, entry.ticker, true) : false;
     if (!byName && !byTicker) continue;
     const owner = deals.find((d) => belongsTo(d, entry.company, entry.ticker));
     if (owner) hit(owner.id, byName ? entry.company : (entry.ticker as string));
@@ -76,9 +82,14 @@ export function codeWall(text: string, deals: readonly DealNames[], lists?: Part
   };
 }
 
-/** Every name that points at a deal: code name, its short form, aliases, companies. */
+/**
+ * Every name that points at a deal: code name, its short form, aliases, companies, and the deal
+ * id itself ("deal_falcon" as a folder or file name). Tolerates a deal from an unchecked source
+ * with no aliases or companies (client.ts normalizes, so this is belt and braces).
+ */
 export function dealNames(deal: DealNames): string[] {
-  const names = [deal.code_name, deal.code_name.replace(CODE_NAME_PREFIX, ""), ...deal.aliases, ...deal.companies];
+  const code = typeof deal.code_name === "string" ? deal.code_name : "";
+  const names = [code, code.replace(CODE_NAME_PREFIX, ""), ...strings(deal.aliases), ...strings(deal.companies), ...(typeof deal.id === "string" ? [deal.id] : [])];
   const seen = new Set<string>();
   return names.filter((n) => {
     const key = normalizeName(n);
@@ -89,15 +100,21 @@ export function dealNames(deal: DealNames): string[] {
 }
 
 function belongsTo(deal: DealNames, company: string, ticker?: string): boolean {
-  const own = new Set([...deal.companies, ...deal.aliases].map(normalizeName));
-  return own.has(normalizeName(company)) || (ticker !== undefined && own.has(normalizeName(ticker)));
+  const own = new Set([...strings(deal.companies), ...strings(deal.aliases)].map(normalizeName));
+  return own.has(normalizeName(company)) || (typeof ticker === "string" && own.has(normalizeName(ticker)));
 }
 
-function nameMatches(text: string, name: string, caseSensitive = false): boolean {
-  const words = name.trim().split(/\s+/).filter(Boolean);
+/**
+ * `forms` come from matchForms(). The name is folded and camel-split here, so a camelCase name
+ * ("DataRobot") matches however the text spaces it.
+ */
+function nameMatches(forms: readonly string[], name: string, caseSensitive = false): boolean {
+  const words = splitCamel(foldText(name)).trim().split(/\s+/).filter(Boolean);
   if (words.join(" ").length < MIN_NAME) return false;
-  const body = words.map(escapeRegExp).join("\\s+");
-  return new RegExp(`(?<![\\p{L}\\p{N}_])${body}(?![\\p{L}\\p{N}_])`, caseSensitive ? "u" : "iu").test(text);
+  // Any run of non-letters, or none, between words: "Project Falcon", "project-falcon", "ProjectFalcon".
+  const body = words.map(escapeRegExp).join("[^\\p{L}\\p{N}]*");
+  const re = new RegExp(`(?<![\\p{L}\\p{N}])${body}(?![\\p{L}\\p{N}])`, caseSensitive ? "u" : "iu");
+  return forms.some((f) => re.test(f));
 }
 
 function escapeRegExp(s: string): string {
@@ -106,7 +123,58 @@ function escapeRegExp(s: string): string {
 
 /** Lowercase, letters and digits only, single spaces. */
 function normalizeName(s: string): string {
-  return s.toLowerCase().replace(/[^\p{L}\p{N}]+/gu, " ").trim();
+  return foldText(s).toLowerCase().replace(/[^\p{L}\p{N}]+/gu, " ").trim();
+}
+
+function strings(x: unknown): string[] {
+  return Array.isArray(x) ? x.filter((s): s is string => typeof s === "string") : [];
+}
+
+/** Cyrillic and Greek letters that look like Latin ones, as used to dodge a name check. */
+const CONFUSABLES: Record<string, string> = Object.fromEntries(
+  [
+    // Cyrillic
+    ["аеорсухіјѕԁһӏԛԝк", "aeopcyxijsdhlqwk"],
+    ["АВЕКМНОРСТУХІЈЅ", "ABEKMHOPCTYXIJS"],
+    // Greek
+    ["αικνορυχ", "aikvopux"],
+    ["ΑΒΕΖΗΙΚΜΝΟΡΤΥΧ", "ABEZHIKMNOPTYX"],
+  ].flatMap(([from, to]) => [...from].map((c, i) => [c, to[i]])),
+);
+const CONFUSABLE_RE = new RegExp(`[${Object.keys(CONFUSABLES).join("")}]`, "gu");
+
+/**
+ * Text as the name check reads it, so spelling tricks cannot hide a name:
+ *   compatibility forms become plain letters (NFKC: fullwidth "Ｆａｌｃｏｎ", math bold)
+ *   accents and zero-width / format characters go (a zero-width space inside "Falcon", soft
+ *   hyphens, "Fálcon")
+ *   Cyrillic and Greek look-alikes become Latin ("Fаlcon" with a Cyrillic а)
+ *   "_" and other connector punctuation become spaces ("Falcon_LOI", "deal_falcon")
+ * Idempotent.
+ */
+export function foldText(s: string): string {
+  return s
+    .normalize("NFKD")
+    .replace(/[\p{Cf}\p{Mn}]/gu, "")
+    .normalize("NFKC")
+    .replace(CONFUSABLE_RE, (c) => CONFUSABLES[c] ?? c)
+    .replace(/\p{Pc}/gu, " ");
+}
+
+/** camelCase into words: "FalconModel" → "Falcon Model", "NMBLDeal" → "NMBL Deal". */
+function splitCamel(s: string): string {
+  return s.replace(/(\p{Ll})(\p{Lu})/gu, "$1 $2").replace(/(\p{Lu})(\p{Lu}\p{Ll})/gu, "$1 $2");
+}
+
+/**
+ * The forms of a text a name is looked for in: folded, and folded with camelCase split
+ * ("FalconModel.xlsx" names Falcon). Both, because splitting alone would turn "FaLcOn" into
+ * three words. The offline judge reads its regexes against these too.
+ */
+export function matchForms(text: string): string[] {
+  const folded = foldText(text);
+  const split = splitCamel(folded);
+  return split === folded ? [folded] : [folded, split];
 }
 
 export interface Raised {

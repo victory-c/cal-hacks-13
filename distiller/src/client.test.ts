@@ -4,7 +4,8 @@ import { describe, test } from "node:test";
 import type { PostReviewBody, TriageDecision } from "@canon/shared";
 import { CanonApiError, createClient, isMissingRoute } from "./client.ts";
 import type { RelayedEvent } from "./client.ts";
-import { fakeFact, loadFixture, readBody, serve } from "./test-helpers.ts";
+import { fakeFact, loadFixture, quiet, readBody, serve } from "./test-helpers.ts";
+import { loadContext, onceWarner } from "./worker.ts";
 
 describe("createClient", () => {
   test("sends bearer auth and hits the contract routes; parses each response", async () => {
@@ -125,6 +126,66 @@ describe("createClient v2 routes", () => {
       assert.ok(seen.every((s) => s.auth === "Bearer dev-distiller"));
       assert.deepEqual(JSON.parse(seen[2].body ?? "{}"), item);
       assert.deepEqual(JSON.parse(seen[5].body ?? "{}"), { event }, "PublishEventBody wraps the event");
+    } finally {
+      await close();
+    }
+  });
+
+  test("deals as a bare Deal[] are accepted; missing aliases / companies / status are filled in, empty list entries dropped", async () => {
+    const { url, close } = await serve((req, res) => {
+      res.writeHead(200, { "content-type": "application/json" });
+      if (req.url === "/api/deals") res.end(JSON.stringify([{ id: "deal_falcon", code_name: "Project Falcon" }]));
+      else res.end(JSON.stringify({ restricted: [{ company: "Nimbus Logistics", ticker: "NMBL", added_at: "x" }, { ticker: "ACMF", added_at: "x" }, { added_at: "x" }, "junk"], watch: null }));
+    });
+    try {
+      const client = createClient({ baseUrl: url, token: "dev-distiller" });
+      assert.deepEqual(await client.getDeals(), [{ id: "deal_falcon", code_name: "Project Falcon", aliases: [], companies: [], status: "confidential", status_changed_at: "" }]);
+      assert.deepEqual(await client.getLists(), {
+        restricted: [
+          { company: "Nimbus Logistics", ticker: "NMBL", added_at: "x" },
+          { company: "ACMF", ticker: "ACMF", added_at: "x" },
+        ],
+      });
+      const ctx = await quiet(() => loadContext(client, onceWarner()));
+      assert.equal(ctx.result.labelPublic, true);
+    } finally {
+      await close();
+    }
+  });
+
+  test("a deals or lists body the client cannot use throws, so the worker labels nothing public (fail closed)", async () => {
+    let deals: unknown = { deals: [] };
+    let lists: unknown = { restricted: [] };
+    const { url, close } = await serve((req, res) => {
+      res.writeHead(200, { "content-type": "application/json" });
+      if (req.url === "/api/deals") res.end(JSON.stringify(deals));
+      else if (req.url === "/api/lists") res.end(JSON.stringify(lists));
+      else res.end(JSON.stringify({ facts: [] }));
+    });
+    try {
+      const client = createClient({ baseUrl: url, token: "dev-distiller" });
+      const labelPublic = async () => (await quiet(() => loadContext(client, onceWarner()))).result.labelPublic;
+      assert.equal(await labelPublic(), true, "well-formed and empty is fine: the server has no deals");
+
+      const badDeals: unknown[] = [
+        { items: [] }, // neither { deals } nor Deal[]
+        { deals: "deal_falcon" },
+        { deals: [{ id: "Falcon", code_name: "Project Falcon" }] }, // not a wall id: refused, not dropped
+        { deals: [{ id: "deal_falcon" }] }, // no code name
+        null,
+      ];
+      for (const body of badDeals) {
+        deals = body;
+        await assert.rejects(client.getDeals(), /GET \/api\/deals/);
+        assert.equal(await labelPublic(), false, JSON.stringify(body));
+      }
+      deals = { deals: [] };
+
+      for (const body of [{ restricted: "Nimbus" }, { watch: [] }, [], { restricted: [], watch: "x" }]) {
+        lists = body;
+        await assert.rejects(client.getLists(), /GET \/api\/lists/);
+        assert.equal(await labelPublic(), false, JSON.stringify(body));
+      }
     } finally {
       await close();
     }

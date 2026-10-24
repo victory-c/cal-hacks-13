@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { describe, test } from "node:test";
 
 import type { Deal, ListsResponse } from "@canon/shared";
-import { UNLABELED, codeWall, dealNames, labelOf, raiseAll, raiseWall } from "./walls.ts";
+import { UNLABELED, codeWall, dealNames, foldText, labelOf, matchForms, raiseAll, raiseWall } from "./walls.ts";
 import type { Label } from "./walls.ts";
 
 const falcon: Deal = {
@@ -23,8 +23,8 @@ const lists: ListsResponse = {
 };
 
 describe("codeWall", () => {
-  test("code name, its short form, aliases and companies match, case-insensitively", () => {
-    assert.deepEqual(dealNames(falcon), ["Project Falcon", "Falcon", "NMBL", "Nimbus Logistics"]);
+  test("code name, its short form, aliases, companies and the deal id match, case-insensitively", () => {
+    assert.deepEqual(dealNames(falcon), ["Project Falcon", "Falcon", "NMBL", "Nimbus Logistics", "deal_falcon"]);
     for (const text of ["Notes on Project Falcon", "the falcon numbers", "NMBL rose", "nmbl rose", "NIMBUS  LOGISTICS\nboard deck", "Falcon's model"]) {
       const hit = codeWall(text, [falcon]);
       assert.deepEqual(hit.deals, ["deal_falcon"], text);
@@ -33,8 +33,41 @@ describe("codeWall", () => {
     assert.deepEqual(codeWall("Project Falcon and Nimbus Logistics", [falcon]).names, ["Project Falcon", "Falcon", "Nimbus Logistics"]);
   });
 
+  test("spelling tricks do not hide a name: _ joiners, the deal id, run-together words, zero-width and look-alike characters", () => {
+    const zwsp = "​";
+    const tricks = [
+      "Sent Falcon_LOI_v3.docx to the lender",
+      "Moved the 9x model into the deal_falcon folder",
+      "posted in #project_falcon",
+      "ProjectFalcon kickoff",
+      "projectfalcon.xlsx",
+      "FalconModel_v2.xlsx",
+      "FaLcOn price agreed",
+      `Fal${zwsp}con price agreed at 12x`,
+      `Fal­con price`, // soft hyphen
+      `Fal⁠con price`, // word joiner
+      "Fаlcon price", // Cyrillic а
+      "Ｆａｌｃｏｎ price", // fullwidth
+      "Fálcon price", // accent
+      "Nimbus_Logistics board deck",
+      "NimbusLogistics board deck",
+      `Nimbus${zwsp} Logistics`,
+    ];
+    for (const text of tricks) assert.deepEqual(codeWall(text, [falcon]).deals, ["deal_falcon"], JSON.stringify(text));
+    assert.deepEqual(codeWall("bought NMBL_calls", [], lists).listed, [{ company: "Nimbus Logistics", list: "restricted" }], "a ticker joined by _ still matches");
+    assert.deepEqual(codeWall("bought NMBLCalls", [falcon], lists).deals, ["deal_falcon"], "a ticker run into a word still matches");
+  });
+
+  test("a deal or list entry from an unchecked source with missing fields does not throw", () => {
+    const bare = { id: "deal_bare", code_name: "Project Bare" } as unknown as Deal;
+    assert.deepEqual(dealNames(bare), ["Project Bare", "Bare", "deal_bare"]);
+    assert.deepEqual(codeWall("Bare minimum", [bare]).deals, ["deal_bare"]);
+    const noCompany = { restricted: [{ ticker: "ACMF", added_at: "x" }] } as unknown as ListsResponse;
+    assert.deepEqual(codeWall("ACMF is up", [falcon], noCompany), { deals: [], names: [], listed: [], reason: "" });
+  });
+
   test("only on word boundaries", () => {
-    for (const text of ["falconry weekend", "Nimbus Logisticsx", "the NMBLX fund", "", "public freight news"]) {
+    for (const text of ["falconry weekend", "Nimbus Logisticsx", "the NMBLX fund", "", "public freight news", "dealfalconer", "Falconer Partners"]) {
       const hit = codeWall(text, [falcon], lists);
       assert.deepEqual(hit.deals, [], text);
       assert.deepEqual(hit.listed, [], text);
@@ -64,6 +97,13 @@ describe("codeWall", () => {
     assert.deepEqual(codeWall("acmf is up", [], lists).listed, []);
     assert.deepEqual(codeWall("ACMF is up", [], lists).listed, [{ company: "Acme Freight", list: "restricted" }]);
     assert.deepEqual(codeWall("Nimbus Logistics guidance", [], lists).listed, [{ company: "Nimbus Logistics", list: "restricted" }]);
+  });
+
+  test("foldText is idempotent; matchForms adds the camelCase-split form only when it differs", () => {
+    for (const s of ["Fal​con_LOI Fаlcon Ｆalcon Fálcon", "plain text", ""]) assert.equal(foldText(foldText(s)), foldText(s));
+    assert.equal(foldText("Fal​con_LOI"), "Falcon LOI");
+    assert.deepEqual(matchForms("plain text"), ["plain text"]);
+    assert.deepEqual(matchForms("FalconModel"), ["FalconModel", "Falcon Model"]);
   });
 
   test("regex characters in names are literal", () => {

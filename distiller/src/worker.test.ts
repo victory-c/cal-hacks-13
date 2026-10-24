@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { describe, test } from "node:test";
 
 import type { CanonEvent, CapturedSession, Deal, DraftFact, Fact, ListsResponse, PostFactsBody, PostReviewBody } from "@canon/shared";
-import { createClient } from "./client.ts";
+import { CanonApiError, createClient } from "./client.ts";
 import type { CanonClient, RelayedEvent } from "./client.ts";
 import { DroidDistiller, HeuristicDistiller } from "./engines/index.ts";
 import type { Distiller } from "./engines/index.ts";
@@ -112,7 +112,7 @@ describe("worker handler", () => {
       { statement: "We decided on 9x EBITDA", source }, // Falcon (deal talk)
       { statement: "Offsite is Nov 14", source }, // public
       { statement: "ok", source }, // archive only
-      { statement: "The target CFO left", source, detail: "Board meeting next week." }, // no deal terms, no names: public
+      { statement: "The target CFO left", source, detail: "Board meeting next week." }, // an indirect reference from a deal memo: compliance
     ];
     const { client, calls } = fakeClient({ [memo.id]: memo });
     const handler = createHandler({ client, distiller: fixedDistiller(drafts), judge: await judge(), live: false });
@@ -126,7 +126,8 @@ describe("worker handler", () => {
     assert.ok(posted.every((f) => f.decision.triage !== undefined), "every posted fact carries its triage");
     assert.deepEqual(
       posted.map((f) => f.fact.wall),
-      ["deal_falcon", "public", "public"],
+      ["deal_falcon", "public", undefined],
+      "the indirect reference is written unlabeled, never public",
     );
 
     assert.deepEqual(
@@ -137,12 +138,16 @@ describe("worker handler", () => {
     const decided = calls.events.filter((e): e is Extract<RelayedEvent, { type: "triage.decided" }> => e.type === "triage.decided");
     assert.deepEqual(
       decided.map((e) => [e.statement, e.decision.outcome]),
-      drafts.map((d, i) => [d.statement, ["fact", "fact", "archive_only", "fact"][i]]),
+      drafts.map((d, i) => [d.statement, ["fact", "fact", "archive_only", "compliance"][i]]),
     );
     assert.equal(decided[0].fact_id, posted[0].fact.id);
     assert.equal(decided[2].fact_id, undefined, "archive only: no fact id");
+    assert.equal(decided[3].fact_id, posted[2].fact.id);
     assert.ok(decided.every((e) => e.session_id === memo.id && typeof e.at === "string"));
-    assert.equal(calls.reviews.length, 0);
+    assert.equal(calls.reviews.length, 1);
+    assert.equal(calls.reviews[0].kind, "label_unsure");
+    assert.equal(calls.reviews[0].fact_id, posted[2].fact.id);
+    assert.equal(calls.reviews[0].proposed_wall, "deal_falcon");
   });
 
   test("an unsure draft is posted unlabeled and its label_unsure item names the fact", async () => {
@@ -289,7 +294,34 @@ describe("worker handler", () => {
 });
 
 describe("worker against a v1 server (v2 routes 404)", () => {
-  test("logs each missing route once, labels nothing public, and keeps running", async () => {
+  test("a confidential draft is filed in inbox, not team: a v1 server checks folders, not walls", async () => {
+    const missing = (route: string) => async () => {
+      throw new CanonApiError("GET", route, 404, `{"error":"no route for GET ${route}"}`);
+    };
+    const { client: base, calls } = fakeClient({ [memo.id]: memo });
+    const client: CanonClient = { ...base, getDeals: missing("/api/deals"), getLists: missing("/api/lists") };
+    const drafts: DraftFact[] = [
+      { statement: "We decided on 9x EBITDA", source }, // deal talk, no deal list: compliance
+      { statement: "Offsite is Nov 14", source, folder: "team" }, // public, held
+    ];
+    const handler = createHandler({ client, distiller: fixedDistiller(drafts), judge: await judge(), live: false });
+    const { lines } = await quiet(async () => {
+      await handler(captured(memo.id, 1, true));
+      await handler.settle();
+    });
+
+    const posted = calls.posts[0].facts;
+    assert.deepEqual(
+      posted.map((f) => [f.decision.triage?.outcome, f.fact.wall, f.fact.folder, f.decision.folder]),
+      [
+        ["compliance", undefined, "inbox", "inbox"],
+        ["fact", undefined, "inbox", "inbox"],
+      ],
+    );
+    assert.ok(lines.some((l) => l.includes("server has no GET /api/deals yet") && l.includes("every fact is filed in inbox, which no AI client reads")), lines.join("\n"));
+  });
+
+  test("logs each missing route once, labels nothing public, files every fact in inbox, and keeps running", async () => {
     const sessions: Record<string, CapturedSession> = { [fixture.id]: fixture, [planted.id]: planted };
     const posted: PostFactsBody[] = [];
     const hits: string[] = [];
@@ -326,6 +358,7 @@ describe("worker against a v1 server (v2 routes 404)", () => {
         assert.ok(body.facts.length > 0);
         for (const { fact, decision } of body.facts) {
           assert.equal(fact.wall, undefined, `no public label without a deal list: ${fact.statement}`);
+          assert.equal(fact.folder, "inbox", `the engine's folder guess is overridden: ${fact.statement}`);
           assert.equal(decision.triage?.outcome, "fact");
           assert.match(fact.wall_reason ?? "", /left unlabeled: the server gave no deal list/);
         }

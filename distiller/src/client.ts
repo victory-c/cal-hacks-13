@@ -6,11 +6,11 @@
 // throw CanonApiError with status 404 against a v1 server, and the worker treats that as "not
 // there yet" (see isMissingRoute), never as a crash.
 
-import { RELAYED_EVENTS, ROUTES } from "@canon/shared";
+import { DEAL_STATUSES, RELAYED_EVENTS, ROUTES, isDealWall } from "@canon/shared";
 import type {
   CapturedSession,
   Deal,
-  DealsResponse,
+  DealStatus,
   Folder,
   ListFactsResponse,
   ListsResponse,
@@ -18,6 +18,7 @@ import type {
   PostFactsResponse,
   PostReviewBody,
   PublishEventBody,
+  RestrictedEntry,
   Tier,
 } from "@canon/shared";
 
@@ -36,9 +37,9 @@ export interface CanonClient {
   getSession(id: string): Promise<CapturedSession>;
   listFacts(query?: FactsQuery): Promise<ListFactsResponse["facts"]>;
   postFacts(body: PostFactsBody): Promise<PostFactsResponse>;
-  /** v2: GET /api/deals. */
+  /** v2: GET /api/deals, checked by parseDeals(): a body it cannot use throws. */
   getDeals(): Promise<Deal[]>;
-  /** v2: GET /api/lists. The distiller is internal, so `watch` comes back too. */
+  /** v2: GET /api/lists, checked by parseLists(). The distiller is internal, so `watch` comes back too. */
   getLists(): Promise<ListsResponse>;
   /** v2: POST /api/review. Resolves to the new item's id when the server says it. */
   postReview(body: PostReviewBody): Promise<string | undefined>;
@@ -103,16 +104,8 @@ export function createClient(opts: { baseUrl: string; token: string }): CanonCli
       return res.facts ?? [];
     },
     postFacts: (body) => call<PostFactsResponse>("POST", ROUTES.facts, body),
-    async getDeals() {
-      const res = await call<DealsResponse | undefined>("GET", ROUTES.deals);
-      return Array.isArray(res?.deals) ? res.deals : [];
-    },
-    async getLists() {
-      const res = await call<ListsResponse | undefined>("GET", ROUTES.lists);
-      const out: ListsResponse = { restricted: Array.isArray(res?.restricted) ? res.restricted : [] };
-      if (Array.isArray(res?.watch)) out.watch = res.watch;
-      return out;
-    },
+    getDeals: async () => parseDeals(await call<unknown>("GET", ROUTES.deals), `GET ${ROUTES.deals}`),
+    getLists: async () => parseLists(await call<unknown>("GET", ROUTES.lists), `GET ${ROUTES.lists}`),
     async postReview(body) {
       // The contract does not pin the response yet: accept the item itself, { item }, or { id }.
       return reviewId(await call<unknown>("POST", ROUTES.review, body, true));
@@ -125,6 +118,70 @@ export function createClient(opts: { baseUrl: string; token: string }): CanonCli
       await call<unknown>("POST", ROUTES.publish, body, true);
     },
   };
+}
+
+// ---------------------------------------------------------------------------------------------
+// Deals and lists, checked. A name check against a list we misread proves nothing, so anything
+// we cannot use throws: the worker then labels nothing public (loadContext's labelPublic false)
+// instead of quietly checking names against an empty or partial list. Also used by cli.ts.
+
+/**
+ * A DealsResponse ({ deals }) or a bare Deal[] (ROUTES.deals says "GET Deal[]"; DealsResponse
+ * says { deals }: both are accepted). Every deal needs an id like deal_falcon and a code name, or
+ * the whole list is refused. Missing aliases or companies are []; a missing status is
+ * confidential.
+ */
+export function parseDeals(body: unknown, where: string): Deal[] {
+  const raw = Array.isArray(body) ? body : isRecord(body) && Array.isArray(body.deals) ? body.deals : undefined;
+  if (!raw) throw new Error(`${where} is not a deal list: need { deals: Deal[] } or Deal[] (see shared/src/types/walls.ts)`);
+  return raw.map((d: unknown, i): Deal => {
+    const deal = isRecord(d) ? d : {};
+    const { id, code_name } = deal;
+    if (typeof id !== "string" || !isDealWall(id) || typeof code_name !== "string" || !code_name.trim()) {
+      throw new Error(`${where}: deals[${i}] needs an id like deal_falcon and a code_name`);
+    }
+    const status = (DEAL_STATUSES as readonly unknown[]).includes(deal.status) ? (deal.status as DealStatus) : "confidential";
+    return {
+      id,
+      code_name,
+      aliases: strings(deal.aliases),
+      companies: strings(deal.companies),
+      status,
+      status_changed_at: typeof deal.status_changed_at === "string" ? deal.status_changed_at : "",
+    };
+  });
+}
+
+/**
+ * A ListsResponse: `restricted` must be a list, `watch` a list when present. An entry with no
+ * company name falls back to its ticker, and one with neither is dropped (it can match nothing).
+ */
+export function parseLists(body: unknown, where: string): ListsResponse {
+  if (!isRecord(body) || !Array.isArray(body.restricted)) throw new Error(`${where} is not a ListsResponse: need { restricted: [], watch?: [] } (see shared/src/types/api.ts)`);
+  if (body.watch != null && !Array.isArray(body.watch)) throw new Error(`${where}: watch must be a list when present`);
+  const out: ListsResponse = { restricted: listEntries(body.restricted) };
+  if (Array.isArray(body.watch)) out.watch = listEntries(body.watch);
+  return out;
+}
+
+function listEntries(xs: unknown[]): RestrictedEntry[] {
+  return xs.flatMap((x) => {
+    const e = isRecord(x) ? x : {};
+    const ticker = typeof e.ticker === "string" && e.ticker.trim() ? e.ticker : undefined;
+    const company = typeof e.company === "string" && e.company.trim() ? e.company : ticker;
+    if (!company) return [];
+    const entry: RestrictedEntry = { company, added_at: typeof e.added_at === "string" ? e.added_at : "" };
+    if (ticker) entry.ticker = ticker;
+    return [entry];
+  });
+}
+
+function isRecord(x: unknown): x is Record<string, unknown> {
+  return typeof x === "object" && x !== null && !Array.isArray(x);
+}
+
+function strings(x: unknown): string[] {
+  return Array.isArray(x) ? x.filter((s): s is string => typeof s === "string") : [];
 }
 
 function reviewId(res: unknown): string | undefined {

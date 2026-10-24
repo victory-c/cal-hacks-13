@@ -2,17 +2,18 @@
 //   npm run distill -w distiller -- <session.json> [--engine heuristic|claude|droid] [--deals <file>] [--lists <file>] [--post]
 // Prints the plan, the drafts and the triage (outcome, wall, Jev's answers, review items) as
 // tables and as JSON. Deals and lists come from --deals / --lists (DealsResponse / ListsResponse
-// JSON); else from the server with --post; else from fixtures/world/deals.json and lists.json when
-// those exist. Without both, nothing is labeled public (the worker's v1 rule). --post files the
-// result on the running server exactly as the worker does: facts, review items, events.
+// JSON); else from the server with --post (never the fixtures then); else from
+// fixtures/world/deals.json and lists.json when those exist. Without both, nothing is labeled
+// public and every fact goes to inbox (the worker's v1 rule). --post files the result on the
+// running server exactly as the worker does: facts, review items, events.
 
 import { existsSync, readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
-import { DEAL_STATUSES, DEFAULT_SERVER_URL, createJudge, env, isDealWall, loadEnv } from "@canon/shared";
-import type { CapturedSession, Deal, DealStatus, DistillEngine, Fact, ListsResponse, RestrictedEntry } from "@canon/shared";
-import { createClient } from "./client.ts";
+import { DEFAULT_SERVER_URL, createJudge, env, loadEnv } from "@canon/shared";
+import type { CapturedSession, Deal, DistillEngine, Fact, ListsResponse } from "@canon/shared";
+import { createClient, parseDeals, parseLists } from "./client.ts";
 import type { CanonClient } from "./client.ts";
 import { createDistiller } from "./engines/index.ts";
 import { errorMessage } from "./log.ts";
@@ -49,12 +50,14 @@ async function main(argv: string[]): Promise<number> {
   const client = args.post
     ? createClient({ baseUrl: env("CANON_URL", DEFAULT_SERVER_URL), token: env("CANON_TOKEN_DISTILLER", "dev-distiller") })
     : undefined;
-  // Silent here: a server without the v2 routes just means the fixtures (or nothing) are used,
-  // and the deals / lists lines below say which.
+  // Silent here: the deals / lists lines below say where each came from. With --post the result
+  // is filed on that server, so its own deals and lists are the only ones that count: a server
+  // without them gets no public labels (and every fact in inbox), never the fixtures' world.
   const server = client ? await loadContext(client, () => {}) : undefined;
   const existing: Fact[] = server?.existing ?? [];
-  const deals = pickSource("deals", args.deals, server ? (server.labelPublic ? server.deals : undefined) : undefined, WORLD_DEALS, readDeals);
-  const lists = pickSource("lists", args.lists, server ? (server.labelPublic ? server.lists : undefined) : undefined, WORLD_LISTS, readLists);
+  const fromServer = server?.labelPublic ? server : undefined;
+  const deals = pickSource("deals", args.deals, fromServer?.deals, client ? undefined : WORLD_DEALS, readDeals);
+  const lists = pickSource("lists", args.lists, fromServer?.lists, client ? undefined : WORLD_LISTS, readLists);
   const labelPublic = deals.value !== undefined && lists.value !== undefined;
 
   const t0 = performance.now();
@@ -70,7 +73,7 @@ async function main(argv: string[]): Promise<number> {
   console.log(`judge     ${judge.name}${judge.name === "fake" ? " (simulated, finance rules)" : ""}  ${judgeMs} ms, one request, ${existing.length} existing facts`);
   console.log(`deals     ${deals.value ? `${deals.value.length} from ${deals.from}: ${deals.value.map((d) => `${d.id} (${d.status})`).join(", ") || "none"}` : `none (${deals.from})`}`);
   console.log(`lists     ${lists.value ? `${lists.value.restricted.length} restricted, ${lists.value.watch?.length ?? 0} watch from ${lists.from}` : `none (${lists.from})`}`);
-  if (!labelPublic) console.log("          no deal list or no lists: nothing is labeled public (unlabeled is the safe default)");
+  if (!labelPublic) console.log("          no deal list or no lists: nothing is labeled public and every fact is filed in inbox (walls may not be enforced)");
   console.log(`plan      ${result.plan ?? "(none)"}`);
   console.log(`inject    p ${triaged.injection_p.toFixed(2)}${triaged.quarantine ? `  QUARANTINED: ${triaged.quarantine.excerpt ?? ""}` : ""}`);
 
@@ -129,13 +132,17 @@ async function post(client: CanonClient, triaged: TriageResult, warnOnce: WarnOn
   console.log(`\nposted: saved ${res.saved.length} (${res.saved.join(", ") || "none"}), retired ${res.retired.length}, ${res.reviews} review items, ${res.events} events`);
 }
 
-/** --flag file, else what the server gave, else the world fixture if it exists, else nothing. */
-function pickSource<T>(what: string, flag: string | undefined, fromServer: T | undefined, fixture: string, read: (path: string) => T): { value?: T; from: string } {
+/**
+ * --flag file, else what the server gave, else (without --post: `fixture` is undefined then) the
+ * world fixture if it exists, else nothing.
+ */
+function pickSource<T>(what: string, flag: string | undefined, fromServer: T | undefined, fixture: string | undefined, read: (path: string) => T): { value?: T; from: string } {
   if (flag) {
     const path = findFile(flag);
     return { value: read(path), from: path };
   }
   if (fromServer !== undefined) return { value: fromServer, from: "the server" };
+  if (fixture === undefined) return { from: `the server did not give both deals and lists; --post never falls back to the fixtures` };
   if (existsSync(fixture)) return { value: read(fixture), from: fixture };
   return { from: `no --${what} and no ${fixture}` };
 }
@@ -188,36 +195,13 @@ function readSession(file: string): CapturedSession {
   return s as CapturedSession;
 }
 
-/** A DealsResponse ({ deals }) or a bare Deal[]. A deal with no status is treated as confidential. */
+/** A DealsResponse ({ deals }) or a bare Deal[], checked the way the worker checks the server's. */
 function readDeals(path: string): Deal[] {
-  const json = readJson(path) as { deals?: unknown } | unknown[];
-  const raw = Array.isArray(json) ? json : json?.deals;
-  if (!Array.isArray(raw)) throw new Error(`${path} is not a DealsResponse: need { deals: Deal[] } (see shared/src/types/walls.ts)`);
-  return raw.map((d: Partial<Deal>, i) => {
-    if (typeof d?.id !== "string" || !isDealWall(d.id) || typeof d.code_name !== "string") throw new Error(`${path}: deals[${i}] needs an id like deal_falcon and a code_name`);
-    const status: DealStatus = (DEAL_STATUSES as readonly string[]).includes(d.status ?? "") ? (d.status as DealStatus) : "confidential";
-    return {
-      id: d.id,
-      code_name: d.code_name,
-      aliases: strings(d.aliases),
-      companies: strings(d.companies),
-      status,
-      status_changed_at: typeof d.status_changed_at === "string" ? d.status_changed_at : "",
-    };
-  });
+  return parseDeals(readJson(path), path);
 }
 
 function readLists(path: string): ListsResponse {
-  const json = readJson(path) as Partial<ListsResponse>;
-  if (!Array.isArray(json?.restricted)) throw new Error(`${path} is not a ListsResponse: need { restricted: [], watch?: [] } (see shared/src/types/api.ts)`);
-  const entries = (xs: unknown[]): RestrictedEntry[] => xs.filter((e): e is RestrictedEntry => typeof (e as RestrictedEntry)?.company === "string");
-  const out: ListsResponse = { restricted: entries(json.restricted) };
-  if (Array.isArray(json.watch)) out.watch = entries(json.watch);
-  return out;
-}
-
-function strings(x: unknown): string[] {
-  return Array.isArray(x) ? x.filter((s): s is string => typeof s === "string") : [];
+  return parseLists(readJson(path), path);
 }
 
 function table(rows: string[][]): void {

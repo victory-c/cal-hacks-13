@@ -4,8 +4,10 @@
 // Built as a factory over an injected client/distiller/judge so worker.test.ts drives it with
 // fakes and no network. One bad session is logged and skipped; the loop never dies.
 //
-// Against a v1 server the v2 routes 404. The worker says so once per route, triages with an
-// empty deal list and labels nothing public (unlabeled facts are the safe default), and keeps going.
+// Against a v1 server the v2 routes 404. A v1 server checks folder grants only, never walls, so
+// an unlabeled or deal-walled fact in team/ would reach any client that reads team/. The worker
+// says so once per route, triages with an empty deal list, labels nothing public, files every
+// fact in inbox (which no AI client reads), and keeps going.
 
 import { ROUTES, timed } from "@canon/shared";
 import type { CanonEvent, Deal, Fact, Judge, ListsResponse } from "@canon/shared";
@@ -165,13 +167,17 @@ export interface TriageContext {
   existing: Fact[];
   deals: Deal[];
   lists: ListsResponse;
-  /** False unless both deals and lists came back: no name check, no public label. */
+  /** False unless both deals and lists came back: no name check, no public label, every fact in inbox. */
   labelPublic: boolean;
 }
 
-const NO_LISTS = "triaging with an empty deal list and no public labels (unlabeled facts are the safe default)";
+const NO_LISTS =
+  "triaging with an empty deal list: nothing is labeled public and every fact is filed in inbox, which no AI client reads (a server without these routes does not enforce walls)";
 
-/** Hot facts (required: a v1 route), deals and lists (v2: missing means degrade, not fail). */
+/**
+ * Hot facts (required: a v1 route), deals and lists (v2: missing, failing or malformed means
+ * degrade to labelPublic false, not fail; client.ts throws on a body it cannot use).
+ */
 export async function loadContext(client: CanonClient, warnOnce: WarnOnce): Promise<TriageContext> {
   const [existing, deals, lists] = await Promise.all([
     client.listFacts({ tier: "hot" }),

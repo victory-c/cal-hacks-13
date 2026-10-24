@@ -6,8 +6,9 @@
 //   keep      below KEEP: archive only (the raw item stays in the cold archive)
 //   wall      the code rule (names, walls.ts), raised by Jev's confident deal and by the wall of
 //             the fact it relates to. Content only ever raises a wall
-//   unsure    confidential with no clear deal, deal unsure, two deals, or a related fact that is
-//             itself unlabeled: written with NO wall (deny all but compliance) plus a
+//   unsure    confidential with no clear deal, deal unsure, two deals, a related fact that is
+//             itself unlabeled, or a public draft from an item that names a deal (the code rule
+//             over the whole item): written with NO wall (deny all but compliance) plus a
 //             label_unsure review item carrying the proposed wall
 //   relation  same → merge, replaces → supersede, anything else → add
 // A missing or neutral answer always lands on the safe side. Pure given a Judge: no I/O, no env.
@@ -15,7 +16,7 @@
 // The bottom of the file is the offline judge for the demo: a FakeJudge with finance sense,
 // labelled simulated, used whenever JUDGE_PROVIDER resolves to "fake" (see triageJudge()).
 
-import { DEAL_PUBLIC, DEAL_UNSURE, FakeJudge, PUBLIC_WALL, RELATIONS, THRESHOLDS, TRIAGE_THRESHOLDS, isDealWall, newFactId, today } from "@canon/shared";
+import { DEAL_PUBLIC, DEAL_UNSURE, FakeJudge, INBOX, PUBLIC_WALL, RELATIONS, THRESHOLDS, TRIAGE_THRESHOLDS, isDealWall, newFactId, today } from "@canon/shared";
 import type {
   Answer,
   CapturedSession,
@@ -39,7 +40,7 @@ import type {
 } from "@canon/shared";
 import { normalizeStatement } from "./decide.ts";
 import { log } from "./log.ts";
-import { UNLABELED, codeWall, labelOf, raiseAll, raiseWall } from "./walls.ts";
+import { UNLABELED, codeWall, foldText, labelOf, matchForms, raiseAll, raiseWall } from "./walls.ts";
 import type { DealNames, Label } from "./walls.ts";
 
 export interface TriageInput {
@@ -53,8 +54,9 @@ export interface TriageInput {
   lists: ListsResponse;
   /**
    * False when the server could not give us its deals or lists (a v1 server): nothing is labeled
-   * public, because a name check against an empty list proves nothing. Unlabeled is the safe
-   * default. Default true.
+   * public, because a name check against an empty list proves nothing, and every fact is filed in
+   * INBOX, which no AI client reads: a server without those routes checks folders, not walls, so
+   * an unlabeled fact in team/ would reach any client that reads team/. Default true.
    */
   labelPublic?: boolean;
 }
@@ -124,7 +126,7 @@ export async function triage(input: TriageInput, judge: Judge): Promise<TriageRe
         client: session.client,
         external: session.external === true,
         principal: session.principal ?? "unknown",
-        text: clipMiddle(text, MAX_TEXT_CHARS),
+        text: clipForJudge(text, MAX_TEXT_CHARS),
       },
       deals: input.deals.map((d) => ({ id: d.id, code_name: d.code_name, aliases: d.aliases, companies: d.companies, status: d.status })),
       drafts: drafts.map((d, i) => ({ i, statement: d.statement, detail: d.detail, happened: d.happened })),
@@ -146,6 +148,9 @@ export async function triage(input: TriageInput, judge: Judge): Promise<TriageRe
 
   const injection_p = noul(got, "inject");
   const quarantined = injection_p >= TRIAGE_THRESHOLDS.INJECTION;
+  // The code rule over the whole item, once: a writer often paraphrases the code name away ("the
+  // target"), so a draft the judge calls public still goes to compliance when its item names a deal.
+  const itemDeals: Wall[] = codeWall(text, input.deals).deals.filter(isDealWall);
   const ctx: DraftContext = {
     session,
     judge: judge.name,
@@ -153,6 +158,7 @@ export async function triage(input: TriageInput, judge: Judge): Promise<TriageRe
     quarantined,
     deals: input.deals,
     dealIds,
+    itemDeals,
     lists: input.lists,
     labelPublic: input.labelPublic ?? true,
     dealOptions,
@@ -201,6 +207,8 @@ interface DraftContext {
   quarantined: boolean;
   deals: readonly DealNames[];
   dealIds: string[];
+  /** Deals the whole captured item names (code rule over itemText), in deal-list order. */
+  itemDeals: Wall[];
   lists: ListsResponse;
   labelPublic: boolean;
   dealOptions: string[];
@@ -279,17 +287,26 @@ function decideDraft(draft: DraftFact, i: number, got: Map<string, Answer>, ctx:
   else if (code.listed.length) unsure = `names ${code.listed.map((l) => (l.list === "restricted" ? `restricted-list company "${l.company}"` : "a watch-list company")).join(", ")}`;
   else if (confidential_p >= CONFIDENTIAL) unsure = `looks confidential (p ${fmt(confidential_p)}) but no deal is clear`;
   else if (deal === DEAL_UNSURE) unsure = `deal unsure (jev: ${pick} ${fmt(deal_p)})`;
+  else if (ctx.itemDeals.length) unsure = `the item names ${ctx.itemDeals.join(", ")} and the draft reads as public`;
   if (unsure) outcome = "compliance";
 
   // The wall code assigns, or for "compliance" the one it proposes: what content says, raised by
-  // Jev's below-threshold deal pick. Two deals have no single right wall; the first stands in.
+  // Jev's below-threshold deal pick, else the deal the item names. Two deals have no single right
+  // wall; the first stands in.
   let wall: Wall;
   if (conflict) wall = conflict[0] as Wall;
   else if (content === UNLABELED) wall = PUBLIC_WALL; // unreachable without a conflict; keeps the type honest
-  else wall = outcome === "compliance" && content === PUBLIC_WALL && lowPick ? lowPick : content;
+  else if (outcome === "compliance" && content === PUBLIC_WALL) wall = lowPick ?? ctx.itemDeals[0] ?? PUBLIC_WALL;
+  else wall = content;
 
+  const written = outcome === "fact" || outcome === "compliance";
   const heldPublic = outcome === "fact" && label === PUBLIC_WALL && !ctx.labelPublic;
-  const wall_reason = [unsure ? `unlabeled until compliance decides: ${unsure}` : undefined, ...reasons, heldPublic ? "left unlabeled: the server gave no deal list" : undefined]
+  const wall_reason = [
+    unsure ? `unlabeled until compliance decides: ${unsure}` : undefined,
+    ...reasons,
+    heldPublic ? "left unlabeled: the server gave no deal list" : undefined,
+    written && !ctx.labelPublic ? "filed in inbox: without the server's deals and lists, walls may not be enforced" : undefined,
+  ]
     .filter((s): s is string => !!s)
     .join("; ");
 
@@ -300,8 +317,12 @@ function decideDraft(draft: DraftFact, i: number, got: Map<string, Answer>, ctx:
   const finalWall = outcome === "fact" && label !== UNLABELED && !heldPublic ? label : undefined;
   const tier: Tier = keep_p > THRESHOLDS.KEEP_HOT ? "hot" : "cold";
   // Assumption (no folder question in v2): the engine's folder, else team, or team/<deal> for a
-  // deal fact. Unlabeled facts stay in plain team so the path hints at nothing.
-  const folder: Folder = draft.folder ?? (finalWall && isDealWall(finalWall) ? `team/${finalWall.slice(DEAL_PREFIX.length)}` : "team");
+  // deal fact. Unlabeled facts stay in plain team so the path hints at nothing. Without the
+  // server's deals and lists (a v1 server, which checks folders and not walls) every fact goes to
+  // the inbox, which no AI client reads: fail closed by folder.
+  const folder: Folder = !ctx.labelPublic
+    ? INBOX
+    : (draft.folder ?? (finalWall && isDealWall(finalWall) ? `team/${finalWall.slice(DEAL_PREFIX.length)}` : "team"));
   const fact: Fact = { id: newFactId(), statement: draft.statement, folder, tier, jev_keep: keep_p, source: draft.source, updated: today() };
   if (action !== "add" && target) fact.supersedes = target.id;
   if (draft.detail) fact.detail = draft.detail;
@@ -378,25 +399,55 @@ const FORWARD_PATTERN = /\b(?:forward|send|share)\b[^.!?\n]{0,120}\bto\b/i;
 export function injectionExcerpt(text: string): string {
   for (const re of [...INJECTION_PATTERNS, FORWARD_PATTERN]) {
     const m = re.exec(text);
-    if (!m) continue;
-    const before = text.slice(0, m.index);
-    let start = 0;
-    for (const sep of ["\n", ". ", "! ", "? "]) {
-      const k = before.lastIndexOf(sep);
-      if (k >= 0) start = Math.max(start, k + sep.length);
-    }
-    const endRel = text.slice(m.index).search(/[.!?](?:\s|$)|\n/);
-    const end = endRel < 0 ? text.length : m.index + endRel + 1;
-    return clip(text.slice(start, end), 280);
+    if (m) return sentenceAt(text, m.index);
   }
   return clip(text, 280);
 }
 
-function clipMiddle(s: string, max: number): string {
+/** At most this many sentences from the cut middle of a long item are spliced into the state. */
+const MAX_SPLICED = 8;
+/** The middle is scanned this far into the head and tail too, so a phrase split by the cut is found. */
+const SCAN_OVERLAP = 300;
+
+/**
+ * The item text for the state: whole up to `max` characters, else its head and tail. The cut
+ * middle is not dropped unseen: it is scanned in code (folded, so zero-width characters cannot
+ * split a phrase) for sentences that read like orders to an AI or like forwarding something out,
+ * and up to MAX_SPLICED of them are spliced in where the cut is, so the injection question is
+ * asked of every part of the item.
+ */
+function clipForJudge(s: string, max: number): string {
   if (s.length <= max) return s;
   const head = Math.floor((max * 2) / 3);
   const tail = max - head;
-  return `${s.slice(0, head)}\n[… ${s.length - max} characters cut …]\n${s.slice(-tail)}`;
+  const middle = foldText(s.slice(Math.max(0, head - SCAN_OVERLAP), s.length - tail + SCAN_OVERLAP));
+  const found: string[] = [];
+  for (const re of [...INJECTION_PATTERNS, FORWARD_PATTERN]) {
+    for (const m of middle.matchAll(new RegExp(re.source, `${re.flags}g`))) {
+      const sentence = sentenceAt(middle, m.index);
+      if (!found.includes(sentence)) found.push(sentence);
+      if (found.length >= MAX_SPLICED) break;
+    }
+    if (found.length >= MAX_SPLICED) break;
+  }
+  const cut = `${s.length - max} characters cut`;
+  const note = found.length
+    ? `\n[… ${cut}. Sentences from the cut part that may be aimed at an AI or send something out:\n${found.map((f) => `> ${f}`).join("\n")}\n…]\n`
+    : `\n[… ${cut} …]\n`;
+  return `${s.slice(0, head)}${note}${s.slice(-tail)}`;
+}
+
+/** The sentence (or line) around `index`, clipped to 280 characters. */
+function sentenceAt(text: string, index: number): string {
+  const before = text.slice(0, index);
+  let start = 0;
+  for (const sep of ["\n", ". ", "! ", "? "]) {
+    const k = before.lastIndexOf(sep);
+    if (k >= 0) start = Math.max(start, k + sep.length);
+  }
+  const endRel = text.slice(index).search(/[.!?](?:\s|$)|\n/);
+  const end = endRel < 0 ? text.length : index + endRel + 1;
+  return clip(text.slice(start, end), 280);
 }
 
 function clip(s: string, max: number): string {
@@ -411,12 +462,17 @@ function fmt(p: number): string {
 // ---------------------------------------------------------------------------------------------
 // Offline judge for the demo (simulated). Finance sense in a few regexes, so `npm run dev` with no
 // keys shows the walls working on the synthetic world: Falcon / Nimbus / LOI / term sheet /
-// multiple / EBITDA read as confidential Falcon information, orders aimed at an AI read as
-// injection, and public news reads as public. Not a model; every number it gives is made up for
-// the simulation and the logs say so.
+// multiple / EBITDA read as confidential Falcon information, a plain line from an item that names
+// a deal leans to that deal, an indirect reference ("the target", "the buyer") from an item full of
+// deal terms reads as maybe confidential, orders aimed at an AI read as injection, and public news
+// reads as public. Every regex reads the text as the code rule does (matchForms: folded, so
+// "Falcon_LOI" or a zero-width space hides nothing). Not a model; every number it gives is made up
+// for the simulation and the logs say so.
 
 const DEAL_TERMS =
   /\b(?:falcon|nimbus|loi|letter of intent|term sheet|multiples?|ebitda|valuation|purchase price|exclusivity|due diligence|data room|break fee|earn-?out|synerg(?:y|ies)|accretion|board materials|indication of interest|ioi)\b/i;
+/** Ways a deal line names the deal without naming it. Only counts in an item with deal terms. */
+const INDIRECT = /\b(?:target|buyers?|sellers?|acquirers?|bidders?|counterpart(?:y|ies))\b/i;
 const PUBLIC_NEWS = /\b(?:press release|announced|reported|according to|reuters|bloomberg|wsj|publicly|public filing|10-k|10-q|earnings call|quarterly results|stock (?:rose|fell))\b/i;
 const KEEP_SIGNAL =
   /\b(?:decided|agreed|will|plan|deadline|due|target|prefers?|signed|approved|requested|moved|revised|valuation|multiples?|ebitda|loi|term sheet|meeting|call|memo|board)\b|\d/i;
@@ -425,12 +481,20 @@ const FALCON = "deal_falcon";
 
 interface FakeState {
   external: boolean;
-  text: string;
+  /** The item text as matchForms() gives it: what every regex reads. */
+  text: string[];
   deals: DealNames[];
   /** Deals the whole item names, worked out once per state. */
   itemDeals: string[];
+  /** The item has deal terms (LOI, EBITDA, …) somewhere. */
+  itemTerms: boolean;
   drafts: string[];
   existing: Array<{ id: string; statement: string }>;
+}
+
+/** A regex against any form of a text (matchForms). */
+function hits(re: RegExp, forms: readonly string[]): boolean {
+  return forms.some((f) => re.test(f));
 }
 
 /** A FakeJudge that answers the triage questions with finance sense. Labelled simulated. */
@@ -455,12 +519,12 @@ export function triageJudge(judge: Judge): Judge {
 }
 
 function parseFakeState(state: string): FakeState {
-  const out: FakeState = { external: false, text: "", deals: [], itemDeals: [], drafts: [], existing: [] };
+  const out: FakeState = { external: false, text: [], deals: [], itemDeals: [], itemTerms: false, drafts: [], existing: [] };
   let json: unknown;
   try {
     json = JSON.parse(state);
   } catch {
-    out.text = state;
+    out.text = matchForms(state);
     return out;
   }
   const s = json as {
@@ -470,7 +534,9 @@ function parseFakeState(state: string): FakeState {
     existing_facts?: Array<{ id?: unknown; statement?: unknown }>;
   };
   out.external = s.item?.external === true;
-  out.text = typeof s.item?.text === "string" ? s.item.text : "";
+  const text = typeof s.item?.text === "string" ? s.item.text : "";
+  out.text = matchForms(text);
+  out.itemTerms = hits(DEAL_TERMS, out.text);
   if (Array.isArray(s.deals)) {
     out.deals = (s.deals as DealNames[]).filter((d) => typeof d?.id === "string" && typeof d.code_name === "string").map((d) => ({ id: d.id, code_name: d.code_name, aliases: Array.isArray(d.aliases) ? d.aliases : [], companies: Array.isArray(d.companies) ? d.companies : [] }));
   }
@@ -478,52 +544,55 @@ function parseFakeState(state: string): FakeState {
   if (Array.isArray(s.existing_facts)) {
     out.existing = s.existing_facts.flatMap((f) => (typeof f?.id === "string" && typeof f.statement === "string" ? [{ id: f.id, statement: f.statement }] : []));
   }
-  out.itemDeals = codeWall(out.text, out.deals).deals;
+  out.itemDeals = codeWall(text, out.deals).deals;
   return out;
 }
 
 function financeAnswer(q: Question, s: FakeState): Answer | undefined {
   if (q.id === "inject" && q.type === "noul") {
-    const orders = INJECTION_PATTERNS.some((re) => re.test(s.text));
+    const orders = INJECTION_PATTERNS.some((re) => hits(re, s.text));
     // "forward ... to" alone is everyday deal talk inside the firm; from outside it is suspect.
-    const forwards = s.external && FORWARD_PATTERN.test(s.text);
+    const forwards = s.external && hits(FORWARD_PATTERN, s.text);
     return { id: q.id, type: "noul", p: orders || forwards ? 0.9 : s.external ? 0.1 : 0.02 };
   }
   const m = /^(keep|conf|deal|rel|relto):(\d+)$/.exec(q.id);
   if (!m) return undefined;
   const [, kind, idx] = m;
   const draft = s.drafts[Number(idx)] ?? "";
+  const forms = matchForms(draft);
   const named = codeWall(draft, s.deals).deals;
   const itemNamed = s.itemDeals;
-  const terms = DEAL_TERMS.test(draft);
-  const leans = !terms && !named.length && itemNamed.length > 0; // a plain line from a deal item
+  const terms = hits(DEAL_TERMS, forms);
+  // A plain line from an item that names a deal, or a line that points at a deal without naming
+  // it ("the target CFO left") from an item full of deal terms.
+  const leans = !terms && !named.length && (itemNamed.length > 0 || (s.itemTerms && hits(INDIRECT, forms)));
 
   if (kind === "keep" && q.type === "noul") {
     const words = draft.trim().split(/\s+/).filter(Boolean).length;
-    return { id: q.id, type: "noul", p: KEEP_SIGNAL.test(draft) ? 0.85 : words < 4 ? 0.2 : 0.55 };
+    return { id: q.id, type: "noul", p: hits(KEEP_SIGNAL, forms) ? 0.85 : words < 4 ? 0.2 : 0.55 };
   }
   if (kind === "conf" && q.type === "noul") {
-    return { id: q.id, type: "noul", p: terms || named.length ? 0.9 : leans ? 0.4 : PUBLIC_NEWS.test(draft) ? 0.05 : 0.1 };
+    return { id: q.id, type: "noul", p: terms || named.length ? 0.9 : leans ? 0.4 : hits(PUBLIC_NEWS, forms) ? 0.05 : 0.1 };
   }
   if (kind === "deal" && q.type === "choice") {
     const has = (o: string) => q.options.includes(o);
     const answer = (c: string, p: number): Answer => ({ id: q.id, type: "choice", choice: c, p });
     const namedOption = named.find(has);
     if (namedOption) return answer(namedOption, 0.9);
-    if (terms || named.length) {
-      // Deal talk with no name: in this world, that is Falcon.
-      const guess = has(FALCON) ? FALCON : q.options.find((o) => isDealWall(o));
-      return guess ? answer(guess, 0.7) : answer(DEAL_UNSURE, 0.5);
-    }
+    // Deal talk with no name: in this world, that is Falcon.
+    const guess = has(FALCON) ? FALCON : q.options.find((o) => isDealWall(o));
+    if (terms || named.length) return guess ? answer(guess, 0.7) : answer(DEAL_UNSURE, 0.5);
     const itemOption = itemNamed.find(has);
     if (leans && itemOption) return answer(itemOption, 0.65);
+    // An indirect reference: a guess below DEAL_CONFIDENT, so it is the proposal, not the wall.
+    if (leans) return answer(guess ?? DEAL_UNSURE, 0.5);
     return answer(DEAL_PUBLIC, 0.85);
   }
   if ((kind === "rel" || kind === "relto") && q.type === "choice") {
     const best = closest(draft, s.existing);
     if (kind === "relto") return best ? { id: q.id, type: "choice", choice: best.id, p: 0.7 } : { id: q.id, type: "choice", choice: NONE, p: 0.8 };
     if (!best) return { id: q.id, type: "choice", choice: "unrelated", p: 0.8 };
-    return { id: q.id, type: "choice", choice: UPDATE_WORDS.test(draft) ? "replaces" : "adds_detail", p: 0.7 };
+    return { id: q.id, type: "choice", choice: hits(UPDATE_WORDS, forms) ? "replaces" : "adds_detail", p: 0.7 };
   }
   return undefined;
 }
