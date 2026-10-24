@@ -157,6 +157,27 @@ describe("scopes REST surface, scope builder and handoff (A2, A4+A6, A7+A16)", (
     await deny("/api/audit");
   });
 
+  test("GET /api/principals and /api/principals/:id: moderators and internal clients; writes stay moderator-only", async () => {
+    assert.equal((await api("/api/principals", { token: "tok-dist" })).status, 200, "triage resolves who is who");
+
+    const one = await api("/api/principals/leo", { token: "tok-maya" });
+    assert.equal(one.status, 200);
+    assert.deepEqual(await body<Principal>(one), { id: "leo", kind: "person", name: "Leo", tier: "member" });
+    assert.equal((await api("/api/principals/agt_leodesk", { token: "tok-disp" })).status, 200, "the dispatcher reads an agent's record");
+    assert.equal((await api("/api/principals/ghost", { token: "tok-maya" })).status, 404, "a moderator may learn a principal is missing");
+
+    // Members get the neutral 403, same bytes whether the target exists or not, before any lookup.
+    for (const path of ["/api/principals/leo", "/api/principals/ghost"]) {
+      const denied = await api(path, { token: "tok-dan" });
+      assert.equal(denied.status, 403, path);
+      assert.deepEqual(await denied.json(), MODERATORS_ONLY, path);
+    }
+
+    const write = await api("/api/principals", { method: "POST", token: "tok-disp", json: { id: "eve", name: "Eve", tier: "member" } });
+    assert.equal(write.status, 403, "internal clients read principals but never write them");
+    assert.deepEqual(await write.json(), MODERATORS_ONLY);
+  });
+
   test("scope rules: a moderator reads any; an agent's creator reads the agent's; nobody else", async () => {
     const priya = await api("/api/scope-rules/priya", { token: "tok-maya" });
     assert.equal(priya.status, 200);
@@ -173,6 +194,16 @@ describe("scopes REST surface, scope builder and handoff (A2, A4+A6, A7+A16)", (
     const other = await api("/api/scope-rules/agt_leodesk", { token: "tok-priya" });
     assert.equal(other.status, 403, "another member does not");
     assert.deepEqual(await other.json(), MODERATORS_ONLY);
+
+    // Internal clients read any rule (the dispatcher reads an agent's task before a run) but never write one.
+    assert.equal((await api("/api/scope-rules/agt_leodesk", { token: "tok-disp" })).status, 200, "the dispatcher reads the agent's task");
+    const put = await api("/api/scope-rules/agt_leodesk", {
+      method: "PUT",
+      token: "tok-disp",
+      json: { task: "Answer anything", exclude: { groups: [], labels: [] } },
+    });
+    assert.equal(put.status, 403, "internal clients never write rules");
+    assert.deepEqual(await put.json(), MODERATORS_ONLY);
 
     assert.equal((await api("/api/scope-rules/ghost", { token: "tok-maya" })).status, 404, "a moderator may learn a rule is missing");
   });
@@ -777,5 +808,38 @@ describe("scopes REST surface, scope builder and handoff (A2, A4+A6, A7+A16)", (
     assert.ok(agent.fact_ids.every((fid) => leo.fact_ids.includes(fid)), "the agent was rebuilt inside the creator's new scope");
     assert.ok(!agent.fact_ids.some((fid) => fid.startsWith("fct_ab11") || fid === "fct_11fe0005"), "the narrowed creator narrowed the agent");
     assert.ok(events.some((e) => e.type === "scope.updated" && e.principal === "agt_leodesk" && e.reason === "rule_changed"), "the cascade is visible on the feed");
+  });
+
+  test("an agent created by a moderator still never holds an inbox fact", async () => {
+    // fct_11fe0002 sits in the inbox (saved above) and shares this task's words on purpose: a
+    // moderator creator sees every hot fact, but their agent's pool still drops the inbox in code.
+    const res = await api("/api/agents", {
+      method: "POST",
+      token: "tok-maya",
+      json: { created_by: "maya", name: "Maya's filing assistant", rule: { task: "Summarize public market logistics notes", exclude: { groups: [], labels: [] } } },
+    });
+    assert.equal(res.status, 200);
+    const agent = await body<Principal>(res);
+
+    const scope = await body<Scope>(await api(`/api/scopes/${agent.id}`, { token: "tok-maya" }));
+    assert.ok(scope.fact_ids.length > 0, "the moderator's agent draws from the hot facts");
+    assert.ok(!scope.fact_ids.includes("fct_11fe0002"), "the matching inbox fact never joined");
+    const { facts } = await body<{ facts: Fact[] }>(await api(`/api/scopes/${agent.id}/facts`, { token: "tok-maya" }));
+    assert.ok(facts.every((f) => !folderAllows(["inbox"], f.folder)), "no inbox fact in the sandbox");
+    assert.ok(askLog.flat().every((q) => !q.text.includes("fct_11fe0002")), "the inbox fact never even reached a judge in any build");
+  });
+});
+
+describe("world fixtures (the contract in distiller/fixtures/world)", () => {
+  test("a deal group's code name is always one of its aliases", () => {
+    // Triage files by alias match, so a code name that only lived in the id would never route:
+    // deal/falcon must list "Falcon" and "Project Falcon" (shared/src/types/scopes.ts, Group).
+    for (const g of loadWorldFixtures().groups) {
+      if (!g.id.startsWith("deal/")) continue;
+      const code = g.id.slice("deal/".length);
+      const name = code.charAt(0).toUpperCase() + code.slice(1);
+      assert.ok(g.aliases?.includes(name), `${g.id} must list its code name "${name}" as an alias`);
+      assert.ok(g.aliases?.includes(`Project ${name}`), `${g.id} must list "Project ${name}" as an alias`);
+    }
   });
 });

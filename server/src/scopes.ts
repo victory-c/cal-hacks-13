@@ -135,14 +135,29 @@ export interface ScopesDeps {
 /**
  * The one denial every non-moderator sees on a moderator route, sent BEFORE any lookup of the
  * requested id: the same bytes whether the target exists or not, so nothing outside the caller's
- * view is named, counted or hinted at.
+ * view is named, counted or hinted at. The router uses it for GET /api/sessions/:id too.
  */
-const MODERATORS_ONLY = { error: "moderators only" };
+export const MODERATORS_ONLY = { error: "moderators only" };
 const INTERNAL_ONLY = { error: "internal clients only" };
 /** Agent routes: creators are allowed too, so "moderators only" would be wrong — but the body is still one constant. */
 const NOT_YOUR_AGENT = { error: "only the agent's creator or a moderator may do this" };
 
 const PERSON_ID_RE = /^[a-z][a-z0-9_-]*$/;
+
+/** Who an authenticated client is in the world: its principal id and the two gate roles. */
+export function callerRoles(
+  world: ScopeState,
+  grants: readonly Grant[],
+  client: string,
+): { callerId: string; isModerator: boolean; isInternal: boolean } {
+  const callerId = grantFor(grants, client)?.principal ?? client;
+  const caller = world.principals.get(callerId);
+  return {
+    callerId,
+    isModerator: caller?.kind === "person" && caller.tier === "moderator",
+    isInternal: (INTERNAL_CLIENTS as readonly string[]).includes(client),
+  };
+}
 
 function id(prefix: string): string {
   return `${prefix}_${randomBytes(4).toString("hex")}`;
@@ -599,10 +614,7 @@ export async function handleScopesRoute(
   res: ServerResponse,
 ): Promise<boolean> {
   const state = deps.world;
-  const callerId = grantFor(deps.grants, client)?.principal ?? client;
-  const caller = state.principals.get(callerId);
-  const isModerator = caller?.kind === "person" && caller.tier === "moderator";
-  const isInternal = (INTERNAL_CLIENTS as readonly string[]).includes(client);
+  const { callerId, isModerator, isInternal } = callerRoles(state, deps.grants, client);
 
   // ---- GET /api/groups (moderator, internal): triage reads it to file facts.
   if (path === ROUTES.groups && method === "GET") {
@@ -610,12 +622,25 @@ export async function handleScopesRoute(
     return sendJson(res, 200, { groups: state.groups }), true;
   }
 
-  // ---- /api/principals (moderator only, checked before anything is read or looked up).
+  // ---- /api/principals: GETs for moderators and internal clients (ingest resolves who is who,
+  // the dispatcher reads an agent's record); writes stay moderator-only. Both gates run before
+  // anything is read or looked up.
   if (path === ROUTES.principals || path.startsWith(`${ROUTES.principals}/`)) {
-    if (!isModerator) return sendJson(res, 403, MODERATORS_ONLY), true;
-    if (method === "GET" && path === ROUTES.principals) {
-      return sendJson(res, 200, { principals: [...state.principals.values()] }), true;
+    if (method === "GET") {
+      if (!isModerator && !isInternal) return sendJson(res, 403, MODERATORS_ONLY), true;
+      if (path === ROUTES.principals) {
+        return sendJson(res, 200, { principals: [...state.principals.values()] }), true;
+      }
+      const m = /^\/api\/principals\/([^/]+)$/.exec(path);
+      if (m) {
+        const target = decodeURIComponent(m[1]);
+        const principal = state.principals.get(target);
+        if (!principal) throw new HttpError(404, `no principal "${target}"`);
+        return sendJson(res, 200, principal), true;
+      }
+      return false;
     }
+    if (!isModerator) return sendJson(res, 403, MODERATORS_ONLY), true;
     if (method === "POST" && path === ROUTES.principals) {
       return sendJson(res, 200, await addPerson(deps, callerId, await readJsonBody(req))), true;
     }
@@ -626,19 +651,21 @@ export async function handleScopesRoute(
     return false;
   }
 
-  // ---- /api/scope-rules/:principal (moderator; the creator for their own agents).
+  // ---- /api/scope-rules/:principal (moderator; the creator for their own agents; GET also for
+  // internal clients, so the dispatcher can read an agent's task before a run).
   if (path.startsWith(`${ROUTES.scopeRules}/`)) {
     const target = decodeURIComponent(path.slice(ROUTES.scopeRules.length + 1));
     const targetPrincipal = state.principals.get(target);
     const isCreator = targetPrincipal?.kind === "agent" && targetPrincipal.created_by === callerId;
     // A member asking about anything that is not their own agent gets the same bytes whether the
     // target exists or not. Members never read their own rule: exclusions are never shown to them.
-    if (!isModerator && !isCreator) return sendJson(res, 403, MODERATORS_ONLY), true;
     if (method === "GET") {
+      if (!isModerator && !isCreator && !isInternal) return sendJson(res, 403, MODERATORS_ONLY), true;
       const rule = state.rules.get(target);
       if (!rule) throw new HttpError(404, `no scope rule for "${target}"`);
       return sendJson(res, 200, rule), true;
     }
+    if (!isModerator && !isCreator) return sendJson(res, 403, MODERATORS_ONLY), true;
     if (method === "PUT") {
       if (!targetPrincipal) throw new HttpError(404, `no principal "${target}"`);
       const rule = parseRuleBody(await readJsonBody(req), target, callerId);

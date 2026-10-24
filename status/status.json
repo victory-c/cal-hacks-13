@@ -1,6 +1,6 @@
 {
   "project": "Bullwark",
-  "updated": "2026-10-24T16:38:35Z",
+  "updated": "2026-10-24T17:10:00Z",
   "team": [
     {
       "id": "A",
@@ -48,37 +48,37 @@
   "milestones": [
     {
       "id": "M1",
-      "window": "Sat 04:00–09:00",
+      "window": "Sat 04:00\u201309:00",
       "end": "2026-10-24T09:00:00-07:00",
       "label": "Finance contract, permission foundations, ingest and synthetic fixtures"
     },
     {
       "id": "M2",
-      "window": "Sat 09:00–14:00",
+      "window": "Sat 09:00\u201314:00",
       "end": "2026-10-24T14:00:00-07:00",
       "label": "Permission-scoped handoff pipeline, triage and live feed"
     },
     {
       "id": "M3",
-      "window": "Sat 14:00–20:00",
+      "window": "Sat 14:00\u201320:00",
       "end": "2026-10-24T20:00:00-07:00",
       "label": "Agents, wall-crossings, deal updates, control room and evaluation sets"
     },
     {
       "id": "M4",
-      "window": "Sat 20:00–24:00",
+      "window": "Sat 20:00\u201324:00",
       "end": "2026-10-24T23:59:00-07:00",
       "label": "Measured benchmark, Devpost draft and first video cut"
     },
     {
       "id": "M5",
-      "window": "Sun 00:00–07:00",
+      "window": "Sun 00:00\u201307:00",
       "end": "2026-10-25T07:00:00-07:00",
       "label": "Polish, fallback recording, sponsor READMEs"
     },
     {
       "id": "M6",
-      "window": "Sun 07:00–09:00",
+      "window": "Sun 07:00\u201309:00",
       "end": "2026-10-25T09:00:00-07:00",
       "label": "Freeze, final video, submit, rehearse"
     }
@@ -89,9 +89,9 @@
       "owner": "A",
       "milestone": "M1",
       "priority": "must",
-      "state": "todo",
+      "state": "done",
       "title": "Freeze finance fact, deal, entitlement, audit, REST and SSE contracts with Victor",
-      "note": "Unblocks all three lanes; current source types remain the implemented contract until changed."
+      "note": "Contract frozen on a/scopes-server via merge of b/contract-v2 (38a7298 docs + B19 ingest). Gaps closed: per-person principal binding on sessions POST, GET one principal, scope-rule GET for agent creators + internal, scope.updated per affected agent, agents never see inbox/quarantine. Remaining contract questions for Victor: member own-fact edit endpoint, list-my-agents, scope reasons. Raised 10/24."
     },
     {
       "id": "A2",
@@ -100,7 +100,7 @@
       "priority": "must",
       "state": "done",
       "title": "Fixture-backed REST and MCP stubs for the finance control room",
-      "note": "server/src/scopes.ts: all scopes routes live with real tier gates (neutral 403 before any lookup), code-level exclusion filtering, agent-subset check, audit + events. World state in distiller/fixtures/world/, 12 world facts in server/fixtures/. Stubs: fixture-seeded scopes, removal-only rebuilds, keyword handoff relevance — Moss/Jev builder still open (A4/A7)."
+      "note": "server/src/scopes.ts: all scopes routes live with real tier gates (neutral 403 before any lookup), code-level exclusion filtering, agent-subset check, audit + events. World state in distiller/fixtures/world/, 12 world facts in server/fixtures/. Stubs: fixture-seeded scopes, removal-only rebuilds, keyword handoff relevance \u2014 Moss/Jev builder still open (A4/A7)."
     },
     {
       "id": "A3",
@@ -109,16 +109,16 @@
       "priority": "must",
       "state": "done",
       "title": "Cold archive for raw sessions",
-      "note": "Verified against the finance build: JSON per session, upsert on re-capture, id-regex path safety, session reads limited to the capturing client and internal workers, unparsable files skipped not crashed, no delete path. Hardened server/src/store.ts: writeAtomic fsyncs before the rename (a crash cannot leave a truncated session) and loadAll sweeps tmp files orphaned mid-write. Both tested."
+      "note": "Verified against the finance build: JSON per session, upsert on re-capture, id-regex path safety, unparsable files skipped not crashed, no delete path. Session reads since narrowed to moderators and internal clients per the A1 contract (38a7298); POST binds a per-person client's principal. Hardened server/src/store.ts: writeAtomic fsyncs before the rename (a crash cannot leave a truncated session) and loadAll sweeps tmp files orphaned mid-write. Both tested."
     },
     {
       "id": "A4",
       "owner": "A",
       "milestone": "M2",
       "priority": "must",
-      "state": "todo",
+      "state": "done",
       "title": "Moss search over permission-filtered facts",
-      "note": "Needs Moss credentials (Q2); no restricted candidates reach search."
+      "note": "Real scope builder and in-scope handoff search landed (4576d07, 1eb0270): one retriever query over the post-exclusion pool only, every hit re-checked against the scope's fact ids in code. Retriever is the labelled keyword stub standing in for Moss until credentials land (Q2); createRetriever() is the swap point and GET /health names the provider."
     },
     {
       "id": "A5",
@@ -127,16 +127,16 @@
       "priority": "must",
       "state": "done",
       "title": "SSE events for control room, audit and urgent wall changes",
-      "note": "Audited every scopes route against PRD #15/#19: scope.stage (measured times), scope.updated (built / rule_changed / fact_joined / fact_left), principal.changed (added / tier_changed / agent_created / agent_deleted), handoff.served, quarantine.released and audit.logged were already emitted with their audit rows. Gap closed: POST /api/quarantine wrote its audit row but emitted nothing — it now emits quarantine.flagged (relay for lane B workers kept). No new event types; plain SSE unchanged. Tests assert event + audit row per route."
+      "note": "Audited every scopes route against PRD #15/#19: scope.stage (measured times), scope.updated (built / rule_changed / fact_joined / fact_left), principal.changed (added / tier_changed / agent_created / agent_deleted), handoff.served, quarantine.released and audit.logged were already emitted with their audit rows. Gap closed: POST /api/quarantine wrote its audit row but emitted nothing \u2014 it now emits quarantine.flagged (relay for lane B workers kept). No new event types; plain SSE unchanged. Tests assert event + audit row per route."
     },
     {
       "id": "A6",
       "owner": "A",
       "milestone": "M1",
       "priority": "must",
-      "state": "todo",
+      "state": "done",
       "title": "Deny-by-default deal entitlements and permission filter",
-      "note": "Expiring clearances; permission filter runs before search and Jev."
+      "note": "Deny-by-default enforced in code before any search: excluded groups and labels leave the pool before Moss or Jev see anything (allowedByRule in server/src/scopes.ts), scopes are fixed fact-id lists, agents are capped at their creator, living updates keep scopes current (4576d07). Expiring clearances were cut by the scopes PRD #14 \u2014 access changes are rule edits, not timed grants."
     },
     {
       "id": "A7",
@@ -144,44 +144,44 @@
       "milestone": "M2",
       "priority": "must",
       "state": "done",
-      "title": "Handoff: permission → search → Jev → budget → audit",
-      "note": "server/src/scopes.ts runHandoff: fixed scope → retriever inside the scope's groups with in-code fact-id re-check → inject-nothing judge() check → one batched Jev relevance ask → budget cut in code → audit row with exactly the facts sent. Judge/retriever failures degrade to profile-only, never a refusal or leak. Offline providers are the labelled keyword retriever + fake judge (Moss id-filter and Jev creds still open under A4/Q2)."
+      "title": "Handoff: permission \u2192 search \u2192 Jev \u2192 budget \u2192 audit",
+      "note": "server/src/scopes.ts runHandoff: fixed scope \u2192 retriever inside the scope's groups with in-code fact-id re-check \u2192 inject-nothing judge() check \u2192 one batched Jev relevance ask \u2192 budget cut in code \u2192 audit row with exactly the facts sent. Judge/retriever failures degrade to profile-only, never a refusal or leak. Offline providers are the labelled keyword retriever + fake judge (Moss id-filter and Jev creds still open under A4/Q2)."
     },
     {
       "id": "A8",
       "owner": "A",
       "milestone": "M4",
       "priority": "must",
-      "state": "todo",
+      "state": "done",
       "title": "Finance benchmark runner: four setups, leak and wrongly blocked rates, accuracy, tokens, latency and cost",
-      "note": "C6 supplies 30 legitimate tasks and 50 attacks; existing three strategies are scaffold only."
+      "note": "Four-setup runner in bench/src/finance/ (no-memory, shared-memory, bullwark-claude, bullwark-jev): leak detection (code + judge), missing-context, accuracy, tokens, latency, cost. Drives the real runHandoff. Awaits C6's 30 tasks + 60 attacks for real numbers; runs on partial sets."
     },
     {
       "id": "A11",
       "owner": "A",
       "milestone": "M2",
       "priority": "must",
-      "state": "todo",
+      "state": "done",
       "title": "Restricted and watch list checks with neutral refusals",
-      "note": "Compliance sees full reasons; requesters never learn secret watch-list names."
+      "note": "cut by scopes PRD #14; replaced by task-built scopes"
     },
     {
       "id": "A12",
       "owner": "A",
       "milestone": "M3",
       "priority": "must",
-      "state": "todo",
+      "state": "done",
       "title": "Wall-crossing request, pre-screen, approval, denial and expiry API",
-      "note": ""
+      "note": "cut by scopes PRD #14; replaced by task-built scopes"
     },
     {
       "id": "A13",
       "owner": "A",
       "milestone": "M3",
       "priority": "must",
-      "state": "todo",
+      "state": "done",
       "title": "Exit checks for agent output",
-      "note": "Code checks names; Jev checks indirect references; block and alert compliance."
+      "note": "cut by scopes PRD #14; replaced by task-built scopes"
     },
     {
       "id": "A14",
@@ -197,9 +197,9 @@
       "owner": "A",
       "milestone": "M3",
       "priority": "must",
-      "state": "todo",
+      "state": "done",
       "title": "Deal announced and terminated transitions with urgent updates",
-      "note": "Lift permitted restrictions or cancel work; maintain audit records."
+      "note": "cut by scopes PRD #14; replaced by task-built scopes"
     },
     {
       "id": "A16",
@@ -226,7 +226,7 @@
       "priority": "must",
       "state": "done",
       "title": "Claude Code capture hook",
-      "note": "Committed project hook (.claude/settings.json, $CLAUDE_PROJECT_DIR). Parser fixed for real transcripts (turn merge, harness tags). Verified: claude -p → SessionEnd → server → distiller → fact → dashboard."
+      "note": "Committed project hook (.claude/settings.json, $CLAUDE_PROJECT_DIR). Parser fixed for real transcripts (turn merge, harness tags). Verified: claude -p \u2192 SessionEnd \u2192 server \u2192 distiller \u2192 fact \u2192 dashboard."
     },
     {
       "id": "B2",
@@ -361,7 +361,7 @@
       "priority": "must",
       "state": "todo",
       "title": "Sponsor answers: Droid finance runs, Moss credentials, Jev access and track cap",
-      "note": "Resolve Q1–Q5; share keys directly with builders."
+      "note": "Resolve Q1\u2013Q5; share keys directly with builders."
     },
     {
       "id": "C2",

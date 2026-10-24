@@ -167,6 +167,9 @@ export async function runSave(deps: McpDeps, input: SaveInput): Promise<SaveOutp
     title: input.text.slice(0, 80),
     messages: [{ role: "user", content: input.text }],
     meta: { folder_hint: input.folder },
+    // Same binding as POST /api/sessions: a per-person client's saves are its principal's own
+    // memories, so the distilled facts carry that author and join their scope.
+    ...(deps.grant.principal !== undefined ? { principal: deps.grant.principal } : {}),
   };
   await deps.store.putSession(session);
   deps.bus.emit({
