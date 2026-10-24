@@ -1,5 +1,7 @@
+// Controlled worker tests keep revision ordering, retries and independent sessions observable.
 import assert from "node:assert/strict";
 import { describe, test } from "node:test";
+import { setImmediate as tick } from "node:timers/promises";
 
 import { FakeJudge } from "@canon/shared";
 import type { CanonEvent, CapturedSession, Fact, PostFactsBody } from "@canon/shared";
@@ -36,6 +38,36 @@ function captured(id: string, messages: number, ended: boolean, at = new Date().
 
 const fixture = loadFixture();
 const judge = () => quiet(() => new FakeJudge()).then((r) => r.result);
+
+function gate() {
+  let release!: () => void;
+  const promise = new Promise<void>((resolve) => (release = resolve));
+  return { promise, release };
+}
+
+async function revisionHarness(failFirst = false) {
+  const a: CapturedSession = { ...fixture, messages: [{ role: "user", content: "We decided to use Postgres because it handles concurrent writes." }] };
+  const b: CapturedSession = { ...a, messages: [{ role: "user", content: "We decided to use SQLite because the demo runs on one laptop." }] };
+  const sessions = { [a.id]: a };
+  const { client, calls } = fakeClient(sessions);
+  const started = gate();
+  const blocked = gate();
+  const distilled: CapturedSession[] = [];
+  const engine = new HeuristicDistiller();
+  const handler = createHandler({ client, judge: await judge(), live: false, distiller: {
+    name: engine.name,
+    async distill(session) {
+      distilled.push(session);
+      if (distilled.length === 1) {
+        started.release();
+        await blocked.promise;
+        if (failFirst) throw new Error("first revision failed");
+      }
+      return engine.distill(session);
+    },
+  } });
+  return { a, b, sessions, calls, handler, started, blocked, distilled };
+}
 
 describe("worker handler", () => {
   test("an ended session is fetched, distilled, judged and posted once; a repeat is skipped", async () => {
@@ -124,6 +156,113 @@ describe("worker handler", () => {
     assert.match(posted[2], /Postgres/, "the restored text reaches the store again");
   });
 
+  test("a slow A cannot save stale facts when B arrives, and settle waits for B", async () => {
+    const h = await revisionHarness();
+    const { lines } = await quiet(async () => {
+      const first = h.handler(captured(h.a.id, 1, true));
+      await h.started.promise;
+      h.sessions[h.a.id] = h.b;
+      const second = h.handler(captured(h.a.id, 1, true));
+      await tick();
+      let settled = false;
+      const settling = h.handler.settle().then(() => { settled = true; });
+      await tick();
+      assert.equal(settled, false);
+      assert.equal(h.distilled.length, 1, "B waits for A of the same session");
+      h.blocked.release();
+      await Promise.all([first, second, settling]);
+    });
+    assert.deepEqual(h.distilled, [h.a, h.b]);
+    assert.equal(h.calls.posts.length, 1, "stale A is never posted");
+    assert.match(h.calls.posts[0].facts[0].fact.statement, /SQLite/);
+    assert.equal(lines.filter((l) => l.includes("dropping stale result")).length, 1);
+  });
+
+  test("a fetch overtaken by a newer capture never claims, even when its older content lands last", async () => {
+    const a: CapturedSession = { ...fixture, messages: [{ role: "user", content: "We decided to use Postgres because it handles concurrent writes." }] };
+    const b: CapturedSession = { ...a, messages: [{ role: "user", content: "We decided to use SQLite because the demo runs on one laptop." }] };
+    const { client, calls } = fakeClient({ [a.id]: a });
+    const slowA = gate();
+    let fetches = 0;
+    const getSession = client.getSession.bind(client);
+    client.getSession = async (id: string) => {
+      fetches++;
+      if (fetches === 1) {
+        await slowA.promise; // the first fetch's response arrives after the second's
+        return a;
+      }
+      await getSession(id);
+      return b;
+    };
+    const handler = createHandler({ client, distiller: new HeuristicDistiller(), judge: await judge(), live: false });
+    const { lines } = await quiet(async () => {
+      const first = handler(captured(a.id, 1, true));
+      const second = handler(captured(a.id, 1, true));
+      // The second fetch lands (and claims) first; only then does the first, older one land.
+      for (let i = 0; i < 5; i++) await tick();
+      slowA.release();
+      await Promise.all([first, second]);
+      await handler.settle();
+    });
+    assert.equal(calls.posts.length, 1, "only the newer content is saved");
+    assert.match(calls.posts[0].facts[0].fact.statement, /SQLite/);
+    assert.ok(lines.some((l) => l.includes("a newer capture arrived while fetching")), lines.join("\n"));
+  });
+
+  test("queued A, B, A distills the restored A and drops the original A", async () => {
+    const h = await revisionHarness();
+    await quiet(async () => {
+      const first = h.handler(captured(h.a.id, 1, true));
+      await h.started.promise;
+      h.sessions[h.a.id] = h.b;
+      const second = h.handler(captured(h.a.id, 1, true));
+      await tick();
+      h.sessions[h.a.id] = h.a;
+      const restored = h.handler(captured(h.a.id, 1, true));
+      await tick();
+      assert.equal(h.distilled.length, 1, "both later revisions wait");
+      h.blocked.release();
+      await Promise.all([first, second, restored, h.handler.settle()]);
+    });
+    assert.deepEqual(h.distilled, [h.a, h.b, h.a]);
+    assert.equal(h.calls.posts.length, 1, "only the last A is current");
+    assert.match(h.calls.posts[0].facts[0].fact.statement, /Postgres/);
+  });
+
+  test("a failed job does not block the queued next revision of that session", async () => {
+    const h = await revisionHarness(true);
+    const { lines } = await quiet(async () => {
+      const first = h.handler(captured(h.a.id, 1, true));
+      await h.started.promise;
+      h.sessions[h.a.id] = h.b;
+      const second = h.handler(captured(h.a.id, 1, true));
+      await tick();
+      assert.equal(h.distilled.length, 1, "B is queued behind the failing A");
+      h.blocked.release();
+      await Promise.all([first, second, h.handler.settle()]);
+    });
+    assert.deepEqual(h.distilled, [h.a, h.b]);
+    assert.equal(h.calls.posts.length, 1);
+    assert.match(h.calls.posts[0].facts[0].fact.statement, /SQLite/);
+    assert.ok(lines.some((l) => l.includes("first revision failed")));
+  });
+
+  test("different sessions distill concurrently", async () => {
+    const h = await revisionHarness();
+    await quiet(async () => {
+      const first = h.handler(captured(h.a.id, 1, true));
+      await h.started.promise;
+      const other = { ...h.b, id: "ses_0000cafe" };
+      h.sessions[other.id] = other;
+      await h.handler(captured(other.id, 1, true));
+      assert.deepEqual(h.distilled, [h.a, other], "second session finishes while first is blocked");
+      assert.equal(h.calls.posts.length, 1);
+      h.blocked.release();
+      await Promise.all([first, h.handler.settle()]);
+    });
+    assert.equal(h.calls.posts.length, 2);
+  });
+
   test("RevisionLedger: a failed distill is forgotten, but never clears a newer claim", () => {
     const ledger = new RevisionLedger();
     const a: CapturedSession = { id: "ses_0000me02", client: "ingest", started_at: "2026-10-22T13:00:00.000Z", messages: [{ role: "user", content: "A" }] };
@@ -136,8 +275,8 @@ describe("worker handler", () => {
     ledger.release(a.id, revA); // A failed after B was claimed: B stays the last revision
     assert.equal(ledger.claim(a.id, b), undefined);
     ledger.release(a.id, revB); // B failed: a re-post of either text runs again
-    assert.equal(ledger.claim(a.id, b), revB);
-    assert.equal(ledger.claim("ses_0000me03", a), revA, "per session: another id with the same text is its own");
+    assert.equal(ledger.claim(a.id, b)?.revision, revB.revision);
+    assert.equal(ledger.claim("ses_0000me03", a)?.revision, revA.revision, "per session: another id with the same text is its own");
   });
 
   test("a session.captured replayed from before the worker started is skipped, not re-distilled", async () => {

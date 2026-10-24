@@ -2,6 +2,8 @@
 // in-process against a port-0 HTTP server of our own, and once as a real child process for the
 // dry run. The sample world in fixtures/world/ is the end-to-end input.
 import assert from "node:assert/strict";
+import crypto from "node:crypto";
+import { syncBuiltinESMExports } from "node:module";
 import { spawn } from "node:child_process";
 import { createServer } from "node:http";
 import { chmodSync, cpSync, mkdtempSync, mkdirSync, readFileSync, realpathSync, symlinkSync, writeFileSync } from "node:fs";
@@ -759,9 +761,9 @@ test("principal: chats and transcripts never take a principal from a speaker; on
 
 // ---------- ids and the walk ----------
 
-test("session ids: ses_ + 8 hex of sha1(key), stable, POSIX separators; the key defaults to the relative path", () => {
+test("session ids: ses_ + 24 hex of sha1(key), stable, POSIX separators; the key defaults to the relative path", () => {
   const id = sessionIdFor("memos/falcon.md");
-  assert.match(id, /^ses_[0-9a-f]{8}$/);
+  assert.match(id, /^ses_[0-9a-f]{24}$/);
   assert.match(id, SESSION_ID_RE);
   assert.equal(sessionIdFor("memos/falcon.md"), id);
   assert.notEqual(sessionIdFor("memos/falcon2.md"), id);
@@ -915,7 +917,7 @@ async function fakeServer(status = 200) {
 }
 
 /** run() with captured output and an env that cannot see a developer's real .env. */
-async function runCli(argv, env = {}) {
+async function runCli(argv, env = {}, io = {}) {
   const root = mkdtempSync(join(tmpdir(), "canon-ingest-env-"));
   writeFileSync(join(root, ".env"), "# empty\n");
   let stdout = "";
@@ -926,6 +928,7 @@ async function runCli(argv, env = {}) {
     stderr: { write: (s) => (stderr += s) },
     now: NOW,
     sleep: async () => {},
+    ...io,
   });
   return { code, stdout, stderr };
 }
@@ -1039,6 +1042,7 @@ test("ids: two different files never share an id, in one run or in separate runs
     assert.deepEqual(srv.hits.map((h) => h.body.meta.path), ["notes.md", "notes.md"]);
     assert.notEqual(srv.hits[0].body.id, srv.hits[1].body.id, "the second run does not overwrite the first");
     assert.match(second.stdout, /→ 200 new/);
+    for (const hit of srv.hits) assert.match(hit.body.id, /^ses_[0-9a-f]{24}$/);
     const again = await runCli([join(dir, "a"), "--url", srv.url]);
     assert.equal(again.code, 0, again.stderr);
     assert.ok(srv.hits.slice(2).some((h) => h.body.id === srv.hits[0].body.id), "re-ingesting a/ upserts a/notes.md");
@@ -1047,32 +1051,48 @@ test("ids: two different files never share an id, in one run or in separate runs
   }
 });
 
-test("ids: two files whose ids still clash (a hash collision) stop the run (exit 2) before anything is sent", async () => {
+test("ids: separate dry runs keep 24-hex ids stable for each real path", async () => {
+  const dir = realpathSync(mkdtempSync(join(tmpdir(), "canon-stable-id-")));
+  const a = join(dir, "a.md");
+  const b = join(dir, "b.md");
+  writeFileSync(a, "Memo A");
+  writeFileSync(b, "Memo B");
+  const readId = async (path) => {
+    const r = await runCli([path, "--dry-run"]);
+    assert.equal(r.code, 0, r.stderr);
+    const id = JSON.parse(r.stdout)[0].id;
+    assert.match(id, /^ses_[0-9a-f]{24}$/);
+    return id;
+  };
+  const first = await readId(a);
+  assert.notEqual(await readId(b), first);
+  assert.equal(await readId(a), first);
+});
+
+test("ids: two files whose ids still clash (a hash collision) stop the run (exit 2) before anything is sent", async (t) => {
   const dir = realpathSync(mkdtempSync(join(tmpdir(), "canon-clash-")));
-  // Search for two file names in this folder whose real paths share an 8-hex id (~80k tries).
-  const seen = new Map();
-  let pair;
-  for (let i = 0; !pair; i++) {
-    const name = `f${i.toString(36)}.md`;
-    const id = sessionIdFor(join(dir, name));
-    if (seen.has(id)) pair = [seen.get(id), name];
-    else seen.set(id, name);
-  }
+  // Force the otherwise impractical 96-bit collision through Node's built-in crypto export.
+  const pair = ["a.md", "b.md"];
+  t.mock.method(crypto, "createHash", () => ({
+    update() { return this; },
+    digest() { return "a".repeat(40); },
+  }));
+  syncBuiltinESMExports();
+  t.after(() => {
+    t.mock.restoreAll();
+    syncBuiltinESMExports();
+  });
   for (const name of pair) writeFileSync(join(dir, name), `text of ${name}`);
   const files = pair.map((name) => join(dir, name));
-  assert.throws(() => collect(files), /would both be ses_[0-9a-f]{8}.*nothing was sent/s);
+  assert.throws(() => collect(files), /would both be ses_[0-9a-f]{24}.*24-hex hash prefix.*nothing was sent/s);
 
-  const srv = await fakeServer();
-  try {
-    const r = await runCli([...files, "--url", srv.url]);
-    assert.equal(r.code, 2);
-    assert.match(r.stderr, /would both be ses_/);
-    assert.doesNotMatch(r.stderr, /separate runs/, "never advises the run that would overwrite");
-    assert.equal(srv.hits.length, 0, "nothing posted, so nothing overwritten");
-    assert.equal((await runCli([dir, "--dry-run"])).code, 2, "a dry run reports it too");
-  } finally {
-    await srv.close();
-  }
+  let posts = 0;
+  const r = await runCli(files, {}, { fetch: async () => { posts++; throw new Error("unexpected POST"); } });
+  assert.equal(r.code, 2);
+  assert.match(r.stderr, /would both be ses_[0-9a-f]{24}.*24-hex hash prefix/);
+  assert.doesNotMatch(r.stderr, /separate runs/, "never advises the run that would overwrite");
+  assert.equal(posts, 0, "nothing posted, so nothing overwritten");
+  assert.equal((await runCli([dir, "--dry-run"])).code, 2, "a dry run reports it too");
 });
 
 test("CLI: a file that cannot be read or parsed is reported, the rest still post, and the run exits 1", async () => {

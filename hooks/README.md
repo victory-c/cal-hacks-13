@@ -234,14 +234,17 @@ date when it names an instant (an exact date-time, a date-time with its own zone
 first message time, else now. A date-time with no zone (`date: 2026-10-21 09:12`) is not turned
 into midnight: it is kept as written in `meta.date`.
 
-**Ids.** `ses_` + the first 8 hex of sha1(the file's real absolute path). Re-ingesting the same
+**Ids.** `ses_` + the first 24 hex of sha1(the file's real absolute path). Re-ingesting the same
 file upserts (the CLI prints `new` or `updated`), whether it comes in with the whole world, a
-subfolder or alone. Two different files never share an id, in one run or across separate runs,
-so the server's upsert never overwrites one archived item with another (`a/notes.md` and
-`b/notes.md` are two sessions). The same file named twice, or through a symlink, is posted once.
-If two different files' ids still clash (an 8-hex hash collision), the run stops with exit 2
+subfolder or alone. The longer hash prefix makes collisions between different paths unlikely
+across runs (`a/notes.md` and `b/notes.md` get different ids), protecting archived items from
+replacement. The same file named twice, or through a symlink, is posted once.
+If two different files' ids still clash (a 24-hex hash collision), the run stops with exit 2
 before anything is sent. Ids are per checkout: the same world in another folder or on another
 machine gets other ids.
+
+Ingest ids changed from 8 to 24 hex characters. Re-ingesting sessions imported before this
+change gives them new ids; the old archive entries stay, and nothing is deleted.
 
 **JSON and JSONL messages.** A row's text is `text`, `content`, `message` or `body`: a string, a
 list of content blocks (`[{ "type": "text", "text": … }]`, the Claude API and Claude export

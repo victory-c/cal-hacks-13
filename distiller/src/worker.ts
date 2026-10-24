@@ -1,6 +1,7 @@
 // The worker's event handler: session.captured → fetch → distill → Jev decides → POST /api/facts.
 // Built as a factory over an injected client/distiller/judge so worker.test.ts drives it with
-// fakes and no network. One bad session is logged and skipped; the loop never dies.
+// fakes and no network. Per-session queues keep corrections ordered; stale results never save.
+// One bad session is logged and skipped; the loop never dies.
 
 import { createHash } from "node:crypto";
 
@@ -44,13 +45,32 @@ export function createHandler(opts: HandlerOptions): Handler {
   const processed = new RevisionLedger(); // last revision distilled per session; an unchanged re-send is a no-op
   const pending = new Map<string, Pending>(); // live-mode debounce, one per session id
   const inflight = new Set<Promise<void>>();
+  const chains = new Map<string, Promise<void>>();
+  const latestRun = new Map<string, number>(); // per session: the newest run started
+  let runs = 0;
 
   const track = (p: Promise<void>): Promise<void> => {
     inflight.add(p);
     void p.finally(() => inflight.delete(p));
     return p;
   };
-  const run = (event: Captured) => track(processSession(event, opts, processed));
+  const run = (event: Captured) => {
+    const { id } = event.session;
+    const seq = ++runs;
+    latestRun.set(id, seq);
+    // Fetch and claim now, so an arriving correction invalidates work already running. A fetch
+    // that a newer run overtook never claims: its response may land last but holds older content.
+    const fetched = fetchSession(id, opts, processed, () => latestRun.get(id) === seq);
+    const previous = chains.get(id) ?? Promise.resolve();
+    const job = previous.catch(() => {}).then(async () => {
+      const next = await fetched;
+      if (next) await processSession(next.session, next.claim, opts, processed);
+    });
+    chains.set(id, job);
+    return track(job.finally(() => {
+      if (chains.get(id) === job) chains.delete(id);
+    }));
+  };
 
   // A newer capture (or the final one) supersedes a waiting debounce; release its waiter.
   const cancelPending = (id: string) => {
@@ -107,6 +127,8 @@ export function sessionRevision(session: CapturedSession): string {
   return createHash("sha1").update(JSON.stringify(content)).digest("hex").slice(0, 12);
 }
 
+type RevisionClaim = { revision: string };
+
 /**
  * The one revision per session that was last handed to the distiller, so an unchanged re-send is
  * a no-op and any change is distilled again. Only the latest counts, not every past one: a memo
@@ -115,40 +137,55 @@ export function sessionRevision(session: CapturedSession): string {
  * copies of one event distill once.
  */
 export class RevisionLedger {
-  readonly #last = new Map<string, string>();
+  readonly #last = new Map<string, RevisionClaim>();
 
-  /** The fetched session's revision when it is not the one last claimed for `id`, else undefined. */
-  claim(id: string, session: CapturedSession): string | undefined {
+  /** A unique claim for changed content; an unchanged re-send returns undefined. */
+  claim(id: string, session: CapturedSession): RevisionClaim | undefined {
     const revision = sessionRevision(session);
-    if (this.#last.get(id) === revision) return undefined;
-    this.#last.set(id, revision);
-    return revision;
+    if (this.#last.get(id)?.revision === revision) return undefined;
+    const claim = { revision }; // Identity distinguishes A → B → A from the original A.
+    this.#last.set(id, claim);
+    return claim;
   }
 
   /**
    * A failed distill: forget it so a re-post runs again, unless a newer revision was claimed since.
    * Never puts back the one before, which may have failed too.
    */
-  release(id: string, revision: string): void {
-    if (this.#last.get(id) === revision) this.#last.delete(id);
+  release(id: string, claim: RevisionClaim): void {
+    if (this.isLatest(id, claim)) this.#last.delete(id);
+  }
+
+  isLatest(id: string, claim: RevisionClaim): boolean {
+    return this.#last.get(id) === claim;
   }
 }
 
-async function processSession(event: Captured, opts: HandlerOptions, processed: RevisionLedger): Promise<void> {
-  const { id } = event.session;
-  // Keyed by the fetched content, not the event's message count: a re-imported memo keeps its id
-  // and usually its one message, so a corrected file must still be distilled again.
-  let claimed: string | undefined;
+async function fetchSession(id: string, opts: HandlerOptions, processed: RevisionLedger, isCurrent: () => boolean) {
+  // Compare fetched content: a corrected memo usually keeps its id and message count.
   try {
     const fetched = await timed(() => opts.client.getSession(id));
     const session = fetched.result;
-    claimed = processed.claim(id, session);
-    if (!claimed) {
+    if (!isCurrent()) {
+      log(`session ${id}: a newer capture arrived while fetching; leaving it to that run`);
+      return;
+    }
+    const claim = processed.claim(id, session);
+    if (!claim) {
       log(`session ${id}: unchanged since it was distilled (${session.messages.length} messages), skipping`);
       return;
     }
     log(`session ${id}: fetched ${session.messages.length} messages in ${fetched.ms} ms`);
 
+    return { session, claim };
+  } catch (err) {
+    warn(`session ${id}: failed, skipping: ${errorMessage(err)}`);
+  }
+}
+
+async function processSession(session: CapturedSession, claim: RevisionClaim, opts: HandlerOptions, processed: RevisionLedger): Promise<void> {
+  const { id } = session;
+  try {
     const distilled = await timed(() => opts.distiller.distill(session));
     const { drafts, plan, simulated } = distilled.result;
     log(`session ${id}: ${opts.distiller.name} distilled ${drafts.length} drafts in ${distilled.ms} ms${simulated ? " (simulated)" : ""}`);
@@ -163,11 +200,15 @@ async function processSession(event: Captured, opts: HandlerOptions, processed: 
     const counts = summarize(decided.result.map((d) => d.decision));
     log(`session ${id}: ${opts.judge.name} judged ${drafts.length} drafts against ${hot.result.length} hot facts in ${decided.ms} ms (${counts})`);
 
+    if (!processed.isLatest(id, claim)) {
+      log(`session ${id}: newer revision recorded, dropping stale result`);
+      return;
+    }
     const posted = await timed(() => opts.client.postFacts({ facts: decided.result }));
     log(`session ${id}: saved ${posted.result.saved.length}, retired ${posted.result.retired.length} in ${posted.ms} ms`);
   } catch (err) {
     // Let a later re-post of the same session retry; do not take the loop down.
-    if (claimed) processed.release(id, claimed);
+    processed.release(id, claim);
     warn(`session ${id}: failed, skipping: ${errorMessage(err)}`);
   }
 }

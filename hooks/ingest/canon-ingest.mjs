@@ -9,9 +9,9 @@
 //        [--principal ID] [--firm-domain DOMAIN] [--root DIR] [--delay MS]
 //
 // Each file becomes a complete session (ended_at set), so the distiller triages it at once. Ids
-// are ses_ + sha1 of the file's real absolute path, so re-ingesting the same file upserts (from
-// the whole world, a subfolder or the file alone) and two different files never share an id,
-// even across separate runs. The parsing lives in lib.mjs (pure, tested); this file is flags,
+// are ses_ + 24 hex of sha1 of the file's real absolute path. Re-ingesting the same file upserts
+// (from the whole world, a subfolder or the file alone), with a long hash prefix to avoid collisions
+// across separate runs. The parsing lives in lib.mjs (pure, tested); this file is flags,
 // config and HTTP. A 404 or 401 from the server is logged once with a hint, the rest of the files
 // are still tried, and the exit code says whether everything landed (0), something failed (1),
 // or the flags or paths were wrong (2), which includes two files whose ids clash. A file that
@@ -139,7 +139,7 @@ export function loadDirectory(path) {
  * the folder given, else the file's folder) feeds kind signals and meta.path; `key`, the real
  * absolute path, is what the session id comes from. So `a/notes.md` and `b/notes.md` get two ids
  * whether they are ingested together or in separate runs, and the same file named twice (or
- * through a symlink) is kept once. Two different files whose ids still clash (an 8-hex hash
+ * through a symlink) is kept once. Two different files whose ids still clash (a 24-hex hash
  * collision) throw: the server upserts by id, so the second would overwrite the first in the
  * cold archive.
  */
@@ -169,7 +169,7 @@ export function collect(paths, root) {
       unique.push(item);
     } else if (prev.key !== item.key) {
       throw new Error(
-        `${prev.abs} and ${item.abs} would both be ${id} (their paths hash alike), so the second would overwrite ` +
+        `${prev.abs} and ${item.abs} would both be ${id} (their paths share a 24-hex hash prefix), so the second would overwrite ` +
           "the first in the archive. Rename or move one of them; nothing was sent.",
       );
     }
