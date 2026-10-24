@@ -575,11 +575,11 @@ const ROLES = ["user", "assistant", "system", "tool"];
 
 /**
  * Stable for one key, so re-ingesting the same file upserts instead of duplicating. The CLI's key
- * is the file's real absolute path: two different files never share an id, in one run or across
- * runs, so the server's upsert never overwrites one archived item with another.
+ * is the file's real absolute path. A 96-bit hash prefix makes collisions unlikely across runs,
+ * where the CLI cannot compare the paths of previously archived items.
  */
 export function sessionIdFor(key) {
-  return `ses_${createHash("sha1").update(toPosix(key)).digest("hex").slice(0, 8)}`;
+  return `ses_${createHash("sha1").update(toPosix(key)).digest("hex").slice(0, 24)}`;
 }
 
 /**
