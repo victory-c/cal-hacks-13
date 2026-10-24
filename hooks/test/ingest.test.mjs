@@ -4,7 +4,7 @@
 import assert from "node:assert/strict";
 import { spawn } from "node:child_process";
 import { createServer } from "node:http";
-import { chmodSync, cpSync, mkdtempSync, mkdirSync, readFileSync, symlinkSync, writeFileSync } from "node:fs";
+import { chmodSync, cpSync, mkdtempSync, mkdirSync, readFileSync, realpathSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -20,6 +20,7 @@ import {
   isExternalSender,
   isFirmAddress,
   itemClock,
+  kindFromWord,
   mailboxesIn,
   parseEmail,
   parseSpeakerLine,
@@ -96,6 +97,25 @@ test("inferKind: a key/value sheet is not a chat (each key said once)", () => {
   const s = item("falcon/term-sheet.md", sheet, { principal: "dan" });
   assert.equal(s.kind, "note");
   assert.equal(s.principal, "dan", "--principal is kept, not replaced by 'buyer'");
+});
+
+test("kind words are own keys only: `constructor.md` or a `__proto__/` folder never yields an Object member", async () => {
+  for (const word of ["constructor", "__proto__", "toString", "hasOwnProperty", "valueOf"]) assert.equal(kindFromWord(word), undefined, word);
+  assert.deepEqual(inferKind({ relPath: "constructor.md", text: "plain" }), { kind: "note", by: "default" });
+  assert.deepEqual(inferKind({ relPath: "__proto__/x.md", text: "plain" }), { kind: "note", by: "default" });
+  assert.equal(item("x.md", "---\nkind: constructor\n---\nbody").kind, "note");
+  assert.equal(Object.getPrototypeOf(splitFrontMatter("---\n__proto__: [a, b]\n---\nx").data), Object.prototype, "front-matter cannot swap the prototype");
+  assert.equal(parseEmail("From: a@b.com\nConstructor: x\nSubject: s\n\nb").headers.constructor, "x", "a header named like an Object member is just a header");
+  assert.match(parseArgs(["x", "--only", "constructor"]).error, /--only must be one of/);
+
+  const dir = mkdtempSync(join(tmpdir(), "canon-protokeys-"));
+  mkdirSync(join(dir, "__proto__"));
+  writeFileSync(join(dir, "constructor.md"), "a note");
+  writeFileSync(join(dir, "__proto__", "x.md"), "another note");
+  const r = await runCli([dir, "--dry-run"]);
+  assert.equal(r.code, 0, r.stderr);
+  assert.deepEqual(JSON.parse(r.stdout).map((x) => x.kind), ["note", "note"], "summaryLine no longer stops the batch");
+  assert.match(r.stderr, /dry run: 2 sessions/);
 });
 
 // ---------- chat and transcripts ----------
@@ -177,6 +197,20 @@ test("dates with no zone are not read in the machine's local zone", () => {
   assert.equal(mail.messages[0].at, undefined, "zone-less Date: header → no at");
   assert.equal(mail.started_at, NOW);
   assert.equal(item("notes/x.md", "---\ndate: Oct 21 2026 9:12 AM\n---\nb").started_at, NOW, "zone-less front-matter date → not guessed");
+
+  // A zone-less date-time is not turned into midnight UTC of its day: it names no instant.
+  for (const date of ["2026-10-21 09:12", "2026-10-21T09:12:00"]) {
+    const naive = item("notes/x.md", `---\ndate: ${date}\n---\nb`);
+    assert.equal(naive.started_at, NOW, date);
+    assert.equal(naive.meta.date, date, "the date is kept as written, so nothing is lost");
+  }
+  assert.equal(item("notes/x.md", "---\ndate: 2026-10-21 09:12\ntz: -04:00\n---\nb").started_at, "2026-10-21T13:12:00.000Z", "with tz: it is exact");
+  const bare = item("notes/x.md", "---\ndate: 2026-10-21\n---\nb");
+  assert.equal(bare.started_at, "2026-10-21T00:00:00.000Z", "a bare date is still its day");
+  assert.equal(bare.meta.date, undefined);
+  const chat = item("chat/x.txt", "---\ndate: 2026-10-21 09:00\n---\n[2026-10-21T09:05:00-04:00] Dan: hi\n[2026-10-21T09:06:00-04:00] Leo: yo");
+  assert.equal(chat.started_at, "2026-10-21T13:05:00.000Z", "falls through to the first exact message time");
+  assert.equal(chat.ended_at, "2026-10-21T13:06:00.000Z");
 });
 
 test("JSON row times: only plausible epochs are instants; small or huge numbers never become 1970 or throw", () => {
@@ -232,8 +266,10 @@ test("JSONL and JSON chat exports: one message per row, Slack epoch ts, bad line
   const doc = item("memos/x.json", JSON.stringify({ title: "Memo", body: "Falcon memo text" }));
   assert.equal(doc.kind, "memo");
   assert.deepEqual(doc.messages, [{ role: "user", content: "Falcon memo text" }]);
-  assert.deepEqual(item("x.json", "{oops"), { skip: item("x.json", "{oops").skip });
-  assert.match(item("x.json", "{oops").skip, /bad JSON/);
+  assert.deepEqual(item("x.json", "{oops"), { error: item("x.json", "{oops").error }, "unparseable is an error, not a skip");
+  assert.match(item("x.json", "{oops").error, /bad JSON/);
+  assert.match(item("chat/x.jsonl", "{ nope\nnot json either").error, /bad JSONL/, "no valid line at all");
+  assert.deepEqual(item("x.json", JSON.stringify({ version: 2 })), { skip: "JSON object with no messages or body" }, "valid JSON that holds no item is a skip");
 });
 
 test("AI session from text: speakers map to roles, 'You' never becomes the principal", () => {
@@ -418,7 +454,7 @@ test("principal: header lines are not openers; --principal stays unless a real p
 
 // ---------- ids and the walk ----------
 
-test("session ids: ses_ + 8 hex of sha1(relative path), stable, POSIX separators", () => {
+test("session ids: ses_ + 8 hex of sha1(key), stable, POSIX separators; the key defaults to the relative path", () => {
   const id = sessionIdFor("memos/falcon.md");
   assert.match(id, /^ses_[0-9a-f]{8}$/);
   assert.match(id, SESSION_ID_RE);
@@ -427,6 +463,7 @@ test("session ids: ses_ + 8 hex of sha1(relative path), stable, POSIX separators
   assert.equal(sessionIdFor(["memos", "falcon.md"].join("\\").replace(/\\/g, "/")), id);
   assert.equal(item("memos/falcon.md", "a").id, id);
   assert.equal(item("memos/falcon.md", "different text, same file").id, id, "editing a file re-posts the same session");
+  assert.equal(item("memos/falcon.md", "a", { idKey: "/w/memos/falcon.md" }).id, sessionIdFor("/w/memos/falcon.md"), "the CLI passes the real path");
 });
 
 test("walk: sorted POSIX paths, skips README, dotfiles and unsupported files", () => {
@@ -438,9 +475,10 @@ test("walk: sorted POSIX paths, skips README, dotfiles and unsupported files", (
   assert.deepEqual(
     collect([join(dir, "b")], dir).map((i) => i.rel),
     ["b/a.jsonl", "b/z.eml"],
-    "--root keeps ids stable when ingesting a subfolder",
+    "--root keeps the folder names above a subfolder",
   );
   assert.deepEqual(collect([join(dir, "b", "z.eml")]).map((i) => i.rel), ["z.eml"]);
+  assert.equal(collect([join(dir, "b", "z.eml")])[0].key, realpathSync(join(dir, "b", "z.eml")), "the id key is the real path");
   assert.throws(() => collect([join(dir, "README.md")]), /not an ingestible file/);
   assert.throws(() => collect([join(dir, "missing")]), /no such file/);
 });
@@ -656,52 +694,104 @@ test("CLI: a 401 says how to register the ingest token; a dead server stops afte
 });
 
 // Security rule (Jev never deletes; raw sessions always reach the cold archive): two different
-// files must never share a session id, or the server's upsert overwrites the first one.
-test("CLI: two files that would share a session id stop the run (exit 2) before anything is sent", async () => {
+// files must never share a session id, in one run or across separate runs, or the server's
+// upsert overwrites the first one.
+test("ids: two different files never share an id, in one run or in separate runs", async () => {
   const dir = mkdtempSync(join(tmpdir(), "canon-collide-"));
   for (const sub of ["a", "b"]) {
     mkdirSync(join(dir, sub, "memos"), { recursive: true });
     writeFileSync(join(dir, sub, "notes.md"), `notes ${sub}`);
     writeFileSync(join(dir, sub, "memos", "x.md"), `memo ${sub}`);
   }
-  assert.throws(() => collect([join(dir, "a", "notes.md"), join(dir, "b", "notes.md")]), /would both be ses_[0-9a-f]{8}.*--root/s);
-  assert.throws(() => collect([join(dir, "a"), join(dir, "b")]), /would both be/, "two roots with the same layout");
-  assert.deepEqual(
-    collect([join(dir, "a", "notes.md"), join(dir, "b", "notes.md")], dir).map((i) => i.rel),
-    [join("a", "notes.md"), join("b", "notes.md")],
-    "--root with a common folder gives distinct ids",
-  );
-  assert.equal(collect([join(dir, "a"), join(dir, "a", "memos", "x.md")], join(dir, "a")).length, 2, "the same file named twice is kept once");
+  const idOf = (paths, root, file) => sessionIdFor(collect(paths, root).find((i) => i.abs === file).key);
+  const aNotes = join(dir, "a", "notes.md");
+  const bNotes = join(dir, "b", "notes.md");
+  assert.notEqual(idOf([aNotes], undefined, aNotes), idOf([bNotes], undefined, bNotes), "same name and rel path, separate runs");
+  assert.equal(new Set(collect([join(dir, "a"), join(dir, "b")]).map((i) => sessionIdFor(i.key))).size, 4, "two roots with the same layout");
+
+  // The same file keeps one id however it is named: whole world, subfolder (with or without --root), alone.
+  const x = join(dir, "a", "memos", "x.md");
+  const want = sessionIdFor(realpathSync(x));
+  for (const [paths, root] of [[[join(dir, "a")]], [[join(dir, "a", "memos")]], [[join(dir, "a", "memos")], join(dir, "a")], [[x]], [[x], dir]]) {
+    assert.equal(idOf(paths, root, x), want, JSON.stringify([paths, root]));
+  }
+  assert.equal(collect([join(dir, "a"), x], join(dir, "a")).length, 2, "the same file named twice is kept once");
+  symlinkSync(join(dir, "a"), join(dir, "a-link"));
+  assert.equal(collect([join(dir, "a"), join(dir, "a-link")]).length, 2, "the same files through a symlink are kept once");
 
   const srv = await fakeServer();
   try {
-    const r = await runCli([join(dir, "a", "notes.md"), join(dir, "b", "notes.md"), "--url", srv.url]);
-    assert.equal(r.code, 2);
-    assert.match(r.stderr, /would both be ses_/);
-    assert.equal(srv.hits.length, 0, "nothing posted, so nothing overwritten");
-    const dry = await runCli([join(dir, "a"), join(dir, "b"), "--dry-run"]);
-    assert.equal(dry.code, 2, "a dry run reports it too");
+    const first = await runCli([aNotes, "--url", srv.url]);
+    const second = await runCli([bNotes, "--url", srv.url]);
+    assert.equal(first.code, 0, first.stderr);
+    assert.equal(second.code, 0, second.stderr);
+    assert.deepEqual(srv.hits.map((h) => h.body.meta.path), ["notes.md", "notes.md"]);
+    assert.notEqual(srv.hits[0].body.id, srv.hits[1].body.id, "the second run does not overwrite the first");
+    assert.match(second.stdout, /→ 200 new/);
+    const again = await runCli([join(dir, "a"), "--url", srv.url]);
+    assert.equal(again.code, 0, again.stderr);
+    assert.ok(srv.hits.slice(2).some((h) => h.body.id === srv.hits[0].body.id), "re-ingesting a/ upserts a/notes.md");
   } finally {
     await srv.close();
   }
 });
 
-test("CLI: a file that cannot be read or parsed is skipped with a reason; the rest still post", async () => {
+test("ids: two files whose ids still clash (a hash collision) stop the run (exit 2) before anything is sent", async () => {
+  const dir = realpathSync(mkdtempSync(join(tmpdir(), "canon-clash-")));
+  // Search for two file names in this folder whose real paths share an 8-hex id (~80k tries).
+  const seen = new Map();
+  let pair;
+  for (let i = 0; !pair; i++) {
+    const name = `f${i.toString(36)}.md`;
+    const id = sessionIdFor(join(dir, name));
+    if (seen.has(id)) pair = [seen.get(id), name];
+    else seen.set(id, name);
+  }
+  for (const name of pair) writeFileSync(join(dir, name), `text of ${name}`);
+  const files = pair.map((name) => join(dir, name));
+  assert.throws(() => collect(files), /would both be ses_[0-9a-f]{8}.*nothing was sent/s);
+
+  const srv = await fakeServer();
+  try {
+    const r = await runCli([...files, "--url", srv.url]);
+    assert.equal(r.code, 2);
+    assert.match(r.stderr, /would both be ses_/);
+    assert.doesNotMatch(r.stderr, /separate runs/, "never advises the run that would overwrite");
+    assert.equal(srv.hits.length, 0, "nothing posted, so nothing overwritten");
+    assert.equal((await runCli([dir, "--dry-run"])).code, 2, "a dry run reports it too");
+  } finally {
+    await srv.close();
+  }
+});
+
+test("CLI: a file that cannot be read or parsed is reported, the rest still post, and the run exits 1", async () => {
   const dir = mkdtempSync(join(tmpdir(), "canon-badfile-"));
   cpSync(WORLD, dir, { recursive: true });
   mkdirSync(join(dir, "exports"));
   writeFileSync(join(dir, "exports", "huge-ts.json"), JSON.stringify([{ speaker: "Dan", text: "hi", ts: 1e17 }]));
+  writeFileSync(join(dir, "exports", "broken.json"), "{oops");
+  writeFileSync(join(dir, "exports", "empty.md"), "   \n");
   writeFileSync(join(dir, "exports", "locked.md"), "secret");
   chmodSync(join(dir, "exports", "locked.md"), 0o000);
   const unreadable = process.getuid?.() !== 0; // root can read a 000 file
   const srv = await fakeServer();
   try {
     const r = await runCli([dir, "--url", srv.url]);
-    assert.equal(r.code, 0, r.stderr);
-    if (unreadable) assert.match(r.stderr, /skip {2}exports\/locked\.md: could not read or parse it/);
+    assert.equal(r.code, 1, r.stderr);
+    assert.match(r.stderr, /fail {2}exports\/broken\.json: bad JSON/);
+    if (unreadable) assert.match(r.stderr, /fail {2}exports\/locked\.md: could not read or parse it/);
+    assert.match(r.stderr, /skip {2}exports\/empty\.md: no text/);
+    assert.match(r.stderr, new RegExp(`${unreadable ? "2 files" : "1 file"} could not be read or parsed`));
     assert.equal(srv.hits.length, unreadable ? 6 : 7, "the five world items and the epoch export still went out");
     const exp = srv.hits.find((h) => h.body.meta.path === "exports/huge-ts.json");
     assert.equal(exp.body.messages[0].at, undefined, "no RangeError, no invented time");
+
+    assert.equal((await runCli([dir, "--dry-run"])).code, 1, "a dry run reports it too");
+    const onlyBad = await runCli([join(dir, "exports", "broken.json"), "--url", srv.url]);
+    assert.equal(onlyBad.code, 1, "a run of nothing but bad JSON is not a success");
+    assert.match(onlyBad.stderr, /0 posted, 0 failed, 0 total .*1 file could not be read or parsed/);
+    const skipsOnly = await runCli([join(dir, "exports", "empty.md"), join(dir, "exports", "huge-ts.json"), "--url", srv.url]);
+    assert.equal(skipsOnly.code, 0, "a deliberate skip (no text) does not fail the run");
   } finally {
     chmodSync(join(dir, "exports", "locked.md"), 0o644);
     await srv.close();
@@ -747,5 +837,6 @@ test("CLI as a child process: --dry-run on the sample world, exit 0, JSON on std
   assert.equal(r.code, 0, r.stderr);
   const [s] = JSON.parse(r.stdout);
   assert.equal(s.kind, "transcript");
-  assert.equal(s.id, sessionIdFor("transcripts/2026-10-22-falcon-mgmt-call.md"));
+  assert.equal(s.id, sessionIdFor(realpathSync(join(WORLD, "transcripts", "2026-10-22-falcon-mgmt-call.md"))));
+  assert.equal(s.meta.path, "transcripts/2026-10-22-falcon-mgmt-call.md");
 });

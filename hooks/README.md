@@ -122,7 +122,7 @@ npm run ingest:world -w hooks                                       # same as th
 | `--only KIND` | `memo`, `chat`, `transcript`, `email`, `note` or `ai_session` (plurals and aliases such as `emails`, `meetings` work) |
 | `--principal ID` | principal for items that name none |
 | `--firm-domain D` | default `harborlane.com`; an email from outside it is `external: true` |
-| `--root DIR` | ids come from paths relative to DIR (default: the folder given, or a file's folder) |
+| `--root DIR` | folder names under DIR count as kind signals, and `meta.path` is relative to it (default: the folder given, or a file's folder). Ids never depend on it |
 | `--delay MS` | wait between posts, to drip items in live during the demo |
 
 **Token.** `CANON_TOKEN_INGEST` (env, then `.env`), else `dev-ingest`. The server must list it:
@@ -166,19 +166,27 @@ row times must be epoch seconds or ms (9 to 13 digits) or a date-time with an of
 number such as `3.5` is not 1970. Dates with no zone (`2026-10-21 09:12`, a `Date:` header
 without an offset) are not read in the machine's local zone. Anything less certain stays in the
 text as `[09:12]`, so nothing is lost and no time zone is invented. `started_at` is the item's
-date (or the email `Date:`), else the first message time, else now.
+date when it names an instant (an exact date-time, a date-time with its own zone, or a bare
+`2026-10-21`, which is midnight at the item's `tz:`, else UTC), or the email `Date:`; else the
+first message time, else now. A date-time with no zone (`date: 2026-10-21 09:12`) is not turned
+into midnight: it is kept as written in `meta.date`.
 
-**Ids.** `ses_` + the first 8 hex of sha1(path relative to the root), so re-ingesting the same
-root upserts (the CLI prints `new` or `updated`). Ingesting a subfolder? Pass `--root` with the
-world's root to keep the same ids. Two different files that would get the same id (two files
-named `notes.md` given directly, or two roots with the same layout) stop the run with exit 2
-before anything is sent, because the server's upsert would overwrite the first in the archive;
-pass `--root` with a folder that contains both. The same file named twice is posted once.
+**Ids.** `ses_` + the first 8 hex of sha1(the file's real absolute path). Re-ingesting the same
+file upserts (the CLI prints `new` or `updated`), whether it comes in with the whole world, a
+subfolder or alone. Two different files never share an id, in one run or across separate runs,
+so the server's upsert never overwrites one archived item with another (`a/notes.md` and
+`b/notes.md` are two sessions). The same file named twice, or through a symlink, is posted once.
+If two different files' ids still clash (an 8-hex hash collision), the run stops with exit 2
+before anything is sent. Ids are per checkout: the same world in another folder or on another
+machine gets other ids.
 
-**Failures.** A file that cannot be read or parsed prints `skip <path>: <reason>` and the run
-goes on. Each HTTP error status is logged once with a hint (401: register the token; 404: not a
-Canon server) and every remaining file is still tried. A dead server stops the run after one
-line. Exit code: 0 all posted, 1 anything failed, 2 bad flags or paths, or a session id clash.
+**Failures.** A file that cannot be read or parsed (unreadable, bad JSON, a JSONL file with no
+valid line) prints `fail <path>: <reason>`; the run goes on and exits 1. A file with nothing to
+ingest (over 1 MB, no text, JSON with no messages or body) prints `skip <path>: <reason>` and does
+not change the exit code. Each HTTP error status is logged once with a hint (401: register the
+token; 404: not a Canon server) and every remaining file is still tried. A dead server stops the
+run after one line. Exit code: 0 all posted, 1 anything failed (a POST, or a file that could not
+be read or parsed, also on `--dry-run`), 2 bad flags or paths, or a session id clash.
 
 **Verified against today's server** (Sat 05:00, `CANON_CLIENT_TOKENS` with `ingest=dev-ingest`):
 all 5 world items archived, a second run printed `updated` for the same ids. The archive kept

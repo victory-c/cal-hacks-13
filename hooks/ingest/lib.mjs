@@ -39,10 +39,14 @@ const KIND_WORDS = {
 };
 const EXT_KINDS = { ".eml": "email", ".jsonl": "chat", ".vtt": "transcript", ".srt": "transcript" };
 
-/** "Emails", "meetings", "ai-session" → a SourceKind, or undefined. */
+/**
+ * "Emails", "meetings", "ai-session" → a SourceKind, or undefined. Own keys only: a file named
+ * `constructor.md` or a folder `__proto__/` must not turn an Object member into a kind.
+ */
 export function kindFromWord(word) {
   if (typeof word !== "string") return undefined;
-  return KIND_WORDS[word.trim().toLowerCase()];
+  const key = word.trim().toLowerCase();
+  return Object.hasOwn(KIND_WORDS, key) ? KIND_WORDS[key] : undefined;
 }
 
 // ------------------------------------------------------------------------------ front-matter
@@ -59,7 +63,8 @@ export function splitFrontMatter(text) {
   for (const raw of m[1].split(/\r?\n/)) {
     if (/^\s/.test(raw) || raw.trim().startsWith("#")) continue;
     const kv = /^([A-Za-z_][\w-]*)\s*:(.*)$/.exec(raw); // no lazy `.*?\s*$`: it backtracks quadratically
-    if (kv) data[kv[1].toLowerCase()] = yamlValue(kv[2].trim());
+    // `__proto__: [a, b]` would swap the object's prototype instead of setting a key.
+    if (kv && kv[1].toLowerCase() !== "__proto__") data[kv[1].toLowerCase()] = yamlValue(kv[2].trim());
   }
   return { data, body: text.slice(m[0].length) };
 }
@@ -389,7 +394,8 @@ export function parseEmail(text) {
     const m = /^([A-Za-z][\w-]*):[ \t]*(.*)$/.exec(line);
     if (!m) break;
     last = m[1].toLowerCase();
-    headers[last] = headers[last] ? `${headers[last]}, ${m[2].trim()}` : m[2].trim();
+    // Own keys only, so a `Constructor:` header is not joined onto Object's own constructor.
+    headers[last] = Object.hasOwn(headers, last) ? `${headers[last]}, ${m[2].trim()}` : m[2].trim();
   }
   if (!headers.from && !headers.subject) return { headers: {}, body: String(text).trim() };
   return { headers, body: lines.slice(i).join("\n").trim() };
@@ -482,23 +488,31 @@ export const toPrincipalId = normalizePrincipal;
 const AI_SPEAKER_RE = /^(assistant|chatgpt|gpt|claude|gemini|copilot|ai|bot)\b/i;
 const ROLES = ["user", "assistant", "system", "tool"];
 
-/** Stable for one path, so re-ingesting the same root upserts instead of duplicating. */
-export function sessionIdFor(relPath) {
-  return `ses_${createHash("sha1").update(toPosix(relPath)).digest("hex").slice(0, 8)}`;
+/**
+ * Stable for one key, so re-ingesting the same file upserts instead of duplicating. The CLI's key
+ * is the file's real absolute path: two different files never share an id, in one run or across
+ * runs, so the server's upsert never overwrites one archived item with another.
+ */
+export function sessionIdFor(key) {
+  return `ses_${createHash("sha1").update(toPosix(key)).digest("hex").slice(0, 8)}`;
 }
 
 /**
- * One item → a CapturedSession for POST /api/sessions, or { skip: reason }.
- *   relPath      path relative to the ingest root (the id is derived from it)
+ * One item → a CapturedSession for POST /api/sessions, { skip: reason } when it holds nothing to
+ * ingest (no text, a JSON file with no messages), or { error: reason } when it cannot be parsed
+ * (bad JSON). The CLI goes on after either, but only an error makes the run exit 1.
+ *   relPath      path relative to the ingest root: folder-name kind signals, meta.path, title
+ *   idKey        what the id is derived from (the CLI passes the real absolute path); default relPath
  *   text         file contents
  *   firmDomain   sender domains outside it mark an email external
  *   principal    fallback principal when the item names none (--principal)
  *   now          ISO time for items that carry no date at all
  */
-export function buildItem({ relPath, text, firmDomain = DEFAULT_FIRM_DOMAIN, principal: fallback, now = new Date().toISOString() }) {
+export function buildItem({ relPath, idKey = relPath, text, firmDomain = DEFAULT_FIRM_DOMAIN, principal: fallback, now = new Date().toISOString() }) {
   const rel = toPosix(relPath);
   const ext = extname(rel).toLowerCase();
   const parsed = ext === ".json" || ext === ".jsonl" ? readJsonItem(text, ext) : readTextItem(text, ext);
+  if (parsed.error) return { error: parsed.error };
   if (parsed.skip) return { skip: parsed.skip };
   const { data, body, rows } = parsed;
   const { kind, by } = inferKind({ data, relPath: rel, text: body });
@@ -549,13 +563,14 @@ export function buildItem({ relPath, text, firmDomain = DEFAULT_FIRM_DOMAIN, pri
   }
   if (messages.length === 0) return { skip: "no text" };
 
+  // The item's date, when it names an instant: an exact start, a bare day (midnight at `tz:`, else
+  // UTC, as exactIso reads a bare date), or a date string with its own zone. A date-time with no
+  // zone ("2026-10-21 09:12") names no instant, so it falls through to the first message time,
+  // then now, and is kept as written in meta.date.
   const dated = firstString(data.date, data.start, data.started_at);
-  const startedAt =
-    clock.start ??
-    (clock.day ? isoOrUndefined(`${clock.day}T00:00:00${clock.offset ?? "Z"}`) : undefined) ??
-    exactIso(dated) ??
-    messages.find((m) => m.at)?.at ??
-    now;
+  const bareDay = dated && /^\d{4}-\d{2}-\d{2}$/.test(dated.trim()) ? dated.trim() : undefined;
+  const fromItem = clock.start ?? (bareDay ? isoOrUndefined(`${bareDay}T00:00:00${clock.offset ?? "Z"}`) : undefined) ?? exactIso(dated);
+  const startedAt = fromItem ?? messages.find((m) => m.at)?.at ?? now;
   const lastAt = [...messages].reverse().find((m) => m.at)?.at;
   const endedAt = lastAt && Date.parse(lastAt) >= Date.parse(startedAt) ? lastAt : startedAt;
 
@@ -581,13 +596,13 @@ export function buildItem({ relPath, text, firmDomain = DEFAULT_FIRM_DOMAIN, pri
   const speakers = [...new Set(turns.map((t) => t.label).filter(Boolean))];
   const participants = Array.isArray(data.participants) ? data.participants : speakers.length ? speakers : undefined;
   const session = {
-    id: sessionIdFor(rel),
+    id: sessionIdFor(idKey),
     client: CLIENT,
     started_at: startedAt,
     ended_at: endedAt,
     title: makeTitle(firstString(data.title, email?.subject, firstHeading(body)) ?? humanize(rel)),
     messages,
-    meta: compact({ path: rel, kind_from: by, source: firstString(data.source), participants, email }),
+    meta: compact({ path: rel, kind_from: by, source: firstString(data.source), participants, email, date: fromItem ? undefined : dated }),
     kind,
   };
   if (principal) session.principal = principal;
@@ -625,9 +640,10 @@ const TEXT_KEYS = ["text", "content", "message", "body"];
 const TIME_KEYS = ["at", "ts", "timestamp", "time", "date"];
 
 /**
- * JSONL: one message object per line (bad lines skipped). JSON: an array of message objects, an
- * object with `messages`, or an object with a text `body` / `text` / `content`. Top-level keys of
- * an object act as front-matter (kind, principal, title, date, from, …).
+ * JSONL: one message object per line (bad lines skipped; no good line at all is an error). JSON:
+ * an array of message objects, an object with `messages`, or an object with a text `body` /
+ * `text` / `content`. Top-level keys of an object act as front-matter (kind, principal, title,
+ * date, from, …). Unparseable JSON → { error }; valid JSON that holds no item → { skip }.
  */
 function readJsonItem(text, ext) {
   let data = {};
@@ -643,12 +659,13 @@ function readJsonItem(text, ext) {
           return undefined;
         }
       });
+    if (list.length > 0 && list.every((v) => v === undefined)) return { error: "bad JSONL (no line is valid JSON)" };
   } else {
     let value;
     try {
       value = JSON.parse(text);
     } catch (err) {
-      return { skip: `bad JSON (${err.message})` };
+      return { error: `bad JSON (${err.message})` };
     }
     if (Array.isArray(value)) list = value;
     else if (isRecord(value)) {

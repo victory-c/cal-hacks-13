@@ -9,12 +9,14 @@
 //        [--firm-domain DOMAIN] [--root DIR] [--delay MS]
 //
 // Each file becomes a complete session (ended_at set), so the distiller triages it at once. Ids
-// are ses_ + sha1 of the path relative to the root, so re-ingesting the same root upserts. The
-// parsing lives in lib.mjs (pure, tested); this file is flags, config and HTTP. A 404 or 401
-// from the server is logged once with a hint, the rest of the files are still tried, and the
-// exit code says whether everything landed (0), something failed (1), or the flags or paths were
-// wrong (2), which includes two files that would share one session id. A file that cannot be
-// read or parsed is reported as `skip <path>: <reason>` and the run goes on.
+// are ses_ + sha1 of the file's real absolute path, so re-ingesting the same file upserts (from
+// the whole world, a subfolder or the file alone) and two different files never share an id,
+// even across separate runs. The parsing lives in lib.mjs (pure, tested); this file is flags,
+// config and HTTP. A 404 or 401 from the server is logged once with a hint, the rest of the files
+// are still tried, and the exit code says whether everything landed (0), something failed (1),
+// or the flags or paths were wrong (2), which includes two files whose ids clash. A file that
+// cannot be read or parsed is reported as `fail <path>: <reason>`, the run goes on, and the exit
+// code is 1. A file with nothing to ingest (no text, over the size cap) is `skip <path>: <reason>`.
 
 import { existsSync, realpathSync, statSync } from "node:fs";
 import { dirname, relative, resolve } from "node:path";
@@ -39,7 +41,8 @@ Options:
   --only KIND            only items of this kind: ${KINDS.join(" | ")}
   --principal ID         principal for items that name none (front-matter, sender, speaker win)
   --firm-domain DOMAIN   senders outside it mark an email external (default ${DEFAULT_FIRM_DOMAIN})
-  --root DIR             ids come from paths relative to DIR (default: the dir given, or a file's folder)
+  --root DIR             folder names under DIR count as kind signals and meta.path is relative to
+                         it (default: the dir given, or a file's folder); ids never depend on it
   --delay MS             wait between posts, to drip items in live during a demo
   -h, --help             this text
 
@@ -95,10 +98,13 @@ export function resolveConfig(opts, env = process.env) {
 }
 
 /**
- * Every file to ingest with the path its id comes from: [{ abs, rel }], in a stable order. The
- * same file named twice is kept once. Two different files that would get the same session id
- * (`a/notes.md` and `b/notes.md` given as files, or two roots with the same layout) throw: the
- * server upserts by id, so the second would overwrite the first in the cold archive.
+ * Every file to ingest: [{ abs, rel, key }] in a stable order. `rel` (relative to --root, else
+ * the folder given, else the file's folder) feeds kind signals and meta.path; `key`, the real
+ * absolute path, is what the session id comes from. So `a/notes.md` and `b/notes.md` get two ids
+ * whether they are ingested together or in separate runs, and the same file named twice (or
+ * through a symlink) is kept once. Two different files whose ids still clash (an 8-hex hash
+ * collision) throw: the server upserts by id, so the second would overwrite the first in the
+ * cold archive.
  */
 export function collect(paths, root) {
   const items = [];
@@ -107,24 +113,27 @@ export function collect(paths, root) {
     if (!existsSync(abs)) throw new Error(`${p}: no such file or folder`);
     if (statSync(abs).isDirectory()) {
       const base = root ? resolve(root) : abs;
-      for (const rel of walk(abs)) items.push({ abs: resolve(abs, rel), rel: relative(base, resolve(abs, rel)) });
+      for (const rel of walk(abs)) {
+        const file = resolve(abs, rel);
+        items.push({ abs: file, rel: relative(base, file), key: realpathSync(file) });
+      }
     } else {
       if (!isIngestible(abs)) throw new Error(`${p}: not an ingestible file (README or unsupported extension)`);
-      items.push({ abs, rel: relative(root ? resolve(root) : dirname(abs), abs) });
+      items.push({ abs, rel: relative(root ? resolve(root) : dirname(abs), abs), key: realpathSync(abs) });
     }
   }
   const byId = new Map();
   const unique = [];
   for (const item of items) {
-    const id = sessionIdFor(item.rel);
+    const id = sessionIdFor(item.key);
     const prev = byId.get(id);
     if (!prev) {
       byId.set(id, item);
       unique.push(item);
-    } else if (prev.abs !== item.abs) {
+    } else if (prev.key !== item.key) {
       throw new Error(
-        `${prev.abs} and ${item.abs} would both be ${id} (paths "${prev.rel}" and "${item.rel}" relative to their root), ` +
-          "so the second would overwrite the first in the archive. Pass --root with a folder that contains both, or ingest them in separate runs.",
+        `${prev.abs} and ${item.abs} would both be ${id} (their paths hash alike), so the second would overwrite ` +
+          "the first in the archive. Rename or move one of them; nothing was sent.",
       );
     }
   }
@@ -167,14 +176,21 @@ export async function run(argv, io = {}) {
   }
 
   const sessions = [];
-  for (const { abs, rel } of items) {
-    // One unreadable or malformed file is reported and skipped; it never stops the other items.
+  // Files that could not be read or parsed. Each is reported and the other items still go, but
+  // the run exits 1: an item that never reached the archive is a failure, not a skip.
+  let unreadable = 0;
+  for (const { abs, rel, key } of items) {
     let built;
     try {
       const read = readItem(abs);
-      built = read.skip ? read : buildItem({ relPath: rel, text: read.text, firmDomain: opts.firmDomain, principal: opts.principal, now: io.now });
+      built = read.skip ? read : buildItem({ relPath: rel, idKey: key, text: read.text, firmDomain: opts.firmDomain, principal: opts.principal, now: io.now });
     } catch (e) {
-      built = { skip: `could not read or parse it (${e?.message ?? e})` };
+      built = { error: `could not read or parse it (${e?.message ?? e})` };
+    }
+    if (built.error) {
+      unreadable++;
+      err(`fail  ${rel}: ${built.error}`);
+      continue;
     }
     if (built.skip) {
       err(`skip  ${rel}: ${built.skip}`);
@@ -183,12 +199,13 @@ export async function run(argv, io = {}) {
     if (opts.only && built.kind !== opts.only) continue;
     sessions.push(built);
   }
+  const unreadNote = unreadable ? `, ${unreadable} file${unreadable === 1 ? "" : "s"} could not be read or parsed` : "";
 
   if (opts.dryRun) {
     for (const s of sessions) err(summaryLine(s));
-    err(`dry run: ${sessions.length} session${sessions.length === 1 ? "" : "s"}, nothing sent`);
+    err(`dry run: ${sessions.length} session${sessions.length === 1 ? "" : "s"}, nothing sent${unreadNote}`);
     out(JSON.stringify(sessions, null, 2));
-    return 0;
+    return unreadable ? 1 : 0;
   }
 
   const { url, token, devToken } = resolveConfig(opts, env);
@@ -230,8 +247,8 @@ export async function run(argv, io = {}) {
     once(res.status, `POST ${endpoint} → ${res.status} ${detail}${hintFor(res.status)}`.trim());
   }
 
-  err(`${posted} posted, ${failed} failed, ${sessions.length} total → ${url}`);
-  return failed ? 1 : 0;
+  err(`${posted} posted, ${failed} failed, ${sessions.length} total → ${url}${unreadNote}`);
+  return failed || unreadable ? 1 : 0;
 }
 
 function hintFor(status) {
