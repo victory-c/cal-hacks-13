@@ -47,12 +47,12 @@ export interface SaveDecision {
   keep_p: number;
   folder_p: number;
   judge: JudgeName;
-  /** v2: the full triage behind this decision. The handoff inspector and audit read it. */
+  /** The full triage behind this decision. The handoff inspector and audit read it. */
   triage?: TriageDecision;
 }
 
 // ---------------------------------------------------------------------------------------------
-// v2: save-time triage, handoff, routing and exit-check questions (PRD "Where Jev decides").
+// Finance: save-time triage, handoff, routing and exit-check questions (PRD "Where Jev decides").
 // Generous when saving (the cold archive is the safety net), strict when handing over, cautious
 // on anything security-related: a "maybe" on confidentiality or injection counts as yes.
 

@@ -12,7 +12,7 @@ Two capture paths live here:
 - `ingest/`: a CLI that posts firm content (memos, team chat, meeting transcripts, email, notes)
   as client `ingest`. See [Ingest CLI](#ingest-cli-hooksingest).
 
-## v2 fields (PRD v2, walls)
+## Finance fields (walls)
 
 Every session now carries `kind` and, when known, `principal` (whose context it is). The hook
 sends `kind: "ai_session"` and `principal` from `CANON_PRINCIPAL` (process env, then `.env`,
@@ -21,9 +21,9 @@ normalized like the extension and the ingest CLI: `Dan`, `Dan Okafor` and
 triage treats an unknown principal cautiously).
 The debug line then reads `Stop ses_3f9a1c2b 8 msgs as dan → 200`.
 
-**Today's v1 server keeps only the v1 keys** (`server/src/api.ts` `parseSession`), so
-`principal`, `kind` and `external` are accepted and dropped until lane A's v2 server keeps them.
-Nothing breaks either way: the POST is the same v1 route.
+**Today's server keeps only the original session keys** (`server/src/api.ts` `parseSession`),
+so `principal`, `kind` and `external` are accepted and dropped until lane A's server keeps them
+for the finance contract. Nothing breaks either way: the POST is the same route.
 
 ## What is captured, and when
 
@@ -180,9 +180,44 @@ goes on. Each HTTP error status is logged once with a hint (401: register the to
 Canon server) and every remaining file is still tried. A dead server stops the run after one
 line. Exit code: 0 all posted, 1 anything failed, 2 bad flags or paths, or a session id clash.
 
-**Verified against today's v1 server** (Sat 05:00, `CANON_CLIENT_TOKENS` with `ingest=dev-ingest`):
+**Verified against today's server** (Sat 05:00, `CANON_CLIENT_TOKENS` with `ingest=dev-ingest`):
 all 5 world items archived, a second run printed `updated` for the same ids. The archive kept
-v1 keys only (see v2 fields above).
+the original keys only (see [Finance fields](#finance-fields-walls) above).
+
+### Dan's ChatGPT session without the extension
+
+The demo has Dan's ChatGPT session arrive with a new memo (PRD demo script, 0:25). If the
+ChatGPT extension is cut (it is the last item in the cut order) or chatgpt.com's markup breaks
+it, the same session goes in through this CLI:
+
+1. Copy the conversation from chatgpt.com into a file under the world's `ai-sessions/` folder,
+   one `You:` / `ChatGPT:` line per turn (lines with no speaker continue the turn):
+
+   ```markdown
+   ---
+   kind: ai_session
+   principal: dan
+   title: Falcon comps with ChatGPT
+   date: 2026-10-24T09:10:00-07:00
+   ---
+   You: Which listed logistics names trade closest to Nimbus on EV/EBITDA?
+   ChatGPT: …
+   ```
+
+2. Post it with the rest of the world, or alone:
+
+   ```bash
+   node hooks/ingest/canon-ingest.mjs <world>/ai-sessions --root <world> --only ai_session --principal dan
+   ```
+
+`ChatGPT`, `GPT`, `Claude`, `Gemini`, `Assistant` and similar speakers become `assistant`, everyone
+else `user`, and the speaker label is not kept in the text. The principal comes from front-matter
+or `--principal`, never from `You`. Without front-matter, the `ai-sessions/` folder or a file
+name with `chatgpt` in it still makes the kind `ai_session`. A `.json` file
+`{ "kind": "ai_session", "principal": "dan", "messages": [{ "role": "user", "content": "…" }, …] }`
+works too. Two differences from the extension: the session's `client` is `ingest`, not
+`chatgpt`, and it lands once, complete (`ended_at` set), instead of turn by turn while Dan types.
+`--dry-run` shows exactly what will be sent.
 
 ### Sample world (`fixtures/world/`)
 

@@ -10,9 +10,9 @@ while you are still typing in it.
 |---|---|---|
 | `src/content/chatgpt.ts` | the chatgpt.com tab (isolated world) | Watches the DOM, extracts the turns 1.5 s after the last change, sends `{ kind: "turns", … }` to the worker. On `pagehide` sends `ended: true`. |
 | `src/background.ts` | extension service worker | Throttles per conversation (2 s), stamps `started_at`, `POST /api/sessions` with the bearer token. Badge `•` green on success, `!` red on failure. |
-| `src/options.html` + `options.ts` | options page | Canon URL, client token, principal id (v2), Save, Test connection (`GET /health`), last post result. |
+| `src/options.html` + `options.ts` | options page | Canon URL, client token, principal id, Save, Test connection (`GET /health`), last post result. |
 | `src/shared/` | both | `protocol.ts` (messages), `session.ts` (turns → `CapturedSession`, FNV-1a session ids), `settings.ts` (storage keys). Pure, tested. |
-| `src/content/claude.ts`, `gemini.ts` | claude.ai / gemini.google.com | Stubs: `console.info("not implemented (B9)")`. |
+| Other content scripts | Other declared sites | Inactive compatibility stubs; outside the current capture scope. |
 
 What gets captured: **turn text only** (`user` / `assistant`), the page URL and the conversation title.
 No cookies, no account data, no DOM beyond the message nodes. Every snapshot re-sends the whole
@@ -21,13 +21,15 @@ no matter how many times it is posted. The id is FNV-1a of `chatgpt:<conversatio
 stable across reloads with no state. Session capture does not call any AI; nothing here is
 simulated. (The server downstream may run its judge/distiller in simulated mode and says so.)
 
-**v2 (walls).** Every captured chat is `kind: "ai_session"`, and carries `principal` (whose
-context it is, e.g. `dan`) when one is set on the options page. The value is normalized the same
-way as in the Claude Code hook and the ingest CLI (`Dan`, `Dan Okafor` and
+**Finance fields (walls).** Every captured chat is `kind: "ai_session"`, and carries `principal`
+(whose context it is, e.g. `dan`) when one is set on the options page. The value is normalized
+the same way as in the Claude Code hook and the ingest CLI (`Dan`, `Dan Okafor` and
 `dan.okafor@harborlane.com` all become `dan`; `agt_research_1` is kept), so one person has one
-id; blank means the field is left out and triage treats the session cautiously. Today's
-v1 server accepts and drops both fields until lane A's v2 server keeps them; nothing else
-changes. The PRD cut order lists this extension last, so it stays this small.
+id; blank means the field is left out and triage treats the session cautiously. Today's server
+accepts and drops both fields until lane A's server keeps them for the finance contract; nothing
+else changes. If the extension is cut (see [Current capture scope](#current-capture-scope)),
+Dan's ChatGPT session goes in through the ingest CLI instead, as
+[`hooks/README.md`](../hooks/README.md#dans-chatgpt-session-without-the-extension) describes.
 
 ## Run
 
@@ -80,8 +82,8 @@ package.
 None plug in here. The extension is a capture client; Droid, Jev and Moss do their work in
 `distiller/` and `server/` on what it sends.
 
-## Stretch (B9)
+## Current capture scope
 
-claude.ai and gemini.google.com: replace the stubs with a copy of `chatgpt.ts` using that site's
-selectors and `site: "claude" | "gemini"`; `clientFor()` already maps them to `claude-web` /
-`gemini-web`, which need tokens and grants on the server side.
+The finance demo uses the Claude Code hook, ingest API and ChatGPT capture. Other capture
+stubs are preserved in source and are not scheduled work. The ChatGPT extension is the first
+capture path to cut if time runs short. Use `../docs/WORK_SPLIT.md` for ownership and gates.

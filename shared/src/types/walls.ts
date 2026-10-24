@@ -1,9 +1,9 @@
-// Walls contract (PRD v2). Deals, the people and agents who may be cleared for them, the
+// Walls contract (finance contract, A1). Deals, the people and agents who may be cleared for them, the
 // restricted and watch lists, the compliance review queue and the audit log. Code owns access:
 // nothing in here is decided by a model. Jev may flag, rank and pre-screen; only compliance (or a
 // deal-status change) lowers a wall.
 //
-// Mirrors "Contract v2" in CLAUDE.md. Change both together, and tell the other builder first.
+// Summarized in CLAUDE.md "Architecture and contracts". Agree changes with both builders first.
 
 /** Facts nobody needs clearance for. */
 export const PUBLIC_WALL = "public" as const;
