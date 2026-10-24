@@ -689,7 +689,7 @@ test("CLI: a 401 says how to register the ingest token; a dead server stops afte
   }
   const dead = await runCli([WORLD, "--url", srv.url]);
   assert.equal(dead.code, 1);
-  assert.match(dead.stderr, /failed: .*Is the Canon server running/);
+  assert.match(dead.stderr, /failed: .*Is the Bullwark server running/);
   assert.match(dead.stderr, /Stopped after 0 of 5/);
 });
 

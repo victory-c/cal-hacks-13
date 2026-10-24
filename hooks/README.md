@@ -54,7 +54,7 @@ a 10 s watchdog ends the process no matter what. Missing transcript or 0 message
 
 **Already installed for this repo.** `.claude/settings.json` (committed) wires `Stop` and
 `SessionEnd` to `node "$CLAUDE_PROJECT_DIR/hooks/claude-code/canon-capture.mjs"`, so every
-Claude Code session in any clone or worktree of Canon posts to your local server. Nothing outside
+Claude Code session in any clone or worktree of Bullwark posts to your local server. Nothing outside
 the repo is touched. With no server running the hook exits silently in milliseconds. Set
 `CANON_CAPTURE=0` in your environment to opt out. Start a **new** session after pulling: Claude
 Code reads hooks at session start.
@@ -68,8 +68,8 @@ node hooks/claude-code/install.mjs --project    # rewrite the repo's .claude/set
 ```
 
 `claude-code/settings.snippet.json` is the same snippet with a placeholder path, for pasting by
-hand. Re-running replaces the old Canon entry. Don't install both user and project scope, or a
-Canon-repo session posts twice (harmless upsert, wasted work).
+hand. Re-running replaces the old Bullwark entry. Don't install both user and project scope, or a
+Bullwark-repo session posts twice (harmless upsert, wasted work).
 
 Config resolution, per key (`CANON_URL`, `CANON_TOKEN_CLAUDE_CODE`, `CANON_PRINCIPAL`): process
 env → `.env` at `CANON_REPO_ROOT` → `.env` in this checkout (`../../.env` from the script).
@@ -104,7 +104,7 @@ ends with `(dev token: CANON_TOKEN_CLAUDE_CODE not set)`. Without it the hook is
 ## Ingest CLI (`hooks/ingest/`)
 
 The PRD's third capture path: memos, team chat, meeting notes and email arrive through it, so it
-is how the synthetic world (Harbor Lane, Project Falcon) gets into Canon. **One file = one
+is how the synthetic world (Harbor Lane, Project Falcon) gets into Bullwark. **One file = one
 session**, posted to `POST /api/sessions` as client `ingest`, with `ended_at` set so the
 distiller triages it at once.
 
@@ -184,7 +184,7 @@ machine gets other ids.
 valid line) prints `fail <path>: <reason>`; the run goes on and exits 1. A file with nothing to
 ingest (over 1 MB, no text, JSON with no messages or body) prints `skip <path>: <reason>` and does
 not change the exit code. Each HTTP error status is logged once with a hint (401: register the
-token; 404: not a Canon server) and every remaining file is still tried. A dead server stops the
+token; 404: not a Bullwark server) and every remaining file is still tried. A dead server stops the
 run after one line. Exit code: 0 all posted, 1 anything failed (a POST, or a file that could not
 be read or parsed, also on `--dry-run`), 2 bad flags or paths, or a session id clash.
 

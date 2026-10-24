@@ -68,7 +68,7 @@ export function renderCounter(state: State, ctx: RenderContext): void {
   const tokens = byId("counter-tokens");
   tokens.textContent = s ? fmtTokens(s.tokens) : DASH;
   tokens.title = s ? `${s.tokens.toLocaleString()} tokens, estimated at ~4 chars per token` : "No canon_context call yet";
-  document.title = s ? `Canon · ${fmtTokens(s.tokens)} est. tokens` : "Canon · live";
+  document.title = s ? `Bullwark · ${fmtTokens(s.tokens)} est. tokens` : "Bullwark · live";
 
   const when = byId("counter-when");
   when.textContent = s ? relativeTime(s.at, ctx.now) : "";
@@ -108,7 +108,7 @@ export function renderCounter(state: State, ctx: RenderContext): void {
   bench.textContent = benchText(ctx.bench);
   bench.title =
     ctx.bench?.status === "ok"
-      ? `Canon ${fmtTokens(ctx.bench.comparison.canonTokens)} vs full history ${fmtTokens(ctx.bench.comparison.fullTokens)} tokens, from ${BENCH_URL} (bench/results/latest.json)${ctx.bench.comparison.simulated ? ". SIMULATED run: not quotable" : ""}`
+      ? `Bullwark ${fmtTokens(ctx.bench.comparison.canonTokens)} vs full history ${fmtTokens(ctx.bench.comparison.fullTokens)} tokens, from ${BENCH_URL} (bench/results/latest.json)${ctx.bench.comparison.simulated ? ". SIMULATED run: not quotable" : ""}`
       : `Filled from ${BENCH_URL} (bench/results/latest.json) after npm run run -w bench. Never a typed-in number.`;
 }
 

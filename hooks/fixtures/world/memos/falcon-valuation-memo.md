@@ -7,7 +7,7 @@ date: 2026-10-20T19:05:00-04:00
 # Project Falcon - preliminary valuation and process memo
 
 **DRAFT v3. STRICTLY PRIVATE AND CONFIDENTIAL. Falcon deal team only.** Do not forward, do not
-save outside the Falcon VDR folder, do not paste into any AI tool that isn't Canon-scoped.
+save outside the Falcon VDR folder, do not paste into any AI tool that isn't Bullwark-scoped.
 
 To: Falcon deal team (D. Okafor, N. Haddad, T. Whitcombe)
 From: Dan Okafor, MD

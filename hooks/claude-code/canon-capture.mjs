@@ -72,7 +72,7 @@ async function main() {
     // undici wraps the useful part (ECONNREFUSED, ENOTFOUND, "bad port") under err.cause;
     // a timeout arrives as err.name === "TimeoutError" with no cause.
     const why = err?.cause?.code ?? err?.cause?.message ?? err?.name ?? String(err?.message ?? err);
-    return debug(`POST ${endpoint} failed: ${why} (is the Canon server running?)${tokenNote}`);
+    return debug(`POST ${endpoint} failed: ${why} (is the Bullwark server running?)${tokenNote}`);
   }
   const as = session.principal ? ` as ${session.principal}` : "";
   debug(`${payload.hook_event_name ?? "?"} ${session.id} ${messages.length} msgs${as} → ${res.status}${res.ok ? "" : " (server rejected)"}${tokenNote}`);

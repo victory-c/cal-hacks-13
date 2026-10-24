@@ -2,7 +2,7 @@
   "name": "@canon/hooks",
   "version": "0.1.0",
   "private": true,
-  "description": "Capture clients: the Claude Code hook (each session to the Canon server) and the ingest CLI (memos, team chat, transcripts, email). Plain Node, no dependencies, because hooks run as shell commands. Lane B.",
+  "description": "Capture clients: the Claude Code hook (each session to the Bullwark server) and the ingest CLI (memos, team chat, transcripts, email). Plain Node, no dependencies, because hooks run as shell commands. Lane B.",
   "type": "module",
   "scripts": {
     "test": "node --test \"test/**/*.test.mjs\"",

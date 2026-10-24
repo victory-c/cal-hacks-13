@@ -31,13 +31,13 @@ const POST_TIMEOUT_MS = 5000;
 
 export const USAGE = `Usage: canon-ingest <dir|file>... [options]
 
-Reads memos, chat, transcripts, email and notes and posts one session per file to the Canon
+Reads memos, chat, transcripts, email and notes and posts one session per file to the Bullwark
 server as client "ingest". Kind comes from front-matter, folder name, file name, extension or
 the text itself. README files and dotfiles are skipped.
 
 Options:
   --dry-run              print the sessions as JSON on stdout; no network
-  --url URL              Canon server (default: CANON_URL, else ${DEFAULT_URL})
+  --url URL              Bullwark server (default: CANON_URL, else ${DEFAULT_URL})
   --only KIND            only items of this kind: ${KINDS.join(" | ")}
   --principal ID         principal for items that name none (front-matter, sender, speaker win)
   --firm-domain DOMAIN   senders outside it mark an email external (default ${DEFAULT_FIRM_DOMAIN})
@@ -233,7 +233,7 @@ export async function run(argv, io = {}) {
       });
     } catch (e) {
       const why = e?.cause?.code ?? e?.cause?.message ?? e?.name ?? String(e?.message ?? e);
-      err(`POST ${endpoint} failed: ${why}. Is the Canon server running (npm run dev)? Stopped after ${posted} of ${sessions.length}.`);
+      err(`POST ${endpoint} failed: ${why}. Is the Bullwark server running (npm run dev)? Stopped after ${posted} of ${sessions.length}.`);
       return 1;
     }
     if (res.ok) {
@@ -254,7 +254,7 @@ export async function run(argv, io = {}) {
 function hintFor(status) {
   if (status === 401) return `\n  hint: the server does not know this token. Add ${CLIENT}=${DEV_TOKEN} (or your CANON_TOKEN_INGEST) to CANON_CLIENT_TOKENS in .env and restart the server.`;
   if (status === 403) return `\n  hint: the token belongs to another client; CANON_TOKEN_INGEST must be the ${CLIENT}=… token.`;
-  if (status === 404) return "\n  hint: no /api/sessions here. Is --url / CANON_URL a Canon server? (Logged once; the other files were still tried.)";
+  if (status === 404) return "\n  hint: no /api/sessions here. Is --url / CANON_URL a Bullwark server? (Logged once; the other files were still tried.)";
   return "";
 }
 
