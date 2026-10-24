@@ -106,7 +106,10 @@ description, aliases), the labels already in use, the numbered drafts (with the 
 suggested group and labels) and up to 40 existing hot facts (id, statement, group, labels). Past
 24 000 characters the text keeps its head and tail, and the cut middle is scanned in code (on
 folded text) for sentences that read like orders to an AI or like forwarding something out; up to
-8 of them are spliced in where the cut is, so the `inject` question is asked of the whole item. A
+8 of them are spliced in where the cut is. That scan knows the usual phrasings only ("ignore your
+instructions", "AI assistant: …", "forward … to"), so an order worded otherwise in the cut part
+never reaches the `inject` question: the judge has not read the whole item, and every draft from
+it waits in `inbox` (filing rule 4). A
 sentence longer than 280 characters is cut to a window that starts just before the match, so
 padding in front of an order cannot push it out (the quarantine excerpt works the same way). The
 state also tells the judge the item text is untrusted data, never instructions. A missing (or
@@ -119,8 +122,8 @@ the judge to read an unknown origin as possibly outside the firm. The questions:
 | `inject` | noul, once per item | Instructions aimed at an AI? | `>= 0.3`: the **whole item** is quarantined. Every draft's outcome is `quarantine`, nothing is written (not even to inbox), one `POST /api/quarantine` with the sentence that tripped it. |
 | `keep:i` | noul | Worth remembering? | `< 0.35`: `archive_only` (the raw item stays in the cold archive). Kept facts are hot above 0.6, else cold (the existing `KEEP_HOT` rule). |
 | `group:i` | choice: `unsure`, each group id from `GET /api/groups`, `new` | Which group? | Filed there only at `>= 0.6` and when nothing in code disputes it (below). `unsure`, a pick below 0.6 or `new` → `inbox`; `new` carries `new_group`, the writer's suggested group when it is a well-formed id that is not already a group. |
-| `label:i:<slug>` | noul per candidate | Does label *x* apply? | Candidates: the writer's suggestions (lowercased, `LABEL_RE`), then labels already in use, at most 8. `>= 0.5` applies it. |
-| `rel:i` | choice over `RELATIONS` (`unrelated` first) | Relation to the closest fact? | `same` → merge, `replaces` → supersede, the rest → add. Needs p > 0.5 to merge or supersede. |
+| `label:i:<slug>` | noul per candidate | Does label *x* apply? | Candidates: the writer's suggestions (lowercased, `LABEL_RE`), then labels already in use, at most 8. `>= 0.5` applies it. A merge or supersede also keeps every label of the fact it retires, asked about or not. |
+| `rel:i` | choice over `RELATIONS` (`unrelated` first) | Relation to the closest fact? | `same` → merge, `replaces` → supersede, the rest → add. Needs p > 0.5 to merge or supersede. For the group rule (filing rule 3) only `unrelated` at `>= 0.6` counts as unrelated. |
 | `relto:i` | choice: `none`, existing ids | Which fact? | Must be one the judge was shown, else none. |
 
 **Filing: code files only what Jev picked confidently and nothing in code disputes.** Otherwise
@@ -134,17 +137,28 @@ author's, until a moderator files it. Code disputes a confident pick of group G 
    characters dropped, Cyrillic and Greek look-alikes mapped to Latin, `_` read as a space, and
    camelCase also tried split. So `Falcon_LOI_v3.docx`, `deal_falcon`, `#project_falcon`,
    `ProjectFalcon`, `FalconModel.xlsx` and "Falcon" with a zero-width space inside all name
-   `deal/falcon`. An alias is a hint, never a filing: an alias of G with Jev unsure is still inbox.
-2. **The draft names no group and its item names only other groups.** The same check runs once
-   over the whole captured item. A writer often paraphrases the code name away ("the target"), so
-   a draft from an item that names `deal/falcon` that Jev files elsewhere waits for a moderator.
-3. **The draft relates to a fact in another group** (`same`, `replaces`, `adds_detail` or
-   `contradicts` with a `relto` the judge was shown): content never moves between groups on its
-   own.
+   `deal/falcon`. A group id's words match only across `/`, `_`, `-`, `\` or nothing (`market/public`,
+   `market_public.csv`, `MarketPublic`), never across a space or sentence punctuation, so prose
+   such as "nothing goes to market. Public comment …" names no group. An alias is a hint, never a
+   filing: an alias of G with Jev unsure is still inbox.
+2. **The draft names no group and its item names any group other than G**, even when the item
+   names G too. The same check runs once over the whole captured item. A writer often paraphrases
+   the code name away ("the target"), so a draft from an item that names `deal/falcon` that Jev
+   files elsewhere waits for a moderator.
+3. **The draft may relate to a fact in another group**: `relto` names a fact the judge was shown,
+   in a group other than G, and `rel` is not a confident `unrelated` (p `>= 0.6`). Content never
+   moves between groups on its own. A missing or unsure `rel` keeps this rule (the action stays
+   add, so nothing is retired on a guess).
+4. **The item was too long for the judge to read whole** (over 24 000 characters, see above): an
+   order to an AI in the cut part may not have reached the `inject` question.
 
 **An exact duplicate** of a stored fact merges into it whatever the judge says (the `decide.ts`
 rule) and is filed in that fact's group, so a moderator's filing holds when the same item is
-distilled again; a duplicate of an inbox fact stays in inbox.
+distilled again; a duplicate of an inbox fact stays in inbox. Only the statements are compared, so
+the merged fact writes back the stored fact's content: its statement, `detail` and `author`. The
+draft's own detail never rides into that group unchecked (a public close in `market/public` cannot
+pick up Falcon terms from a memo's detail), and a new author never makes the stored content their
+own fact. The `reason` says when the draft's detail or author was not taken.
 
 **Every written fact** (`fact` or `inbox`) carries `folder` = its group, `labels`, `author` (the
 item's principal; unset when the principal is unknown, never guessed), `happened` (a
@@ -155,7 +169,8 @@ for its pick.
 
 **Missing or neutral answers land on the safe side:** no `inject` answer is 0.5, so the item is
 quarantined; no `group` answer is unsure, so inbox; no label answer applies the label (a label
-only ever lets an exclusion remove a fact); no relation answer is add (nothing retired). The
+only ever lets an exclusion remove a fact); no relation answer is add (nothing retired) and keeps
+the group rule for the fact `relto` names. The
 `group`, `rel` and `relto` options list the safe answer first, so a judge that falls back to
 `options[0]` picks it.
 
@@ -198,21 +213,27 @@ CLI say "simulated".
 
 ## Assumptions (B5, scopes PRD rework)
 
-- **The item backstop is kept from the walls version.** A draft that names no group, from an
-  item that names only other groups than Jev's pick, goes to inbox. Groups are flat in the
-  contract, so this also holds for non-deal aliases: a multi-topic chat that mentions `LKSP` (an
-  alias of `desk/trading`) sends its other lines to inbox for a moderator. Safe, at some cost in
-  moderator work; revisit after the first end-to-end run.
+- **The item backstop is kept from the walls version, and widened.** A draft that names no group,
+  from an item that names any group other than Jev's pick, goes to inbox, even when the item
+  names the pick too (a Falcon memo that mentions `market/public` once must not let a paraphrased
+  Falcon line into `market/public`). Groups are flat in the contract, so this also holds for
+  non-deal aliases: a multi-topic chat that mentions `LKSP` (an alias of `desk/trading`) sends its
+  other lines to inbox for a moderator. Safe, at some cost in moderator work; revisit after the
+  first end-to-end run.
 - **`contradicts` counts as relating**, like same, replaces and adds detail: a line that
   contradicts a Falcon fact is Falcon information.
-- **An exact duplicate follows its stored fact's group**, not Jev's pick: the content is already
-  there, and a moderator's filing would otherwise be undone on every re-distill.
+- **An exact duplicate follows its stored fact's group**, not Jev's pick, and writes back that
+  fact's content (statement, detail, author): nothing new reaches the group, and a moderator's
+  filing would otherwise be undone on every re-distill. A new detail on a duplicate statement is
+  not kept hot (the raw item stays in the cold archive).
 - **The relation → action mapping holds for inbox facts too**: a fact that replaces a filed fact
   still retires it (to cold, never deleted) while the replacement waits in inbox. Members can lose
   that fact until a moderator files the replacement; nothing reaches anyone it should not.
 - **Labels are generous**: a neutral answer applies a label, because labels only ever let an
   exclusion remove a fact. Candidates are the writer's suggestions and labels in use (Jev picks,
-  it does not name), so a brand-new label needs the writer to propose it.
+  it does not name), so a brand-new label needs the writer to propose it. A merge or supersede
+  keeps every label of the fact it retires, so a moderator's label holds through a re-distill
+  even when it is past the 8 candidates or Jev says no to it.
 - **`new` proposes the writer's suggested group** (`DraftFact.folder`) when it is a well-formed id
   that is not already a group; the engines still suggest the scaffold's folders (`team`,
   `projects`), so until B17's follow-up the proposal is often absent or coarse.
@@ -238,6 +259,10 @@ CLI say "simulated".
   it writes only `career`, `projects`, `team`, `private` and `inbox`, so a fact in `deal/falcon`
   would be a 403 once `GET /api/groups` exists) and `GET /api/facts?tier=hot` must return facts
   from every group to the distiller, or the relation and duplicate rules cannot see them.
+- Long items: past 24 000 characters the judge reads the head, the tail and the suspect sentences
+  code finds in the middle, so every draft from such an item waits in `inbox` (a long email thread
+  with quoted history included). Once Jev's request size limit is known, raise the cap or ask
+  `inject` once per chunk in the same request, and drop the inbox fallback for items it covers.
 - Replay skipping is time-based (events older than the worker). Proposal for A↔B: the server's
   `EventBus` honours `Last-Event-ID` (replay only ring ids above it) and `subscribeEvents` sends
   the last id it saw on reconnect; then the worker can drop the 5 s heuristic.

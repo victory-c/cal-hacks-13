@@ -62,6 +62,17 @@ describe("aliasHits", () => {
     }
   });
 
+  test("a group id matches across one path or file-name joiner, never across sentence punctuation", () => {
+    for (const text of ["filed under market/public", "market_public.csv", "market__public", "market-public", "MarketPublic notes", "marketpublic", "market\\public", "ｍａｒｋｅｔ_public"]) {
+      assert.deepEqual(aliasHits(text, [market]).groups, ["market/public"], text);
+    }
+    for (const text of ["Nothing goes to market. Public comment only through Corvane IR.", "capital market public issuance", "market, public", "market\npublic", "market - public"]) {
+      assert.deepEqual(aliasHits(text, [market]).groups, [], JSON.stringify(text));
+    }
+    // An alias keeps the looser rule: "Project  Falcon" across a line break still names Falcon.
+    assert.deepEqual(aliasHits("Nimbus.\nLogistics", [{ id: "deal/x", aliases: ["Nimbus Logistics"] }]).groups, ["deal/x"]);
+  });
+
   test("two groups named are both returned, in group-list order", () => {
     const hit = aliasHits("Harrow Rail may bid against Falcon; LKSP is up", [falcon, osprey, trading]);
     assert.deepEqual(hit.groups, ["deal/falcon", "deal/osprey", "desk/trading"]);

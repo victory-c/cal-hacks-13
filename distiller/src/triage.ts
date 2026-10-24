@@ -9,14 +9,19 @@
 //             Otherwise it is written to `inbox`, which only moderators see, and joins no member
 //             scope until a moderator files it. Code disagrees when:
 //               an alias of another group appears in the draft (groups.ts), or the draft names no
-//               group and its item names only groups other than Jev's pick (a writer often
+//               group and its item names any group other than Jev's pick (a writer often
 //               paraphrases a code name away: "the target")
-//               the draft relates (same, replaces, adds detail, contradicts) to a fact in another
-//               group: content never moves between groups on its own
-//             An exact duplicate stays in its stored fact's group, so a moderator's filing holds.
+//               the draft may relate to a fact in another group (relto names one, and Jev does not
+//               say confidently that they are unrelated): content never moves between groups on
+//               its own
+//               the item was too long for the judge to read whole (MAX_TEXT_CHARS): an order to an
+//               AI in the cut part may not have reached the injection question
+//             An exact duplicate stays in its stored fact's group and keeps that fact's content
+//             (statement, detail, author), so a moderator's filing holds and nothing new moves.
 //   labels    each candidate label (the writer's suggestions, then labels already in use) is a
 //             yes/no; LABEL_RE is checked in code. A label only ever lets an exclusion remove a
-//             fact, so a neutral answer applies it
+//             fact, so a neutral answer applies it, and a merge or supersede keeps every label of
+//             the fact it retires
 //   relation  same → merge, replaces → supersede, anything else → add
 // A missing or neutral answer always lands on the safe side. So does a missing `external`, `kind`
 // or `principal` on the item: each reads as "unknown" (possibly from outside the firm, not a
@@ -99,7 +104,10 @@ export interface TriageResult {
 
 /** "I don't know." Every threshold puts it on the safe side (quarantine, inbox, label applied). */
 const NEUTRAL = 0.5;
-/** The state carries this much of the item's text; a longer item keeps its head and tail. */
+/**
+ * The state carries this much of the item's text; a longer item keeps its head and tail (plus the
+ * suspect sentences clipForJudge finds in the middle), and every draft from it waits in inbox.
+ */
 const MAX_TEXT_CHARS = 24_000;
 /** Keeps the state small: Jev sees the most recent facts, not the whole store. */
 const MAX_EXISTING = 40;
@@ -214,6 +222,7 @@ export async function triage(input: TriageInput, judge: Judge): Promise<TriageRe
     groupsKnown,
     // The alias check over the whole item, once: the backstop for a draft that names no group.
     itemHits: aliasHits(text, groups),
+    cut: Math.max(0, text.length - MAX_TEXT_CHARS),
     groupOptions,
     reltoOptions,
     candidates,
@@ -291,6 +300,8 @@ interface DraftContext {
   groupsKnown: boolean;
   /** Groups the whole captured item names (aliases over itemText), in group-list order. */
   itemHits: AliasHits;
+  /** Characters of the item the judge did not read (clipForJudge); 0 when it read the whole item. */
+  cut: number;
   groupOptions: string[];
   reltoOptions: string[];
   /** Label candidates per draft, by draft index. */
@@ -329,15 +340,20 @@ function decideDraft(draft: DraftFact, i: number, got: Map<string, Answer>, ctx:
 
   // Relation, and the fact it points at.
   const exact = ctx.byStatement.get(normalizeStatement(draft.statement));
+  const named = reltoAns && reltoAns.choice !== NONE ? ctx.byId.get(reltoAns.choice) : undefined;
   let relation = (relAns?.choice ?? "unrelated") as Relation;
-  let target = reltoAns && reltoAns.choice !== NONE ? ctx.byId.get(reltoAns.choice) : undefined;
+  // `target` drives the action (merge, supersede); `near` drives the group rule. A missing or
+  // unsure relation answer reads as "unrelated" for the action (nothing retired on a guess) but
+  // not for the group rule: only a confident "unrelated" lets content leave the group of the fact
+  // relto names.
+  let target = relation === "unrelated" ? undefined : named;
+  let near = relAns?.choice === "unrelated" && relAns.p >= GROUP_CONFIDENT ? undefined : named;
   let acts = (relAns?.p ?? NEUTRAL) > RELATION_ACTS_ABOVE;
   if (exact) {
     relation = "same";
-    target = exact;
+    target = near = exact;
     acts = true;
   }
-  if (relation === "unrelated") target = undefined;
   let action: SaveAction = "add";
   if (target && acts && relation === "same") action = "merge";
   else if (target && acts && relation === "replaces") action = "supersede";
@@ -348,14 +364,22 @@ function decideDraft(draft: DraftFact, i: number, got: Map<string, Answer>, ctx:
   if (hits.reason) reasons.push(hits.reason);
   reasons.push(`jev: ${pick} ${fmt(group_p)}${pick !== GROUP_UNSURE && group_p < GROUP_CONFIDENT ? ` (below ${GROUP_CONFIDENT})` : ""}`);
   if (target) reasons.push(`${relation} ${target.id} (${target.folder})`);
+  else if (near) reasons.push(`relto ${near.id} (${near.folder}), relation ${relAns ? `${relAns.choice} ${fmt(relAns.p)}` : "unanswered"}`);
+  if (exact) {
+    const dropped = [
+      typeof draft.detail === "string" && draft.detail.trim() && draft.detail.trim() !== (exact.detail ?? "").trim() ? "detail" : "",
+      ctx.author && ctx.author !== exact.author ? "author" : "",
+    ].filter(Boolean);
+    if (dropped.length) reasons.push(`exact duplicate: keeps ${exact.id}'s content, not the draft's ${listWords(dropped)}`);
+  }
 
   let filed: GroupId | undefined;
   let inbox: string | undefined;
   let new_group: GroupId | undefined;
   if (!ctx.groupsKnown) inbox = "the server gave no group list";
   else if (exact) {
-    // Its content is already stored in that group, so filing it there moves nothing. A moderator's
-    // filing holds when the same item is distilled again.
+    // Only the stored fact's content is written back (below), so filing it in that group moves
+    // nothing new there, and a moderator's filing holds when the same item is distilled again.
     if (exact.folder === INBOX) inbox = `exact duplicate of ${exact.id}, which waits in inbox`;
     else filed = exact.folder;
   } else if (pick === GROUP_UNSURE) inbox = "jev is unsure of the group";
@@ -367,9 +391,12 @@ function decideDraft(draft: DraftFact, i: number, got: Map<string, Answer>, ctx:
     const others = hits.groups.filter((g) => g !== pick);
     const itemOthers = ctx.itemHits.groups.filter((g) => g !== pick);
     if (others.length) inbox = `code and jev disagree: an alias of ${others.join(", ")}, jev picked ${pick}`;
-    else if (!hits.groups.length && ctx.itemHits.groups.length && itemOthers.length === ctx.itemHits.groups.length) {
-      inbox = `code and jev disagree: the item names ${itemOthers.join(", ")}, jev picked ${pick}`;
-    } else if (target && target.folder !== pick) inbox = `${relation} ${target.id} in ${target.folder}: content does not move groups on its own`;
+    // A draft that names no group may paraphrase any group its item names ("the target"), even
+    // when the item also names Jev's pick.
+    else if (!hits.groups.length && itemOthers.length) inbox = `code and jev disagree: the item names ${itemOthers.join(", ")}, jev picked ${pick}`;
+    else if (target && target.folder !== pick) inbox = `${relation} ${target.id} in ${target.folder}: content does not move groups on its own`;
+    else if (near && near.folder !== pick) inbox = `it may relate to ${near.id} in ${near.folder} (no confident "unrelated"): content does not move groups on its own`;
+    else if (ctx.cut) inbox = `the item is too long for the judge to read whole (${ctx.cut} characters cut), so an order to an AI there may have gone unseen`;
     else filed = pick;
   }
 
@@ -377,9 +404,16 @@ function decideDraft(draft: DraftFact, i: number, got: Map<string, Answer>, ctx:
   if (ctx.quarantined) outcome = "quarantine";
   else if (keep_p < KEEP) outcome = "archive_only";
 
-  // Labels: each candidate the judge did not say no to, checked against LABEL_RE once more.
-  const labels = outcome === "quarantine" ? [] : ctx.candidates[i].filter((l) => isLabel(l) && noul(got, `label:${i}:${l}`) >= LABEL_APPLIES);
-  if (labels.length) reasons.push(`labels ${labels.join(", ")}`);
+  // Labels: each candidate the judge did not say no to, checked against LABEL_RE once more. A merge
+  // or supersede also keeps every label of the fact it retires, asked about or not
+  // (MAX_LABEL_QUESTIONS): a label only narrows who sees a fact, and one dropped on a re-distill
+  // would let the replacement reach members whose rule excludes that label.
+  const asked = outcome === "quarantine" ? [] : ctx.candidates[i].filter((l) => isLabel(l) && noul(got, `label:${i}:${l}`) >= LABEL_APPLIES);
+  const retired = action === "add" ? undefined : target;
+  const kept = outcome === "quarantine" || !retired ? [] : [...new Set(Array.isArray(retired.labels) ? retired.labels : [])].filter((l) => isLabel(l) && !asked.includes(l));
+  const labels = [...asked, ...kept];
+  if (asked.length) reasons.push(`labels ${asked.join(", ")}`);
+  if (retired && kept.length) reasons.push(`labels kept from ${retired.id}: ${kept.join(", ")}`);
 
   const group: GroupId = outcome === "quarantine" || !filed ? INBOX : filed;
   const lead =
@@ -400,10 +434,21 @@ function decideDraft(draft: DraftFact, i: number, got: Map<string, Answer>, ctx:
   const tier: Tier = keep_p > THRESHOLDS.KEEP_HOT ? "hot" : "cold";
   const fact: Fact = { id: newFactId(), statement: draft.statement, folder: group, tier, jev_keep: keep_p, source: draft.source, updated: today() };
   if (action !== "add" && target) fact.supersedes = target.id;
-  if (draft.detail) fact.detail = draft.detail;
-  if (draft.happened && DATE_RE.test(draft.happened)) fact.happened = draft.happened;
+  if (exact) {
+    // An exact duplicate writes back the stored fact's content: its statement, detail and author.
+    // The draft's own detail is new content nothing checked against that group (only the
+    // statements were compared), and a new author would make the stored content their own fact,
+    // which joins their scope whatever their rule excludes.
+    fact.statement = exact.statement;
+    if (typeof exact.detail === "string" && exact.detail) fact.detail = exact.detail;
+    if (typeof exact.author === "string" && exact.author) fact.author = exact.author;
+  } else {
+    if (draft.detail) fact.detail = draft.detail;
+    if (ctx.author) fact.author = ctx.author;
+  }
+  const happened = [draft.happened, exact?.happened].find((h) => typeof h === "string" && DATE_RE.test(h));
+  if (happened) fact.happened = happened;
   if (labels.length) fact.labels = labels;
-  if (ctx.author) fact.author = ctx.author;
 
   // folder_p is Jev's probability for its pick, whatever code did with it.
   const save: SaveDecision = { tier, folder: group, action, keep_p, folder_p: group_p, judge: ctx.judge, triage: decision };
@@ -477,10 +522,12 @@ const SCAN_OVERLAP = 300;
 
 /**
  * The item text for the state: whole up to `max` characters, else its head and tail. The cut
- * middle is not dropped unseen: it is scanned in code (folded, so zero-width characters cannot
- * split a phrase) for sentences that read like orders to an AI or like forwarding something out,
- * and up to MAX_SPLICED of them are spliced in where the cut is, so the injection question is
- * asked of every part of the item.
+ * middle is scanned in code (folded, so zero-width characters cannot split a phrase) for sentences
+ * that read like orders to an AI or like forwarding something out, and up to MAX_SPLICED of them
+ * are spliced in where the cut is. That catches the usual phrasings only: an order worded outside
+ * INJECTION_PATTERNS and FORWARD_PATTERN in the cut part never reaches the injection question. So
+ * the judge does not see the whole item, and decideDraft sends every draft from a cut item to
+ * inbox (DraftContext.cut).
  */
 function clipForJudge(s: string, max: number): string {
   if (s.length <= max) return s;

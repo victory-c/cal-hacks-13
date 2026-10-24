@@ -5,7 +5,9 @@
 //                ("Project Falcon" → "Falcon") and the group id itself ("deal_falcon" as a file
 //                name). Names are matched on text folded first (matchForms: look-alike letters,
 //                zero-width characters, "_" joiners, camelCase), so the usual spelling tricks in a
-//                memo cannot hide a name.
+//                memo cannot hide a name. A group id's words match only across a path or file-name
+//                joiner ("deal/falcon", "deal-falcon", "deal_falcon", "dealFalcon"), never across
+//                sentence punctuation, so "go to market. Public comment" names no group.
 // No I/O, no model, no env.
 
 import type { Group } from "@canon/shared";
@@ -29,16 +31,22 @@ const CODE_NAME_PREFIX = /^(?:project|operation)\s+/i;
 
 /**
  * Which groups a text names. Case-insensitive, on letter/digit boundaries ("_" and "/" are
- * separators, so "Falcon_LOI_v3" names Falcon), with any run of non-letters or none between the
- * words of a name ("Project  Falcon" across a line break, "#project_falcon" and "ProjectFalcon" all
- * match). Text and names are folded alike first (foldText, matchForms).
+ * separators, so "Falcon_LOI_v3" names Falcon). Between the words of an alias any run of
+ * non-letters or none matches ("Project  Falcon" across a line break, "#project_falcon" and
+ * "ProjectFalcon" all match). Between the words of a group id only path or file-name joiners
+ * ("/", "_", "-", "\") or none do (ID_JOINER): an id is a path, and prose keeps its words apart
+ * ("go to market. Public comment").
+ * Text and names are folded alike first (foldText, matchForms).
  */
 export function aliasHits(text: string, groups: readonly GroupNames[]): AliasHits {
   const forms = matchForms(text);
+  // An id is looked for with its joiners kept: "_" stays "_" (foldText makes it a space).
+  const idForms = [foldLetters(text).replace(/\p{Pc}/gu, "_")];
   const hits = new Map<string, string[]>(); // group id → matched names
   for (const group of groups) {
     for (const name of groupNames(group)) {
-      if (!nameMatches(forms, name)) continue;
+      const isId = name === group.id;
+      if (!nameMatches(isId ? idForms : forms, name, isId ? ID_JOINER : ALIAS_JOINER)) continue;
       const names = hits.get(group.id) ?? [];
       if (!names.includes(name)) names.push(name);
       hits.set(group.id, names);
@@ -70,17 +78,26 @@ export function groupNames(group: GroupNames): string[] {
   });
 }
 
+/** Between an alias's words: any run of non-letters, or none ("Project Falcon", "project-falcon", "ProjectFalcon"). */
+const ALIAS_JOINER = "[^\\p{L}\\p{N}]*";
+/**
+ * Between a group id's words: path or file-name joiners only, or none: "deal/falcon",
+ * "deal_falcon", "deal-falcon", "deal\falcon", "dealFalcon". A space, ". ", ", " or a line break
+ * does not join them, so prose ("go to market. Public comment", "capital market public issuance")
+ * names no group by its id. Matched against the text folded with "_" kept (aliasHits).
+ */
+const ID_JOINER = "[-/\\\\_]*";
+
 /**
  * `forms` come from matchForms(). The name is folded and camel-split here, so a camelCase name
- * ("DataRobot") matches however the text spaces it.
+ * ("DataRobot") matches however the text spaces it. `joiner` is the regex source between its words.
  */
-function nameMatches(forms: readonly string[], name: string): boolean {
+function nameMatches(forms: readonly string[], name: string, joiner: string): boolean {
   const words = splitCamel(foldText(name))
     .split(/[^\p{L}\p{N}]+/u)
     .filter(Boolean);
   if (words.join(" ").length < MIN_NAME) return false;
-  // Any run of non-letters, or none, between words: "Project Falcon", "project-falcon", "ProjectFalcon".
-  const body = words.map(escapeRegExp).join("[^\\p{L}\\p{N}]*");
+  const body = words.map(escapeRegExp).join(joiner);
   const re = new RegExp(`(?<![\\p{L}\\p{N}])${body}(?![\\p{L}\\p{N}])`, "iu");
   return forms.some((f) => re.test(f));
 }
@@ -121,12 +138,16 @@ const CONFUSABLE_RE = new RegExp(`[${Object.keys(CONFUSABLES).join("")}]`, "gu")
  * Idempotent.
  */
 export function foldText(s: string): string {
+  return foldLetters(s).replace(/\p{Pc}/gu, " ");
+}
+
+/** foldText without the last step: "_" and other connector punctuation are kept. */
+function foldLetters(s: string): string {
   return s
     .normalize("NFKD")
     .replace(/[\p{Cf}\p{Mn}]/gu, "")
     .normalize("NFKC")
-    .replace(CONFUSABLE_RE, (c) => CONFUSABLES[c] ?? c)
-    .replace(/\p{Pc}/gu, " ");
+    .replace(CONFUSABLE_RE, (c) => CONFUSABLES[c] ?? c);
 }
 
 /** camelCase into words: "FalconModel" → "Falcon Model", "NMBLDeal" → "NMBL Deal". */
