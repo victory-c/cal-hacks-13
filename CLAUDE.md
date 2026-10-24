@@ -6,7 +6,7 @@ import. A new session in any AI gets only the small, relevant slice it needs. **
 decides what is worth keeping and what is relevant, **Moss** retrieves, and **folders** control
 which AI sees what. It starts personal or small-team and shows a path to a company version.
 
-Full spec: `docs/PRD.md`. Current progress: `STATUS.md` (generated from `status/status.json`).
+Full spec: `docs/PRD.md` (v2). Who does what for v2: `docs/WORK_SPLIT.md` (wins over the lanes below until they are updated). Current progress: `STATUS.md` (generated from `status/status.json`).
 Read both before starting a task.
 
 ## Hard deadlines (all times PDT)
