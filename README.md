@@ -69,18 +69,58 @@ the full design and the work split for implementation ownership.
 After editing `status/status.json`, run `npm run status` and commit the generated board with
 the work. Keep credentials in `.env`; share keys directly between teammates.
 
-## Integration evidence
+## Sponsor tracks
 
-- **Anthropic:** Claude fact writing and briefs are the product plan. Existing Claude adapters
-  are in `distiller/src/engines/claude.ts`, `shared/src/judge/claude.ts` and `bench/src/responder.ts`.
-- **Factory:** the target is dispatched finance agents with isolated context, visible steps and
-  inbox updates. The current Droid distiller adapter is a stub; headless dispatch is pending.
-- **Moss:** permission-scoped retrieval is planned. `server/src/retrieval/moss.ts` is currently
-  a stub; the working local fallback is keyword retrieval.
-- **Jev:** `shared/src/judge/jev.ts` provides the adapter behind `judge()`. API access and the
-  provider contract must be verified before claiming a real integration.
-- **Hyphenate and Microsoft:** proof will come from the finance demo, audit trail and measured
-  leak, wrongly blocked, accuracy, token, latency and cost results. Existing scaffold results
-  alone do not measure information barriers.
+Where each sponsor's tool does real work in the running product (PRD v2: context with walls for
+small finance teams). Status is honest: **built** = on `main` and in the demo, nothing else;
+**in progress** = written or being built on a branch, not merged to `main`; **planned** = not
+started or blocked. Full detail, blockers and the last check time:
+[`docs/SPONSORS.md`](docs/SPONSORS.md). Devpost text: [`docs/DEVPOST.md`](docs/DEVPOST.md).
+
+- **Factory Droid:** runs every dispatched agent as headless `droid exec` at a restricted
+  autonomy level, one sandbox folder per agent, steps streamed into the agent's dashboard lane,
+  updates routed between steps. **In progress**; gate Sat 11:00 (blocker Q1). See
+  [Where Droid runs](#where-droid-runs) below.
+- **Anthropic (Claude):** `claude-sonnet-5-5` writes facts from captured context
+  (`distiller/src/engines/claude.ts`) and agent briefs; `claude-haiku-5-5` is the fallback judge
+  (`shared/src/judge/claude.ts`); the benchmark responder is `bench/src/responder.ts`. No model
+  can lower a wall or grant access, and briefs are written only from facts that passed the
+  permission filter. At save time, code rules plus the
+  judge's answers set each fact's wall label, which only moves up. When the fallback judge runs
+  (no Jev key, blocker Q3), Claude Haiku answers the "confidential?" and "which deal?" questions,
+  and a 20% chance counts as yes. The risk left is a deal fact that both the alias rules and the
+  judge miss; the benchmark's paraphrase and indirect attacks and the exit check measure it.
+  Judge **built**; v2 finance writer and briefs **in progress**.
+- **Jev (TypeSafe AI)**, not a prize track: the judge behind save-time triage (keep,
+  confidential, which deal, AI instructions, relation), handoff relevance, access pre-screen and
+  live routing (`shared/src/judge/jev.ts`, `distiller/src/triage.ts`). Client **built** but
+  unverified against TypeSafe's docs (blocker Q3); triage **in progress**.
+- **Moss:** search by meaning on every handoff and routing check, after the permission filter
+  (`server/src/retrieval/moss.ts`). **Planned** (blocker Q2); the keyword retriever runs today.
+- **Hyphenate (Autonomous Systems for Finance):** the whole product: deny-by-default walls,
+  neutral refusals, the compliance queue and the audit log (`shared/src/types/walls.ts`,
+  `server/`, `web/`). Contract **in progress** (written on `b/contract-v2`, not on `main`);
+  server and control room **planned**.
+- **Microsoft (Built for the Real World):** the benchmark in `bench/` (leak rate, wrongly-blocked
+  rate, accuracy, tokens, latency, cost across four setups) and the scale path. v1 runner
+  **built**; v2 setups **planned**.
+- **Armadin (security):** injection quarantine at triage, raise-only wall labels, neutral
+  refusals and the exit check on agent outputs. **In progress / planned**, see
+  `docs/SPONSORS.md`.
+- **Bitdeer, Mana, Notability:** **planned**, see `docs/SPONSORS.md`.
+
+### Where Droid runs
+
+Status: **in progress** (B21, B22 on `b/dispatch`). Nothing below is on `main` yet, and the
+dispatcher's folder doesn't exist in the repo until it merges. If Droid can't run headless
+finance tasks (gate Sat 11:00, blocker Q1), the Claude runner takes over and this section is
+removed.
+
+| Step | Where (planned) | What Droid does |
+|---|---|---|
+| Dispatch | `distiller/src/dispatch/` | A task typed in the control room is split into one agent run per side of the wall. Each run starts `droid exec` headless, as its own principal. |
+| Sandbox | `data/agents/<run>/` | One folder per agent, holding only the files its slice allows. Droid reads and writes files and runs local commands, such as Python for the numbers, inside that folder only. |
+| Steps and lanes | `agent.step` events | Each task is a few short Droid steps. Every step, file and result streams into the agent's dashboard lane and its audit record. |
+| Live routing | `distiller/src/dispatch/routing.ts` | Between steps, wall changes and new facts reach the agent's inbox. A terminated deal cancels the next step and locks the folder. |
 
 The demo uses synthetic data. Quote measured runs only and label simulated behavior.
