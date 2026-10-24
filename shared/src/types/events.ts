@@ -61,7 +61,10 @@ export type CanonEvent =
       fact_id?: string;
     })
   | (Base & {
-      /** relayed (distiller): a captured item held for instructions aimed at an AI. */
+      /**
+       * A captured item held for instructions aimed at an AI. The server emits it from
+       * POST /api/quarantine; a worker that flags without holding may still relay it.
+       */
       type: "quarantine.flagged";
       session_id: string;
       /** The QuarantineItem id, when the server's queue returned one. */

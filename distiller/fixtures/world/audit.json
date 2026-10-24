@@ -38,7 +38,7 @@
       "kind": "scope.built",
       "actor": "maya",
       "principal": "dan",
-      "fact_ids": ["fct_fa1c0001", "fct_fa1c0002", "fct_fa1c0003", "fct_ab110001", "fct_ab110002", "fct_ab110003", "fct_0f0e0001", "fct_0f0e0002"],
+      "fact_ids": ["fct_fa1c0001", "fct_fa1c0002", "fct_fa1c0003", "fct_fa1c0004", "fct_ab110001", "fct_ab110002", "fct_ab110003", "fct_0f0e0001", "fct_0f0e0002"],
       "detail": "Scope built for Dan's Falcon task: no exclusions."
     },
     {

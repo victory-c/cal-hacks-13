@@ -168,6 +168,7 @@ describe("MCP tool bodies", () => {
     assert.equal(session?.client, "claude-code");
     assert.deepEqual(session?.messages, [{ role: "user", content: "Prefer Postgres over SQLite for anything multi-user" }]);
     assert.equal(session?.meta?.folder_hint, "projects/canon");
+    assert.equal(session?.principal, undefined, "an operator grant names no principal, so none is guessed");
     assert.ok(session?.ended_at);
     const captured = events.find((e) => e.type === "session.captured");
     assert.ok(captured && captured.type === "session.captured");
@@ -175,6 +176,13 @@ describe("MCP tool bodies", () => {
     assert.equal(captured.session.ended, true);
     // Nothing went to hot facts.
     assert.equal(deps.store.counts().facts, 0);
+  });
+
+  test("canon_save binds a per-person client's principal, like POST /api/sessions", async () => {
+    const dan: Grant = { client: "dan", read: [], write: [], principal: "dan" };
+    const out = await runSave({ ...deps, client: "dan", grant: dan }, { text: "LOI call moved to Monday", folder: "deal/falcon" });
+    const session = await deps.store.getSession(out.session_id);
+    assert.equal(session?.principal, "dan", "the saved memory is the principal's own");
   });
 
   test("canon_whoami returns the grant", () => {

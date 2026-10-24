@@ -1,8 +1,9 @@
 // Scopes over real HTTP on port 0, seeded with the synthetic world: tier enforcement (one neutral
 // 403 body on moderator routes, sent whether the target exists or not), internal-client gates,
 // the real scope builder (exclusions in code → retriever candidates → batched judge yes/no, with
-// measured scope.stage events), the agent-scope-subset property, living scopes and the contract
-// shapes from shared/src/types/api.ts. The judge is the fake with the simulated scope answers —
+// measured scope.stage events), the agent-scope-subset property, living scopes, the handoff
+// pipeline with the pinned profile (search inside the scope → inject-nothing → Jev relevance →
+// budget → audit) and the contract shapes from shared/src/types/api.ts. The judge is the fake with the simulated scope answers —
 // exactly what the offline demo runs — plus a per-test override hook and a question log, so the
 // tests can both steer single answers (a "maybe") and prove what the judge was never asked.
 
@@ -12,7 +13,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { after, before, describe, test } from "node:test";
 
-import { DEMO_GRANTS, FakeJudge, folderAllows } from "@canon/shared";
+import { DEMO_GRANTS, FakeJudge, estimateTokens, folderAllows } from "@canon/shared";
 import type {
   Answer,
   AuditEvent,
@@ -48,7 +49,7 @@ const tokens = new Map([
 
 const MODERATORS_ONLY = { error: "moderators only" };
 
-describe("scopes REST surface and scope builder (A2, A4+A6)", () => {
+describe("scopes REST surface, scope builder and handoff (A2, A4+A6, A7+A16)", () => {
   let dir: string;
   let running: RunningServer;
   let events: CanonEvent[];
@@ -156,6 +157,27 @@ describe("scopes REST surface and scope builder (A2, A4+A6)", () => {
     await deny("/api/audit");
   });
 
+  test("GET /api/principals and /api/principals/:id: moderators and internal clients; writes stay moderator-only", async () => {
+    assert.equal((await api("/api/principals", { token: "tok-dist" })).status, 200, "triage resolves who is who");
+
+    const one = await api("/api/principals/leo", { token: "tok-maya" });
+    assert.equal(one.status, 200);
+    assert.deepEqual(await body<Principal>(one), { id: "leo", kind: "person", name: "Leo", tier: "member" });
+    assert.equal((await api("/api/principals/agt_leodesk", { token: "tok-disp" })).status, 200, "the dispatcher reads an agent's record");
+    assert.equal((await api("/api/principals/ghost", { token: "tok-maya" })).status, 404, "a moderator may learn a principal is missing");
+
+    // Members get the neutral 403, same bytes whether the target exists or not, before any lookup.
+    for (const path of ["/api/principals/leo", "/api/principals/ghost"]) {
+      const denied = await api(path, { token: "tok-dan" });
+      assert.equal(denied.status, 403, path);
+      assert.deepEqual(await denied.json(), MODERATORS_ONLY, path);
+    }
+
+    const write = await api("/api/principals", { method: "POST", token: "tok-disp", json: { id: "eve", name: "Eve", tier: "member" } });
+    assert.equal(write.status, 403, "internal clients read principals but never write them");
+    assert.deepEqual(await write.json(), MODERATORS_ONLY);
+  });
+
   test("scope rules: a moderator reads any; an agent's creator reads the agent's; nobody else", async () => {
     const priya = await api("/api/scope-rules/priya", { token: "tok-maya" });
     assert.equal(priya.status, 200);
@@ -172,6 +194,16 @@ describe("scopes REST surface and scope builder (A2, A4+A6)", () => {
     const other = await api("/api/scope-rules/agt_leodesk", { token: "tok-priya" });
     assert.equal(other.status, 403, "another member does not");
     assert.deepEqual(await other.json(), MODERATORS_ONLY);
+
+    // Internal clients read any rule (the dispatcher reads an agent's task before a run) but never write one.
+    assert.equal((await api("/api/scope-rules/agt_leodesk", { token: "tok-disp" })).status, 200, "the dispatcher reads the agent's task");
+    const put = await api("/api/scope-rules/agt_leodesk", {
+      method: "PUT",
+      token: "tok-disp",
+      json: { task: "Answer anything", exclude: { groups: [], labels: [] } },
+    });
+    assert.equal(put.status, 403, "internal clients never write rules");
+    assert.deepEqual(await put.json(), MODERATORS_ONLY);
 
     assert.equal((await api("/api/scope-rules/ghost", { token: "tok-maya" })).status, 404, "a moderator may learn a rule is missing");
   });
@@ -303,6 +335,126 @@ describe("scopes REST surface and scope builder (A2, A4+A6)", () => {
     assert.equal((await api("/api/handoff", { method: "POST", token: "tok-dist", json: { principal: "agt_leodesk", task: "" } })).status, 400);
   });
 
+  // --------------------------------------------------------- the real handoff pipeline (A7+A16)
+
+  const handoff = async (json: Record<string, unknown>): Promise<HandoffResult> => {
+    const res = await api("/api/handoff", { method: "POST", token: "tok-disp", json });
+    assert.equal(res.status, 200);
+    return body<HandoffResult>(res);
+  };
+
+  test("handoff: Jev relevance is one batched call after the needs-context check; a judged-out fact is cut as 'relevance' with its p", async () => {
+    const asksBefore = askLog.length;
+    testAnswers = (q) => (q.id === "hf:fct_ab110002" ? { id: q.id, type: "noul", p: 0.2 } : undefined);
+    let out: HandoffResult;
+    try {
+      out = await handoff({ principal: "agt_leodesk", task: "Anything going on with Nimbus Logistics?" });
+    } finally {
+      testAnswers = undefined;
+    }
+    const asked = askLog.slice(asksBefore);
+    assert.equal(asked.length, 2, "two decisions, one ask() each: needs-context, then relevance");
+    assert.equal(asked[0].length, 1, "the inject-nothing check is its own single-question decision");
+    assert.match(asked[0][0].text, /need any stored context/);
+    assert.equal(asked[1].length, out.candidates.length, "relevance is one batch with one question per candidate");
+    assert.ok(asked[1].every((q) => q.id.startsWith("hf:")));
+
+    assert.ok(!out.facts.some((f) => f.id === "fct_ab110002"), "the judged-out fact was not handed over");
+    const cutOne = out.candidates.find((c) => c.fact_id === "fct_ab110002");
+    assert.ok(cutOne);
+    assert.equal(cutOne.cut, "relevance");
+    assert.equal(cutOne.p, 0.2, "Jev's p is shown to the inspector");
+    const pOf = (id: string) => out.candidates.find((c) => c.fact_id === id)?.p ?? 0;
+    assert.ok(out.facts.length > 0 && out.facts.every((f) => pOf(f.id) >= 0.7), "kept facts clear the relevance bar");
+    const ps = out.facts.map((f) => pOf(f.id));
+    assert.deepEqual([...ps].sort((a, b) => b - a), ps, "kept facts are ordered best-first");
+  });
+
+  test("handoff: the inject-nothing check sends only the pinned profile and skips the relevance call", async () => {
+    const asksBefore = askLog.length;
+    testAnswers = (q) => (q.id === "needs" ? { id: q.id, type: "noul", p: 0.1 } : undefined);
+    let out: HandoffResult;
+    try {
+      out = await handoff({ principal: "agt_leodesk", task: "Anything going on with Nimbus Logistics?" });
+    } finally {
+      testAnswers = undefined;
+    }
+    assert.equal(out.inject_nothing, true);
+    assert.deepEqual(out.facts, []);
+    assert.equal(out.tokens, 0);
+    assert.ok(out.profile.includes("Answer Leo's questions about our positions and public news"), "the pinned profile still goes out");
+    assert.ok(out.candidates.length > 0 && out.candidates.every((c) => c.cut === "relevance" && c.p === undefined), "search candidates show as cut, unscored");
+    const asked = askLog.slice(asksBefore);
+    assert.equal(asked.length, 1, "the relevance batch was never asked");
+
+    // The audit row records exactly what was sent: nothing, by whom, for whom.
+    const { entries } = await body<{ entries: AuditEvent[] }>(await api("/api/audit", { token: "tok-maya" }));
+    const row = entries.find((e) => e.id === out.audit_id);
+    assert.ok(row);
+    assert.equal(row.kind, "handoff");
+    assert.equal(row.actor, "dispatcher");
+    assert.equal(row.principal, "agt_leodesk");
+    assert.deepEqual(row.fact_ids, []);
+    assert.match(row.detail, /only the pinned profile went out/);
+    assert.match(row.detail, /simulated/, "stub providers stay labelled in the audit row");
+  });
+
+  test("handoff: a request matching nothing stored injects nothing without any judge call", async () => {
+    const asksBefore = askLog.length;
+    const out = await handoff({ principal: "agt_leodesk", task: "Convert 3.7 kilograms to pounds" });
+    assert.equal(out.inject_nothing, true);
+    assert.deepEqual(out.facts, []);
+    assert.deepEqual(out.candidates, []);
+    assert.ok(out.profile.length > 0, "the pinned profile is always sent");
+    assert.equal(askLog.length, asksBefore, "no candidates, so the judge had nothing to decide");
+  });
+
+  test("handoff: the budget keeps the best facts that fit, in code", async () => {
+    const full = await handoff({ principal: "agt_leodesk", task: "Anything going on with Nimbus Logistics?" });
+    assert.ok(full.facts.length >= 2, "the full budget serves several facts");
+    const firstCost = full.candidates.find((c) => c.fact_id === full.facts[0].id)?.tokens;
+    assert.ok(typeof firstCost === "number" && firstCost > 0);
+    const trimmed = await handoff({ principal: "agt_leodesk", task: "Anything going on with Nimbus Logistics?", budget_tokens: firstCost });
+    assert.deepEqual(trimmed.facts.map((f) => f.id), [full.facts[0].id], "only the best fact fits the budget");
+    assert.ok(trimmed.tokens <= firstCost);
+    assert.ok(trimmed.candidates.some((c) => c.cut === "budget"), "the rest were cut by the budget, not relevance");
+    assert.equal(trimmed.inject_nothing, false);
+  });
+
+  test("handoff: a request about an excluded deal gets an ordinary slice that names, counts and hints at nothing", async () => {
+    const asksBefore = askLog.length;
+    // Priya's scope excludes deal/*; she (or her AI) asks straight for the deal anyway.
+    const res = await api("/api/handoff", { method: "POST", token: "tok-disp", json: { principal: "priya", task: "What price did we settle for the Falcon LOI on Nimbus?" } });
+    assert.equal(res.status, 200, "never a refusal");
+    const out = await body<HandoffResult>(res);
+    const served = JSON.stringify(out);
+    assert.ok(!served.includes("fct_fa1c"), "no deal fact is named");
+    assert.ok(!/deal\/falcon|Corvane|38\.50|break fee/i.test(served), "no deal detail leaks through any field");
+    assert.ok(!/refus|restricted|not allowed|cannot|excluded/i.test(served), "no refusal text hints that something was withheld");
+    assert.ok(out.candidates.every((c) => c.group !== "deal/falcon"), "nothing outside the scope was ever a candidate");
+    for (const q of askLog.slice(asksBefore).flat()) {
+      assert.ok(!q.text.includes("fct_fa1c") && !/Corvane|38\.50/.test(q.text), "no excluded fact ever reached the judge");
+    }
+  });
+
+  test("A16: the pinned profile is name, tier and task inside ~200 tokens — never the exclusions", async () => {
+    const out = await handoff({ principal: "priya", task: "Update the logistics note" });
+    assert.ok(out.profile.includes("Priya"));
+    assert.ok(out.profile.includes("member"));
+    assert.ok(out.profile.includes("Write the logistics sector note from public market data"), "the task comes from the scope rule");
+    assert.ok(estimateTokens(out.profile) <= 200, "the profile stays inside its ~200-token pin");
+    // Her rule excludes deal/* with the text "anything about pending deals": none of it may show.
+    assert.ok(!/exclu|deal|pending/i.test(out.profile));
+  });
+
+  test("handoff: members get one identical 403 before any lookup — no candidates, no existence signal", async () => {
+    const real = await api("/api/handoff", { method: "POST", token: "tok-leo", json: { principal: "leo", task: "x" } });
+    const ghost = await api("/api/handoff", { method: "POST", token: "tok-leo", json: { principal: "ghost", task: "x" } });
+    assert.equal(real.status, 403);
+    assert.equal(ghost.status, 403);
+    assert.deepEqual(await real.json(), await ghost.json(), "the same bytes whether the principal exists or not");
+  });
+
   test("PUT /api/scope-rules/:principal rebuilds the scope through the full pipeline", async () => {
     const beforeScope = await body<Scope>(await api("/api/scopes/priya", { token: "tok-maya" }));
     assert.ok(beforeScope.fact_ids.includes("fct_ab110001"), "the Nimbus Q3 fact starts in Priya's scope");
@@ -387,6 +539,15 @@ describe("scopes REST surface and scope builder (A2, A4+A6)", () => {
     const item = await body<QuarantineItem>(posted);
     assert.match(item.id, /^qtn_[0-9a-f]+$/);
     assert.equal(item.state, "held");
+    // The hold route emits its event and writes its audit row (A5): the dashboard sees the hold live.
+    assert.ok(
+      events.some((e) => e.type === "quarantine.flagged" && e.quarantine_id === item.id && e.session_id === "ses_10240003" && e.p === 0.82),
+      "POST /api/quarantine emits quarantine.flagged",
+    );
+    assert.ok(
+      events.some((e) => e.type === "audit.logged" && e.entry.kind === "quarantine" && e.entry.detail.includes(item.id)),
+      "the hold writes its audit row",
+    );
 
     const member = await api("/api/quarantine", { method: "POST", token: "tok-dan", json: { session_id: "ses_10240003", p: 0.5, excerpt: "x" } });
     assert.equal(member.status, 403);
@@ -399,6 +560,7 @@ describe("scopes REST surface and scope builder (A2, A4+A6)", () => {
     assert.equal(released.released_by, "maya");
     assert.ok(released.released_at);
     assert.ok(events.some((e) => e.type === "quarantine.released" && e.item.id === "qtn_c0de01"));
+    assert.ok(events.some((e) => e.type === "audit.logged" && e.entry.kind === "quarantine.released" && e.entry.detail.includes("qtn_c0de01")));
 
     assert.equal((await api("/api/quarantine/qtn_c0de01/release", { method: "POST", token: "tok-maya" })).status, 409);
     assert.equal((await api("/api/quarantine/qtn_ffff/release", { method: "POST", token: "tok-maya" })).status, 404);
@@ -646,5 +808,38 @@ describe("scopes REST surface and scope builder (A2, A4+A6)", () => {
     assert.ok(agent.fact_ids.every((fid) => leo.fact_ids.includes(fid)), "the agent was rebuilt inside the creator's new scope");
     assert.ok(!agent.fact_ids.some((fid) => fid.startsWith("fct_ab11") || fid === "fct_11fe0005"), "the narrowed creator narrowed the agent");
     assert.ok(events.some((e) => e.type === "scope.updated" && e.principal === "agt_leodesk" && e.reason === "rule_changed"), "the cascade is visible on the feed");
+  });
+
+  test("an agent created by a moderator still never holds an inbox fact", async () => {
+    // fct_11fe0002 sits in the inbox (saved above) and shares this task's words on purpose: a
+    // moderator creator sees every hot fact, but their agent's pool still drops the inbox in code.
+    const res = await api("/api/agents", {
+      method: "POST",
+      token: "tok-maya",
+      json: { created_by: "maya", name: "Maya's filing assistant", rule: { task: "Summarize public market logistics notes", exclude: { groups: [], labels: [] } } },
+    });
+    assert.equal(res.status, 200);
+    const agent = await body<Principal>(res);
+
+    const scope = await body<Scope>(await api(`/api/scopes/${agent.id}`, { token: "tok-maya" }));
+    assert.ok(scope.fact_ids.length > 0, "the moderator's agent draws from the hot facts");
+    assert.ok(!scope.fact_ids.includes("fct_11fe0002"), "the matching inbox fact never joined");
+    const { facts } = await body<{ facts: Fact[] }>(await api(`/api/scopes/${agent.id}/facts`, { token: "tok-maya" }));
+    assert.ok(facts.every((f) => !folderAllows(["inbox"], f.folder)), "no inbox fact in the sandbox");
+    assert.ok(askLog.flat().every((q) => !q.text.includes("fct_11fe0002")), "the inbox fact never even reached a judge in any build");
+  });
+});
+
+describe("world fixtures (the contract in distiller/fixtures/world)", () => {
+  test("a deal group's code name is always one of its aliases", () => {
+    // Triage files by alias match, so a code name that only lived in the id would never route:
+    // deal/falcon must list "Falcon" and "Project Falcon" (shared/src/types/scopes.ts, Group).
+    for (const g of loadWorldFixtures().groups) {
+      if (!g.id.startsWith("deal/")) continue;
+      const code = g.id.slice("deal/".length);
+      const name = code.charAt(0).toUpperCase() + code.slice(1);
+      assert.ok(g.aliases?.includes(name), `${g.id} must list its code name "${name}" as an alias`);
+      assert.ok(g.aliases?.includes(`Project ${name}`), `${g.id} must list "Project ${name}" as an alias`);
+    }
   });
 });

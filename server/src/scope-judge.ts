@@ -1,4 +1,4 @@
-// Scope-build questions for judge(), plus the simulated answers used when no model key is set.
+// Scope-build and handoff questions for judge(), plus the simulated answers used when no model key is set.
 //
 // The question texts are deliberate, fixed formats: a real judge (Jev, Claude) reads each one as a
 // self-contained yes/no question, and simulatedScopeAnswers() parses the same text to answer
@@ -31,10 +31,22 @@ export function inScopeQ(id: string, fact: Fact, task: string): Question {
   return { id, type: "noul", text: `Task: «${task}». Does this fact help with it? Fact ${fact.id}: ${factText(fact)}` };
 }
 
+/** Handoff: does answering this request need any stored context at all? Below the bar, only the pinned profile goes out. */
+export function needsContextQ(id: string, request: string): Question {
+  return { id, type: "noul", text: `Request: «${request}». Does answering it need any stored context at all?` };
+}
+
+/** Handoff: does this fact help answer the request? The yes answers compete for the token budget. */
+export function helpsRequestQ(id: string, fact: Fact, request: string): Question {
+  return { id, type: "noul", text: `Request: «${request}». Does this fact help answer it? Fact ${fact.id}: ${factText(fact)}` };
+}
+
 // The subject starts after the "Group "/"Fact " marker, so an exclusion that merely contains the
 // word "fact" or "group" never matches every question.
 const EXCLUDE_RE = /^Exclusion: «([\s\S]*)»\. Does this (?:group|fact) fall under it\? (?:Group|Fact) ([\s\S]*)$/;
 const HELP_RE = /^Task: «([\s\S]*)»\. Does this fact help with it\? Fact ([\s\S]*)$/;
+const NEEDS_RE = /^Request: «([\s\S]*)»\. Does answering it need any stored context at all\?$/;
+const HELPS_REQUEST_RE = /^Request: «([\s\S]*)»\. Does this fact help answer it\? Fact ([\s\S]*)$/;
 
 /**
  * Share of the query's word tokens found in the subject. Pure-digit tokens are ignored: every
@@ -50,21 +62,27 @@ function overlap(query: string, subject: string): number {
 }
 
 /**
- * Deterministic, offline stand-in for Jev on the scope questions above (FakeJudge `override`).
- * Cautious on exclusions: any keyword overlap with the exclusion text clears the "any real
- * chance" bar. Relevance: any overlap with the task clears IN_SCOPE; none stays well below it.
+ * Deterministic, offline stand-in for Jev on the scope and handoff questions above (FakeJudge
+ * `override`). Cautious on exclusions: any keyword overlap with the exclusion text clears the
+ * "any real chance" bar. Relevance: any overlap with the task clears IN_SCOPE; none stays well
+ * below it. Needs-context: the handoff passes the candidate statements as `state`, so a request
+ * that overlaps nothing stored is answered "no context needed".
  */
-export function simulatedScopeAnswers(q: Question, _state: string): Answer | undefined {
+export function simulatedScopeAnswers(q: Question, state: string): Answer | undefined {
   if (q.type !== "noul") return undefined;
   const excluded = EXCLUDE_RE.exec(q.text);
   if (excluded) {
     const share = overlap(excluded[1], excluded[2]);
     return { id: q.id, type: "noul", p: share > 0 ? Math.min(0.95, 0.6 + 0.35 * share) : 0.05 };
   }
-  const helps = HELP_RE.exec(q.text);
+  const helps = HELP_RE.exec(q.text) ?? HELPS_REQUEST_RE.exec(q.text);
   if (helps) {
     const share = overlap(helps[1], helps[2]);
     return { id: q.id, type: "noul", p: share > 0 ? Math.min(0.95, 0.7 + 0.25 * share) : 0.1 };
+  }
+  const needs = NEEDS_RE.exec(q.text);
+  if (needs) {
+    return { id: q.id, type: "noul", p: overlap(needs[1], state) > 0 ? 0.9 : 0.1 };
   }
   return undefined;
 }

@@ -13,7 +13,9 @@ import type { Grant } from "@canon/shared";
 export const DEV_CLIENT_TOKENS =
   "claude-code=dev-claude-code,chatgpt=dev-chatgpt,teammate-cursor=dev-teammate-cursor,distiller=dev-distiller," +
   // Scopes (A2): the second internal worker and one client per synthetic-world person.
-  "dispatcher=dev-dispatcher,maya=dev-maya,dan=dev-dan,priya=dev-priya,leo=dev-leo";
+  "dispatcher=dev-dispatcher,maya=dev-maya,dan=dev-dan,priya=dev-priya,leo=dev-leo," +
+  // The ingest CLI (hooks/ingest/, lane B): posts raw sessions only.
+  "ingest=dev-ingest";
 
 /** `Authorization: Bearer <token>` → the client it belongs to, or null. */
 export function authenticate(req: IncomingMessage, tokens: Map<string, string>): { client: string } | null {

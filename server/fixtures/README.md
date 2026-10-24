@@ -15,10 +15,12 @@ legitimate tasks and attacks against that world. Replace fixtures only alongside
 schema, permission behavior and tests. Use synthetic data throughout.
 
 `facts/deal/`, `facts/market/`, `facts/research/`, `facts/desk/` and `facts/firm/` hold the
-synthetic-world facts (A2): twelve facts distilled from the sessions in
+synthetic-world facts (A2, A14): thirteen facts distilled from the sessions in
 `../../distiller/fixtures/world/`, with the same numbers and dates, each carrying its `source`
 session, `author`, `happened` date and labels. The scope fixtures there (`scopes.json`) reference
-these fact ids, so rename them only together. All synthetic; never benchmark evidence.
+these fact ids, so rename them only together. Two sessions have no fact files on purpose: the
+outside-counsel email is quarantined, and the LOI memo is future-dated for the live-ingest demo
+(see the world README). All synthetic; never benchmark evidence.
 
 Two seeded facts predate the finance product: `facts/team/decisions/fct_80a2c4e6.md` records an
 earlier cut order, and `facts/career/projects/fct_3c5e7f91.md` describes the earlier general-purpose

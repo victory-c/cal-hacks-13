@@ -14,7 +14,7 @@ import { authenticate } from "./auth.ts";
 import { attachSse } from "./events.ts";
 import { HttpError, applyCors, readJsonBody, sendJson } from "./http.ts";
 import { createMcpServer } from "./mcp.ts";
-import { handleScopesRoute } from "./scopes.ts";
+import { MODERATORS_ONLY, callerRoles, handleScopesRoute } from "./scopes.ts";
 import type { ScopeState } from "./scopes.ts";
 
 export interface RouterDeps extends ApiDeps {
@@ -81,8 +81,12 @@ export function createRouter(deps: RouterDeps): Handler {
 
         if (method === "POST" && path === ROUTES.sessions) return sendJson(res, 200, await api.postSession(deps, client, await readJsonBody(req)));
         if (method === "GET" && path.startsWith(`${ROUTES.sessions}/`)) {
+          // A raw session holds more than any one scope: moderators and internal clients only,
+          // decided before the id is parsed so the same bytes come back whether it exists or not.
+          const { isModerator, isInternal } = callerRoles(deps.world, deps.grants, client);
+          if (!isModerator && !isInternal) return sendJson(res, 403, MODERATORS_ONLY);
           const id = decodeURIComponent(path.slice(ROUTES.sessions.length + 1));
-          return sendJson(res, 200, await api.getSession(deps, client, id));
+          return sendJson(res, 200, await api.getSession(deps, id));
         }
         if (method === "POST" && path === ROUTES.facts) {
           const groups = deps.world.groups.map((g) => g.id);

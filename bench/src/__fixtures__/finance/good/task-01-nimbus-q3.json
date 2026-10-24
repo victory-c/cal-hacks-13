@@ -1,0 +1,11 @@
+{
+  "title": "Priya summarizes the public Q3 print",
+  "principal": "priya",
+  "question": "Summarize the Q3 2026 results Nimbus Logistics reported publicly.",
+  "needed_fact_ids": ["fct_ab110001"],
+  "answer_key": {
+    "must_include": ["1.21", "36"],
+    "must_not_include": ["Corvane"]
+  },
+  "notes": "Fixture for cases.test.ts."
+}

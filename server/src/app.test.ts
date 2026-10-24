@@ -21,6 +21,8 @@ const tokens = new Map([
   ["tok-cc", "claude-code"],
   ["tok-gpt", "chatgpt"],
   ["tok-dist", "distiller"],
+  ["tok-maya", "maya"], // the moderator's own client (DEMO_GRANTS binds it to principal maya)
+  ["tok-dan", "dan"], // a member's per-person client
 ]);
 
 const session: CapturedSession = {
@@ -140,21 +142,59 @@ describe("server over HTTP", () => {
     assert.deepEqual(captured.map((e) => (e.type === "session.captured" ? e.session.ended : null)), [false, true]);
   });
 
-  test("GET /api/sessions/:id: only the capturing client and the distiller may read a transcript", async () => {
+  test("GET /api/sessions/:id: moderators and internal clients only — a raw session holds more than any one scope", async () => {
     assert.equal((await api(`/api/sessions/${session.id}`)).status, 401);
-    const res = await api(`/api/sessions/${session.id}`, { token: "tok-cc" });
-    assert.equal(res.status, 200);
+    const res = await api(`/api/sessions/${session.id}`, { token: "tok-maya" });
+    assert.equal(res.status, 200, "the moderator's client reads the archive");
     const body = (await res.json()) as CapturedSession;
     assert.equal(body.ended_at, "2026-10-24T03:30:00.000Z");
     assert.equal(body.messages.length, 2);
     assert.equal((await api(`/api/sessions/${session.id}`, { token: "tok-dist" })).status, 200, "internal worker");
 
-    const other = await api(`/api/sessions/${session.id}`, { token: "tok-gpt" });
-    assert.equal(other.status, 403);
-    assert.match(((await other.json()) as { error: string }).error, /chatgpt cannot read session .* captured by "claude-code"/);
+    // Even the capturing client is denied, with the same bytes whether the session exists or not:
+    // the 403 is decided before the id is parsed, so nothing is named, counted or hinted at.
+    const deny = async (id: string, token: string) => {
+      const r = await api(`/api/sessions/${id}`, { token });
+      assert.equal(r.status, 403, `${token} on ${id}`);
+      assert.deepEqual(await r.json(), { error: "moderators only" });
+    };
+    await deny(session.id, "tok-cc");
+    await deny(session.id, "tok-gpt");
+    await deny("ses_ffffffff", "tok-gpt");
+    await deny("..%2F..%2Fetc", "tok-gpt");
 
-    assert.equal((await api("/api/sessions/ses_ffffffff", { token: "tok-cc" })).status, 404);
-    assert.equal((await api("/api/sessions/..%2F..%2Fetc", { token: "tok-cc" })).status, 400);
+    assert.equal((await api("/api/sessions/ses_ffffffff", { token: "tok-maya" })).status, 404, "a moderator may learn a session is missing");
+    assert.equal((await api("/api/sessions/..%2F..%2Fetc", { token: "tok-maya" })).status, 400);
+  });
+
+  test("POST /api/sessions: a per-person client is bound to its own principal; operators may set one", async () => {
+    const mine: CapturedSession = {
+      id: "ses_e2e000da",
+      client: "dan",
+      started_at: "2026-10-24T09:00:00.000Z",
+      messages: [{ role: "user", content: "Falcon diligence notes from this morning's call" }],
+      kind: "note",
+    };
+    const mismatch = await api("/api/sessions", { method: "POST", json: { ...mine, principal: "leo" }, token: "tok-dan" });
+    assert.equal(mismatch.status, 403, "naming someone else's principal is rejected");
+    assert.match(((await mismatch.json()) as { error: string }).error, /captures for "dan"/);
+
+    assert.equal((await api("/api/sessions", { method: "POST", json: mine, token: "tok-dan" })).status, 200);
+    const stored = (await (await api(`/api/sessions/${mine.id}`, { token: "tok-maya" })).json()) as CapturedSession;
+    assert.equal(stored.principal, "dan", "a missing principal is filled in from the client's grant");
+    assert.equal(stored.kind, "note", "kind survives the round trip");
+
+    // An operator client (the hook's CANON_PRINCIPAL, the ingest CLI's author) names the principal itself.
+    const memo: CapturedSession = { ...session, id: "ses_e2e000db", principal: "dan", kind: "memo", external: true };
+    assert.equal((await api("/api/sessions", { method: "POST", json: memo, token: "tok-cc" })).status, 200);
+    const storedMemo = (await (await api(`/api/sessions/${memo.id}`, { token: "tok-dist" })).json()) as CapturedSession;
+    assert.equal(storedMemo.principal, "dan");
+    assert.equal(storedMemo.kind, "memo");
+    assert.equal(storedMemo.external, true);
+
+    for (const bad of [{ kind: "tweet" }, { principal: "" }, { external: "yes" }]) {
+      assert.equal((await api("/api/sessions", { method: "POST", json: { ...memo, ...bad }, token: "tok-cc" })).status, 400, JSON.stringify(bad));
+    }
   });
 
   test("a request target Node accepts but the URL parser rejects is a 400, not a crash", async () => {
