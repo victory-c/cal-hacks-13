@@ -18,7 +18,7 @@ import { dirname, isAbsolute, join, relative, resolve } from "node:path";
 import { afterEach, beforeEach, describe, test } from "node:test";
 
 import { REPO_ROOT, dataDir, parseFactFile, serializeFactFile } from "@canon/shared";
-import { fakeFact, withEnv } from "../test-helpers.ts";
+import { NO_SYMLINKS, POSIX_ONLY, fakeFact, withEnv } from "../test-helpers.ts";
 import {
   SandboxEscapeError,
   agentsRoot,
@@ -67,7 +67,7 @@ describe("sandbox layout", () => {
     assert.throws(() => sandboxName("run_1a2b", -1), /bad attempt/);
   });
 
-  test("discardSandbox removes a folder for good, read-only or not, and never follows a link", () => {
+  test("discardSandbox removes a folder for good, read-only or not, and never follows a link", { skip: NO_SYMLINKS }, () => {
     const sb = createSandbox("run_0000d15c", { root });
     writeFactFile(sb, fakeFact("fct_0000aaaa", "A fact the agent no longer holds."));
     lock(sb.dir, "test");
@@ -131,7 +131,7 @@ describe("path confinement", () => {
     assert.equal(resolveInside(sb.dir, "./brief.md"), join(sb.dir, "brief.md"));
   });
 
-  test("a symlink that leads out of the sandbox is rejected, dangling or not, and nothing is written outside", () => {
+  test("a symlink that leads out of the sandbox is rejected, dangling or not, and nothing is written outside", { skip: NO_SYMLINKS }, () => {
     const sb = createSandbox("run_00000002", { root });
     const outside = mkdtempSync(join(tmpdir(), "canon-outside-"));
     try {
@@ -158,7 +158,7 @@ describe("path confinement", () => {
     }
   });
 
-  test("out/ itself swapped for a link, or a hard-linked file in out/, never leaves", () => {
+  test("out/ itself swapped for a link, or a hard-linked file in out/, never leaves", { skip: NO_SYMLINKS }, () => {
     const sb = createSandbox("run_00000007", { root });
     const outside = mkdtempSync(join(tmpdir(), "canon-outside-"));
     try {
@@ -190,7 +190,7 @@ describe("path confinement", () => {
     }
   });
 
-  test("fact files, facts/README.md and brief.md are never written through a link the agent left", () => {
+  test("fact files, facts/README.md and brief.md are never written through a link the agent left", { skip: NO_SYMLINKS }, () => {
     const sb = createSandbox("run_00000008", { root });
     const outside = mkdtempSync(join(tmpdir(), "canon-outside-"));
     try {
@@ -228,7 +228,7 @@ describe("path confinement", () => {
     }
   });
 
-  test("readOutFile reads a regular file only, and leaves big or binary files to the record", () => {
+  test("readOutFile reads a regular file only, and leaves big or binary files to the record", { skip: NO_SYMLINKS }, () => {
     const sb = createSandbox("run_00000009", { root });
     const outside = mkdtempSync(join(tmpdir(), "canon-outside-"));
     try {
@@ -246,7 +246,7 @@ describe("path confinement", () => {
     }
   });
 
-  test("writeInside creates folders inside and refuses to write through a link", () => {
+  test("writeInside creates folders inside and refuses to write through a link", { skip: NO_SYMLINKS }, () => {
     const sb = createSandbox("run_00000003", { root });
     writeInside(sb.dir, "out/deep/er/note.md", "ok");
     assert.equal(readFileSync(join(sb.outDir, "deep", "er", "note.md"), "utf8"), "ok");
@@ -285,7 +285,7 @@ describe("facts/", () => {
 });
 
 describe("lock", () => {
-  test("writes LOCKED and makes the folder read-only", { skip: process.getuid?.() === 0 ? "root ignores file modes" : false }, () => {
+  test("writes LOCKED and makes the folder read-only", { skip: process.getuid?.() === 0 ? "root ignores file modes" : POSIX_ONLY }, () => {
     const sb = createSandbox("run_00000004", { root });
     writeFileSync(join(sb.outDir, "note.md"), "draft");
     lock(sb.dir, "The agent was deleted.");
@@ -311,7 +311,7 @@ describe("lock", () => {
     assert.equal(statSync(sb.dir).mode & 0o222, 0);
   });
 
-  test("archiveSandbox copies a locked run as its record: regular files only, links never followed, copy locked", { skip: process.getuid?.() === 0 ? "root ignores file modes" : false }, () => {
+  test("archiveSandbox copies a locked run as its record: regular files only, links never followed, copy locked", { skip: process.getuid?.() === 0 ? "root ignores file modes" : NO_SYMLINKS }, () => {
     const sb = createSandbox("run_00000006", { root });
     const records = mkdtempSync(join(tmpdir(), "canon-records-"));
     const outside = mkdtempSync(join(tmpdir(), "canon-outside-"));
@@ -335,7 +335,7 @@ describe("lock", () => {
     }
   });
 
-  test("a LOCKED link the agent left is replaced, never written through; a hard link never reaches the record", { skip: process.getuid?.() === 0 ? "root ignores file modes" : false }, () => {
+  test("a LOCKED link the agent left is replaced, never written through; a hard link never reaches the record", { skip: process.getuid?.() === 0 ? "root ignores file modes" : NO_SYMLINKS }, () => {
     const sb = createSandbox("run_00000009", { root });
     const records = mkdtempSync(join(tmpdir(), "canon-records-"));
     const outside = mkdtempSync(join(tmpdir(), "canon-outside-"));

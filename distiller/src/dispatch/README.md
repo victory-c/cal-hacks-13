@@ -204,14 +204,16 @@ per folder) · `DISPATCH_STEP_TIMEOUT_MS` (default 300000) · `DISPATCH_DROID_MO
 repo or the data dir) · `DISPATCH_OS_SANDBOX` (`auto` | `on` | `off`, default `auto`) ·
 `FACTORY_API_KEY` · `ANTHROPIC_API_KEY` · `JUDGE_PROVIDER`.
 
-## Against today's server (before lane A's scope routes)
+## Against a server without the scope routes
 
-Every scope route 404s, and the server may not know the dispatcher token yet (401). Each is logged
-once per route and degrades safely, never to a wider view: no scope rule means the run fails at
-once ("no task to run"); no scope facts route means an empty `facts/` that says so (never a read of
-`/api/facts`); no handoff means a brief from the scope's own facts; outputs the server will not take
-stay in the run's record and the lane says so; events are dropped. The worker keeps running. Use
-the offline CLI until lane A's routes land.
+Lane A's stubs (A2, `server/src/scopes.ts`) serve every route the dispatcher calls; verified end to
+end on simulated providers (Leo's `agt_leodesk`: rule, scope facts, handoff, 2 fake steps, outputs
+saved as Leo's memory and triaged). Against an older server every scope route 404s, and the server
+may not know the dispatcher token (401). Each is logged once per route and degrades safely, never
+to a wider view: no scope rule means the run fails at once ("no task to run"); no scope facts route
+means an empty `facts/` that says so (never a read of `/api/facts`); no handoff means a brief from
+the scope's own facts; outputs the server will not take stay in the run's record and the lane says
+so; events are dropped. The worker keeps running.
 
 ## Limits and open questions
 
@@ -224,6 +226,10 @@ the offline CLI until lane A's routes land.
   folder (`~/.ssh`, other projects) is readable. The worker logs which boundary it runs with at
   start. Production: one OS user or container per run, with only the sandbox mounted. Ask at the
   Factory booth whether Droid has its own path allowlist.
+- **Windows.** Folder modes are ignored there, so `LOCKED` and the read-only record do not stop a
+  late write, and the tests that plant symlinks or use a shell-script fake `droid` are skipped
+  unless the user can create symlinks (admin or Developer Mode). Run real Droid agents for the demo
+  on macOS (or Linux); the fake and offline runtimes work everywhere.
 - **Fact files are the store's format, not quoted.** A fact's detail is plain markdown, so an
   instruction inside one reads as text, not as a quote. What stands against it: triage quarantines
   instructions aimed at an AI before anything becomes a fact, and `facts/README.md`, `brief.md` and

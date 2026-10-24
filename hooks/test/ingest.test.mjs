@@ -6,7 +6,7 @@ import crypto from "node:crypto";
 import { syncBuiltinESMExports } from "node:module";
 import { spawn } from "node:child_process";
 import { createServer } from "node:http";
-import { chmodSync, cpSync, mkdtempSync, mkdirSync, readFileSync, realpathSync, symlinkSync, writeFileSync } from "node:fs";
+import { chmodSync, cpSync, mkdtempSync, mkdirSync, readFileSync, realpathSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -48,6 +48,19 @@ const DIRECTORY = loadDirectory(PRINCIPALS);
 const CLI = join(HOOKS_DIR, "ingest", "canon-ingest.mjs");
 const SESSION_ID_RE = /^ses_[0-9a-f]{4,}$/; // shared/src/types/fact.ts
 const NOW = "2026-10-24T05:00:00.000Z";
+
+/** A `skip` value for tests that plant symlinks: false where this user may create one (CI always can). */
+const NO_SYMLINKS = (() => {
+  const dir = mkdtempSync(join(tmpdir(), "canon-symlink-probe-"));
+  try {
+    symlinkSync(dir, join(dir, "link"));
+    return false;
+  } catch {
+    return "this user cannot create symlinks (Windows needs admin or Developer Mode)";
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+})();
 
 const item = (relPath, text, extra = {}) => buildItem({ relPath, text, now: NOW, ...extra });
 
@@ -1010,7 +1023,7 @@ test("CLI: a 401 says how to register the ingest token; a dead server stops afte
 // Security rule (Jev never deletes; raw sessions always reach the cold archive): two different
 // files must never share a session id, in one run or across separate runs, or the server's
 // upsert overwrites the first one.
-test("ids: two different files never share an id, in one run or in separate runs", async () => {
+test("ids: two different files never share an id, in one run or in separate runs", { skip: NO_SYMLINKS }, async () => {
   const dir = mkdtempSync(join(tmpdir(), "canon-collide-"));
   for (const sub of ["a", "b"]) {
     mkdirSync(join(dir, sub, "memos"), { recursive: true });
@@ -1106,7 +1119,8 @@ test("CLI: a file that cannot be read or parsed is reported, the rest still post
   writeFileSync(join(dir, "exports", "empty.md"), "   \n");
   writeFileSync(join(dir, "exports", "locked.md"), "secret");
   chmodSync(join(dir, "exports", "locked.md"), 0o000);
-  const unreadable = process.getuid?.() !== 0; // root can read a 000 file
+  // Root can read a 000 file, and Windows ignores the mode.
+  const unreadable = process.platform !== "win32" && process.getuid?.() !== 0;
   const srv = await fakeServer();
   try {
     const r = await runCli([dir, "--url", srv.url]);
@@ -1142,7 +1156,7 @@ test("CLI: a file that cannot be read or parsed is reported, the rest still post
   }
 });
 
-test("CLI through a symlink still runs (the main-module check resolves the real path)", async () => {
+test("CLI through a symlink still runs (the main-module check resolves the real path)", { skip: NO_SYMLINKS }, async () => {
   const dir = mkdtempSync(join(tmpdir(), "canon-link-"));
   const link = join(dir, "canon-ingest");
   symlinkSync(CLI, link);

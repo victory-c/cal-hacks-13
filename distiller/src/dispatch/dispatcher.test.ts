@@ -7,7 +7,7 @@ import { afterEach, beforeEach, describe, test } from "node:test";
 
 import { nowIso } from "@canon/shared";
 import type { Answer, CanonEvent, CapturedSession, Fact, HandoffBody, HandoffResult, InboxItem, Judge, Question, RunState } from "@canon/shared";
-import { fakeFact, quiet } from "../test-helpers.ts";
+import { NO_SYMLINKS, fakeFact, quiet } from "../test-helpers.ts";
 import { TemplateBriefWriter } from "./brief.ts";
 import type { DispatchClient, RelayedEvent } from "./client.ts";
 import { Dispatcher, NO_RULE_REASON, OUT_LINK_REASON, stepPrompt } from "./dispatcher.ts";
@@ -227,7 +227,7 @@ describe("dispatcher: an agent runs inside its scope (B2)", () => {
     assert.ok(stepTexts(calls.events).some((t) => /did not take the outputs/.test(t)));
   });
 
-  test("an agent that swaps out/ for a link to an outside folder saves nothing from it", async () => {
+  test("an agent that swaps out/ for a link to an outside folder saves nothing from it", { skip: NO_SYMLINKS }, async () => {
     const outside = mkdtempSync(join(tmpdir(), "canon-outside-"));
     try {
       writeFileSync(join(outside, "secret.md"), "Outside the sandbox: Falcon terms.\n");
@@ -250,7 +250,7 @@ describe("dispatcher: an agent runs inside its scope (B2)", () => {
     }
   });
 
-  test("an agent that swaps facts/ for a link cannot make a new fact land outside its folder", async () => {
+  test("an agent that swaps facts/ for a link cannot make a new fact land outside its folder", { skip: NO_SYMLINKS }, async () => {
     const outside = mkdtempSync(join(tmpdir(), "canon-outside-"));
     try {
       const { client, scopes } = fakeServer({ [PRIYA]: [note] });

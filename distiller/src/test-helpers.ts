@@ -3,10 +3,31 @@
 import { createServer } from "node:http";
 import type { IncomingMessage, RequestListener, Server } from "node:http";
 import type { AddressInfo } from "node:net";
-import { readFileSync } from "node:fs";
+import { mkdtempSync, readFileSync, rmSync, symlinkSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 
 import type { CapturedSession, Fact } from "@canon/shared";
+
+/**
+ * A `skip` value for tests that plant symlinks: false where this user may create one, else the
+ * reason (Windows needs admin or Developer Mode). CI on Linux always runs them.
+ */
+export const NO_SYMLINKS: string | false = (() => {
+  const dir = mkdtempSync(join(tmpdir(), "canon-symlink-probe-"));
+  try {
+    symlinkSync(dir, join(dir, "link"));
+    return false;
+  } catch {
+    return "this user cannot create symlinks (Windows needs admin or Developer Mode)";
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+})();
+
+/** A `skip` value for tests that rely on POSIX file modes or shell scripts; false off Windows. */
+export const POSIX_ONLY: string | false = process.platform === "win32" ? "POSIX only: Windows ignores folder modes and runs no shell-script fakes" : false;
 
 /** Sets env vars for the duration of `fn` (undefined deletes), then restores them exactly. */
 export async function withEnv<T>(vars: Record<string, string | undefined>, fn: () => Promise<T> | T): Promise<T> {

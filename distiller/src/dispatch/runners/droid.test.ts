@@ -5,7 +5,7 @@ import { delimiter, join } from "node:path";
 import { after, before, describe, test } from "node:test";
 
 import { REPO_ROOT } from "@canon/shared";
-import { quiet, withEnv } from "../../test-helpers.ts";
+import { POSIX_ONLY, quiet, withEnv } from "../../test-helpers.ts";
 import { createSandbox, realPath, unlockForCleanup } from "../sandbox.ts";
 import { DroidRunner, agentEnv, mapDroidEvent, resolveOsSandbox, seatbeltProfile } from "./droid.ts";
 import { resolveRuntime } from "./index.ts";
@@ -126,7 +126,7 @@ function request(dir: string, events: StepEvent[], over: Partial<StepRequest> = 
 }
 
 describe("DroidRunner against a fake droid on PATH", () => {
-  test("runs `droid exec --auto low -o stream-json --cwd <sandbox>` and parses the stream into steps", async () => {
+  test("runs `droid exec --auto low -o stream-json --cwd <sandbox>` and parses the stream into steps", { skip: POSIX_ONLY }, async () => {
     const sb = createSandbox("run_00000d01", { root });
     const events: StepEvent[] = [];
     const result = await withDroid({ FAKE_DROID_MODE: "ok" }, async () => (await newRunner()).step(request(sb.dir, events)));
@@ -156,7 +156,7 @@ describe("DroidRunner against a fake droid on PATH", () => {
     assert.ok(existsSync(join(sb.outDir, "note.md")));
   });
 
-  test("no env value that points into the repo or the data dir reaches droid; PATH keeps the rest; PWD is the sandbox", async () => {
+  test("no env value that points into the repo or the data dir reaches droid; PATH keeps the rest; PWD is the sandbox", { skip: POSIX_ONLY }, async () => {
     const sb = createSandbox("run_00000d06", { root });
     await withDroid({ FAKE_DROID_MODE: "ok" }, async () => (await newRunner()).step(request(sb.dir, [])));
     const { env } = JSON.parse(readFileSync(join(sb.dir, "droid-call.json"), "utf8")) as { env: Record<string, string> };
@@ -168,12 +168,12 @@ describe("DroidRunner against a fake droid on PATH", () => {
     assert.ok(env.PATH.split(delimiter).includes(bin), "PATH still finds the tools outside the repo");
   });
 
-  test("agentEnv drops Bullwark's secrets and settings, values under hidden roots, and PATH entries inside them", () => {
+  test("agentEnv drops Bullwark's secrets and settings, values under hidden roots, and PATH entries inside them", { skip: POSIX_ONLY }, () => {
     const e = agentEnv("/sb/run_1", { PATH: `/usr/bin${delimiter}/repo/node_modules/.bin${delimiter}/repo`, HOME: "/home/x", CANON_URL: "http://x", JEV_API_KEY: "k", NODE_OPTIONS: "--import /repo/x.js", FACTORY_API_KEY: "f" }, ["/repo"]);
     assert.deepEqual(e, { PATH: "/usr/bin", HOME: "/home/x", FACTORY_API_KEY: "f", PWD: "/sb/run_1" });
   });
 
-  test("a non-zero exit is a failed step: the exit code is the public reason, stderr only in the message", async () => {
+  test("a non-zero exit is a failed step: the exit code is the public reason, stderr only in the message", { skip: POSIX_ONLY }, async () => {
     const sb = createSandbox("run_00000d02", { root });
     await withDroid({ FAKE_DROID_MODE: "fail" }, async () => {
       const err = await (await newRunner()).step(request(sb.dir, [])).then(
@@ -186,7 +186,7 @@ describe("DroidRunner against a fake droid on PATH", () => {
     });
   });
 
-  test("cancel kills the process and throws CancelledError", async () => {
+  test("cancel kills the process and throws CancelledError", { skip: POSIX_ONLY }, async () => {
     const sb = createSandbox("run_00000d03", { root });
     const controller = new AbortController();
     const events: StepEvent[] = [];
@@ -198,7 +198,7 @@ describe("DroidRunner against a fake droid on PATH", () => {
     });
   });
 
-  test("cancel kills droid's whole process tree, and the step settles only after droid has exited", async () => {
+  test("cancel kills droid's whole process tree, and the step settles only after droid has exited", { skip: POSIX_ONLY }, async () => {
     const sb = createSandbox("run_00000d07", { root });
     const controller = new AbortController();
     await withDroid({ FAKE_DROID_MODE: "tree" }, async () => {
@@ -210,7 +210,7 @@ describe("DroidRunner against a fake droid on PATH", () => {
     assert.equal(await gone(kid), true, "what droid's tools started is killed too");
   });
 
-  test("nothing droid started outlives a step that finished normally", async () => {
+  test("nothing droid started outlives a step that finished normally", { skip: POSIX_ONLY }, async () => {
     const sb = createSandbox("run_00000d08", { root });
     const result = await withDroid({ FAKE_DROID_MODE: "leave" }, async () => (await newRunner()).step(request(sb.dir, [])));
     assert.equal(result.done, true);
@@ -218,7 +218,7 @@ describe("DroidRunner against a fake droid on PATH", () => {
     assert.equal(await gone(kid), true);
   });
 
-  test("a step past its timeout is killed and fails", async () => {
+  test("a step past its timeout is killed and fails", { skip: POSIX_ONLY }, async () => {
     const sb = createSandbox("run_00000d04", { root });
     await withDroid({ FAKE_DROID_MODE: "hang" }, async () => {
       await assert.rejects((await newRunner()).step(request(sb.dir, [], { timeoutMs: 300 })), /timed out after 300 ms/);
