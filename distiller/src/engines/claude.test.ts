@@ -207,7 +207,7 @@ describe("ClaudeDistiller", () => {
     assert.match(head, /^time zone: America\/Los_Angeles \(started, ended and the \[role time\] stamps are firm-local; a date or time inside the text keeps the zone its writer gave it\)$/m);
 
     assert.doesNotMatch(SYSTEM, /Every time in the item is already in the firm's time zone/, "the old blanket claim is gone");
-    for (const phrase of ["The times Canon stamps", "A date or time inside the text itself", '"+0000"', "convert it to the firm's day first", "a bare date with no time is taken as written"]) {
+    for (const phrase of ["The stamped times (started, ended", "A date or time inside the text itself", '"+0000"', "convert it to the firm's day first", "a bare date with no time is taken as written"]) {
       assert.ok(SYSTEM.includes(phrase), `system prompt should include ${phrase}`);
     }
   });
