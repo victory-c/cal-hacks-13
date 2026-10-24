@@ -21,13 +21,19 @@ for (const client of ["claude-code", "chatgpt", "teammate-cursor", "distiller"])
 if (new Set(tokens.values()).size !== tokens.size) throw new Error("Each preview client needs a different token.");
 if (tokens.get("distiller") !== process.env.CANON_TOKEN_DISTILLER) throw new Error("Distiller token does not match CANON_CLIENT_TOKENS.");
 const simulated = process.env.PREVIEW_ALLOW_SIMULATED === "1";
-if (!simulated && !process.env.ANTHROPIC_API_KEY) throw new Error("Set ANTHROPIC_API_KEY in .env.preview before starting the real preview.");
+if (!simulated) {
+  const engine=process.env.DISTILLER || (process.env.FACTORY_API_KEY ? "droid" : "claude");
+  const judge=process.env.JUDGE_PROVIDER || (process.env.JEV_API_KEY ? "jev" : "claude");
+  const keys={droid:"FACTORY_API_KEY",claude:"ANTHROPIC_API_KEY",jev:"JEV_API_KEY"};
+  for (const provider of [engine,judge]) if (!keys[provider] || !process.env[keys[provider]]) throw new Error(`Real preview needs credentials for ${provider}; simulated mode must be explicit.`);
+}
 if (simulated) console.warn("[preview] Explicit simulated mode: no model API calls.");
-// Pending adapters must not be accidentally selected by adding sponsor credentials.
-process.env.DISTILLER = simulated ? "heuristic" : "claude";
-process.env.JUDGE_PROVIDER = simulated ? "fake" : "claude";
-delete process.env.MOSS_PROJECT_ID;
-delete process.env.MOSS_PROJECT_KEY;
+if (simulated) {
+  process.env.DISTILLER = "heuristic";
+  process.env.JUDGE_PROVIDER = "fake";
+  delete process.env.MOSS_PROJECT_ID;
+  delete process.env.MOSS_PROJECT_KEY;
+}
 if (!existsSync(resolve(root, "web/dist/index.html"))) throw new Error("Build the dashboard first: npm run build -w web.");
 
 const children = [];
@@ -37,10 +43,10 @@ async function stop(code) {
   if (stopping) return;
   stopping = true;
   process.exitCode = code;
-  // Distiller has up to 60s to finish its current Claude request before shutdown.
+  // Distiller has up to 120s to finish its current provider request before shutdown.
   killTimer = setTimeout(() => {
     for (const child of children) if (child.exitCode === null) child.kill("SIGKILL");
-  }, 65_000);
+  }, 145_000);
   killTimer.unref();
   // Let the worker finish writing to the API before stopping the API itself.
   const worker = children.find((child) => child.previewName === "distiller");
@@ -52,7 +58,7 @@ async function stop(code) {
   }
   for (const child of children) if (child.exitCode === null) child.kill("SIGTERM");
 }
-for (const [name, entry] of [["server", "server/src/index.ts"], ["web", "web/scripts/serve.mjs"], ["distiller", "distiller/src/index.ts"]]) {
+for (const [name, entry] of [["server", "server/src/index.ts"], ["web", "web/scripts/serve.mjs"], ["distiller", "distiller/src/index.ts"], ["gateway", "scripts/preview-gateway.mjs"]]) {
   const child = spawn(process.execPath, ["--import", "tsx", entry], { stdio: "inherit", env: process.env });
   child.previewName = name;
   children.push(child);

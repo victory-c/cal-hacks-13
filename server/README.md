@@ -60,7 +60,7 @@ facts are indexed for retrieval; the index refreshes on every `fact.saved` / `fa
 |---|---|---|---|
 | A2 MCP server | `src/mcp.ts`, `src/router.ts` | Real: four tools over the SDK's stateless Streamable HTTP | — |
 | A3 Cold archive | `src/store.ts` | Real: JSON per session, atomic writes | Pull-from-cold when `enough` is false |
-| A4 Moss | `src/retrieval/moss.ts` | **Stub.** Constructor throws without `MOSS_PROJECT_ID`/`MOSS_PROJECT_KEY`; methods throw "not implemented". `KeywordRetriever` (`retrieval/keyword.ts`) stands in and is labelled a stub | Implement `index`/`search`; `createRetriever()` already picks Moss when the env is set |
+| A4 Moss | `src/retrieval/moss.ts` | Official SDK local session: embeds hot facts, applies granted-folder metadata filters before hybrid ranking, replaces retired facts and validates returned IDs against canonical facts. Keyword fallback only without credentials | First startup downloads the embedding model; indexing failures fail closed |
 | A5 SSE | `src/events.ts` | Real: ring buffer, replay, heartbeat, ids | SpacetimeDB only with Saturday slack |
 | A6 Grants | `src/auth.ts` | Real: bearer → client → `Grant` (`DEMO_GRANTS` or `CANON_GRANTS_FILE`) | Team mode (A9) |
 | A7 Jev filter | `src/mcp.ts` → `runContext` | Real flow: retrieve k=20 → **one** `judge.ask()` (a noul per candidate + "enough?") → keep p > 0.7 → `cutToBudget`. Judge comes from `createJudge()`: `fake` (simulated) without keys. A judge failure (timeout, 5xx) is not an MCP error: no fact is served, `enough` is false and `missing` carries the reason | Nothing here changes when Jev's real API lands; fix `shared/src/judge/jev.ts` |

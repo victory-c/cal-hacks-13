@@ -194,6 +194,18 @@ describe("server over HTTP", () => {
     assert.match(((await invalid.json()) as { error: string }).error, /facts\[0\]\.fact: tier must be/);
   });
 
+  test("POST /api/facts: only the worker attributes successful distillation events", async () => {
+    const distillation={session_id:session.id,engine:"droid",plan:"Keep project decisions",duration_ms:120};
+    const before=events.length;
+    const response=await api("/api/facts",{method:"POST",token:"tok-dist",json:{facts:[],distillation}});
+    assert.equal(response.status,200);
+    const event=events.slice(before).find(event=>event.type==="distill.finished");
+    assert.ok(event && event.type==="distill.finished");
+    assert.equal(event.engine,"droid");assert.equal(event.plan,distillation.plan);
+    assert.equal((await api("/api/facts",{method:"POST",token:"tok-cc",json:{facts:[],distillation}})).status,400);
+    assert.equal((await api("/api/facts",{method:"POST",token:"tok-dist",json:{facts:[],distillation:{...distillation,duration_ms:-1}}})).status,400);
+  });
+
   test("POST /api/facts: the decision is validated, not trusted", async () => {
     // A statement no other test searches for, so the fact this leaves behind trips nothing later.
     const factE: Fact = { ...factA, id: "fct_e2e0000e", statement: "Prefers zsh over bash for shell work" };

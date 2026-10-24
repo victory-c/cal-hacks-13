@@ -1,6 +1,6 @@
 {
   "project": "Canon",
-  "updated": "2026-10-24T18:40:43.452Z",
+  "updated": "2026-10-24T22:35:58Z",
   "team": [
     {
       "id": "A",
@@ -188,9 +188,9 @@
       "owner": "B",
       "milestone": "M2",
       "priority": "must",
-      "state": "todo",
+      "state": "doing",
       "title": "Droid distiller v0: session in, facts out",
-      "note": "Depends on blocker Q1 (headless Droid)"
+      "note": "Official headless SDK + pinned CLI implementation and mock tests landed in B18; live run awaits a complete CLI download on this network."
     },
     {
       "id": "B3",
@@ -434,6 +434,15 @@
       "state": "doing",
       "title": "Sponsor credentials and shared preview deployment",
       "note": "Vultr MLH selected. Docker preview package, random local credentials and sponsor checklist prepared; npm run check and simulated container login/SSE/capture/MCP/persistence checks passed. Not deployed: awaiting Vultr login/credit/spending limit and ANTHROPIC_API_KEY."
+    },
+    {
+      "id": "B18",
+      "owner": "B",
+      "milestone": "M2",
+      "priority": "must",
+      "state": "doing",
+      "title": "Activate Factory, Moss and Jev and fix blank preview login",
+      "note": "Implemented official Factory SDK + CLI extraction, Moss local hybrid retrieval with grant prefilters, Jev documented URL/contract, and visible preview login. 261 tests pass; Jev live save-time call and Moss authentication verified. Local login patched and HTTP-verified. Full provider activation awaits stalled CLI/model downloads and rebuilt image; existing preview remains Claude/keyword."
     }
   ],
   "tracks": [

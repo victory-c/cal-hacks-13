@@ -47,7 +47,7 @@ describe("createJudge provider selection (no network: only constructors run)", (
 
   test("a provider without its key fails at construction, naming the variable", async () => {
     await withEnv({ ...clean, JUDGE_PROVIDER: "jev" }, () => assert.throws(() => createJudge(), /JEV_API_KEY is not set/));
-    await withEnv({ ...clean, JUDGE_PROVIDER: "jev", JEV_API_KEY: "k" }, () => assert.throws(() => createJudge(), /JEV_API_URL is not set/));
+    await withEnv({ ...clean, JUDGE_PROVIDER: "jev", JEV_API_KEY: "k" }, () => assert.equal(createJudge().name, "jev"));
     await withEnv({ ...clean, JUDGE_PROVIDER: "claude" }, () => assert.throws(() => createJudge(), /ANTHROPIC_API_KEY is not set/));
   });
 });

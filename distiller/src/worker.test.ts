@@ -4,7 +4,7 @@ import { describe, test } from "node:test";
 import { FakeJudge } from "@canon/shared";
 import type { CanonEvent, CapturedSession, Fact, PostFactsBody } from "@canon/shared";
 import type { CanonClient } from "./client.ts";
-import { DroidDistiller, HeuristicDistiller } from "./engines/index.ts";
+import { HeuristicDistiller } from "./engines/index.ts";
 import { fakeFact, loadFixture, quiet } from "./test-helpers.ts";
 import { createHandler } from "./worker.ts";
 
@@ -131,12 +131,12 @@ describe("worker handler", () => {
     assert.equal(calls.getSession.filter((id) => id === "ses_deadbeef").length, 2);
   });
 
-  test("an engine that throws (Droid before Q1) does not take the loop down and posts nothing", async () => {
+  test("an engine that throws does not take the loop down and posts nothing", async () => {
     const { client, calls } = fakeClient({ [fixture.id]: fixture });
-    const handler = createHandler({ client, distiller: new DroidDistiller({ apiKey: "test-factory" }), judge: await judge(), live: false });
+    const handler = createHandler({ client, distiller: { name: "droid", async distill() { throw new Error("Factory unavailable"); } }, judge: await judge(), live: false });
     const { lines } = await quiet(() => handler(captured(fixture.id, 8, true)));
     assert.equal(calls.posts.length, 0);
-    assert.ok(lines.some((l) => l.includes("Droid SDK wiring pending: blocker Q1")), lines.join("\n"));
+    assert.ok(lines.some((l) => l.includes("Factory unavailable")), lines.join("\n"));
   });
 
   test("a session with nothing durable posts nothing", async () => {

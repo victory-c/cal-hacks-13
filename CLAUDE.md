@@ -129,6 +129,8 @@ updated: 2026-10-24
 Optional detail.
 ```
 
+**Distiller attribution.** `POST /api/facts` accepts optional `distillation: { session_id, engine, plan?, duration_ms }` from the internal distiller only. The server emits `distill.finished` after successful writes so the dashboard shows the actual Factory plan and engine.
+
 **Session capture** (`POST /api/sessions`, bearer token per client): `{ id: ses_…, client,
 started_at, ended_at?, title?, messages: [{ role, content, at? }], meta? }`. Clients re-send
 the whole message list under the same id; the server upserts. See `shared/src/types/session.ts`.

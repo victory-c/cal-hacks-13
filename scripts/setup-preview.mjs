@@ -13,10 +13,10 @@ if (process.argv.includes("--check")) {
     process.exit(1);
   }
   const values = parseEnv(readFileSync(file, "utf8"));
-  for (const key of ["ANTHROPIC_API_KEY", "FACTORY_API_KEY", "JEV_API_KEY", "JEV_API_URL", "MOSS_PROJECT_ID", "MOSS_PROJECT_KEY"]) {
+  for (const key of ["ANTHROPIC_API_KEY", "FACTORY_API_KEY", "JEV_API_KEY", "MOSS_PROJECT_ID", "MOSS_PROJECT_KEY"]) {
     console.log(`${key}: ${values[key] ? "set (value hidden; not live-validated)" : "missing"}`);
   }
-  console.log("Only Anthropic is enabled in this preview; the other adapters still need implementation/verification.");
+  console.log("Provider presence only; run a fresh capture and context query to verify live calls. Jev defaults to https://api.typesafe.ai/v1/systemone.");
   process.exit(values.ANTHROPIC_API_KEY ? 0 : 1);
 }
 if (existsSync(file)) {
@@ -52,10 +52,10 @@ DISTILLER=claude
 JUDGE_PROVIDER=claude
 DISTILL_LIVE=1
 
-# Collect these for later; preview.mjs keeps unfinished adapters disabled.
+# Optional sponsor providers; set DISTILLER=droid and JUDGE_PROVIDER=jev to select them.
 FACTORY_API_KEY=
 JEV_API_KEY=
-JEV_API_URL=
+JEV_API_URL=https://api.typesafe.ai/v1/systemone
 MOSS_PROJECT_ID=
 MOSS_PROJECT_KEY=
 

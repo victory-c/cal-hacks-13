@@ -123,7 +123,7 @@ async function processSession(event: Captured, opts: HandlerOptions, processed: 
     const counts = summarize(decided.result.map((d) => d.decision));
     log(`session ${id}: ${opts.judge.name} judged ${drafts.length} drafts against ${hot.result.length} hot facts in ${decided.ms} ms (${counts})`);
 
-    const posted = await timed(() => opts.client.postFacts({ facts: decided.result }));
+    const posted = await timed(() => opts.client.postFacts({ facts: decided.result, distillation: { session_id: id, engine: opts.distiller.name, ...(plan ? { plan } : {}), duration_ms: distilled.ms + decided.ms } }));
     log(`session ${id}: saved ${posted.result.saved.length}, retired ${posted.result.retired.length} in ${posted.ms} ms`);
   } catch (err) {
     // Let a later re-post of the same session retry; do not take the loop down.

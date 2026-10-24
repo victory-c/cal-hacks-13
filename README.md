@@ -60,7 +60,7 @@ folder against the server (or against a recorded session fixture) without waitin
 | Folder | Lane | What |
 |---|---|---|
 | [`shared/`](shared/) | A + B | The A↔B contract as code: fact schema, session capture, MCP tool I/O, SSE events, grants, `judge()` interface. `shared/src/types/` is frozen; change it with `CLAUDE.md` and the other builder. |
-| [`server/`](server/) | A · Henry | MCP server (Streamable HTTP) + REST + SSE, file-backed fact store, cold archive, folder grants, retrieval (`KeywordRetriever` now, Moss next). |
+| [`server/`](server/) | A · Henry | MCP server (Streamable HTTP) + REST + SSE, file-backed fact store, cold archive, folder grants, retrieval (Moss with credentials, keyword fallback offline). |
 | [`distiller/`](distiller/) | B · Victor | Worker on the event stream: captured session → facts (Droid, Claude fallback, heuristic stub) → Jev save-time decisions → server. |
 | [`hooks/`](hooks/) | B · Victor | Claude Code capture hook. Plain Node, zero deps. |
 | [`extension/`](extension/) | B · Victor | Chrome MV3 extension capturing ChatGPT (then Claude, Gemini) web sessions live. |
@@ -98,6 +98,6 @@ Each section says where the integration does real work in the running product. T
 filled in as the work lands.
 
 - **Anthropic (Claude):** distiller fallback (`distiller/src/engines/claude.ts`, `claude-sonnet-5-5`), judge fallback (`shared/src/judge/claude.ts`, `claude-haiku-5-5`), resume writing. _Role and failure modes: TBD_
-- **Factory Droid SDK:** the distiller engine (`distiller/src/engines/droid.ts`): runs on every captured session, can only write to the fact store, plan + fact diffs shown on the dashboard. _TBD_
-- **Moss:** the retrieval layer behind `canon_context` (`server/src/retrieval/`). Retrieval latency shows on the dashboard. _TBD_
+- **Factory Droid SDK:** the headless distiller (`distiller/src/engines/droid.ts`) uses the official SDK and bundled CLI on captured sessions. It returns structured proposals and a plan with tools disabled; Jev judges them before the worker writes facts. The dashboard receives the actual plan and engine after saving.
+- **Moss:** the local semantic + keyword index behind `canon_context` (`server/src/retrieval/moss.ts`). Hot facts are embedded with the official SDK. Granted folders filter candidates before ranking; canonical IDs and grants are checked again afterward. Retrieval latency shows on the dashboard.
 - **Microsoft (Built for the Real World):** benchmark chart from `bench/results/`, scale slide, responsible-design notes (folders, cold archive). _TBD_

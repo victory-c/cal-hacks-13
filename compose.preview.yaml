@@ -16,11 +16,11 @@ services:
     volumes:
       - canon-data:/app/data
     healthcheck:
-      test: ["CMD", "node", "-e", "Promise.all([fetch('http://127.0.0.1:4100/health'),fetch('http://127.0.0.1:4200/')]).then(rs=>process.exit(rs.every(r=>r.ok)?0:1)).catch(()=>process.exit(1))"]
+      test: ["CMD", "node", "-e", "Promise.all([fetch('http://127.0.0.1:4100/health'),fetch('http://127.0.0.1:4200/'),fetch('http://127.0.0.1:4300/')]).then(rs=>process.exit(rs.every(r=>r.ok)?0:1)).catch(()=>process.exit(1))"]
       interval: 15s
       timeout: 5s
       start_period: 30s
-    stop_grace_period: 75s
+    stop_grace_period: 155s
 
   proxy:
     image: caddy:2-alpine

@@ -5,10 +5,10 @@
 import { env } from "@canon/shared";
 import type { CapturedSession, DistillEngine, DraftFact } from "@canon/shared";
 import { ClaudeDistiller } from "./claude.ts";
-import { DroidDistiller, NotConfiguredError } from "./droid.ts";
+import { DroidDistiller } from "./droid.ts";
 import { HeuristicDistiller } from "./heuristic.ts";
 
-export { ClaudeDistiller, DroidDistiller, HeuristicDistiller, NotConfiguredError };
+export { ClaudeDistiller, DroidDistiller, HeuristicDistiller };
 
 export interface DistillResult {
   drafts: DraftFact[];

@@ -45,16 +45,18 @@ a silent downgrade.
 
 | Engine | Real? | Needs | Where it plugs in |
 |---|---|---|---|
-| `droid` | **Pending blocker Q1.** Constructs; `distill()` throws `NotConfiguredError` until the SDK is wired (task B2). | `FACTORY_API_KEY` | `src/engines/droid.ts` |
+| `droid` | Official Factory SDK + pinned CLI, headless structured extraction; never silently downgrades. | `FACTORY_API_KEY` | `src/engines/droid.ts` |
 | `claude` | Yes. `claude-sonnet-5-5`, one strict `emit_facts` tool, raw Messages API over `fetch` (no SDK dependency). | `ANTHROPIC_API_KEY` | `src/engines/claude.ts` |
 | `heuristic` | **No, simulated.** Keyword sentences (built/shipped/decided/…), folder guessed by keywords, max 8. | nothing | `src/engines/heuristic.ts` |
 
-**Factory Droid track (design, SDK wiring pending Q1).** Droid is the distiller, not a chatbot:
-it runs headless on *our* trigger (every captured session), gets the session + the fact-file
-format + the folder list, and may only write the fact store, through our `POST /api/facts`.
-Jev still answers the save-time questions on every draft, so Droid cannot bypass them. It returns
-a plan and drafts; the plan and the fact diffs go on the dashboard as the proof of work. The
-intended contract is written out at the top of `src/engines/droid.ts`.
+**Factory Droid track.** The official `@factory/droid-sdk/node` creates a headless session in
+an empty temporary directory. It rejects permissions, disables all discovered tools and built-in
+skills, and requests a JSON schema containing a plan and at most 12 durable facts. The session
+closes and its temporary directory is removed even on failure. Source attribution comes from
+the captured session, never from model output. Jev judges every proposal before the worker
+writes through `POST /api/facts`; successful writes emit the engine, timing, and plan to SSE
+(plans for batches containing private facts are omitted). Set `FACTORY_MODEL` only to override
+the account's default. `npm ci` installs the pinned CLI alongside the SDK.
 
 **Anthropic track.** `claude-sonnet-5-5` follows the claude-api skill: forced `tool_choice` is a
 400 on this model, so the request uses `auto` + `strict: true` + a system prompt that says to call
