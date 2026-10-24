@@ -23,7 +23,9 @@ Edan pastes it into Devpost and handles the logistics (C8, C10). Source of truth
     At code freeze, look each one up. If every row it names is **built** (on `main` and in the
     demo), delete the marker. If not, rewrite or delete the text it covers (back to the start of
     its bullet or paragraph) so it claims only what shipped. Never delete the marker alone.
-- Before submit, `grep -n "\[\[" docs/DEVPOST.md` prints nothing.
+- Before submit, this prints nothing. It checks only the Devpost fields (from `## Project name`
+  on), so the marker examples in these instructions don't count:
+  `awk '/^## Project name/{f=1} f && /\[\[/{print NR": "$0}' docs/DEVPOST.md`
 - If a feature didn't ship, delete its sentence. The Devpost text must match what the video
   and the repo show. Never quote a competitor's numbers.
 - Wording about access: no model can lower a wall or grant access, but at save time the judge's
