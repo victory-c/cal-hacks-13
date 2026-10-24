@@ -16,8 +16,9 @@
 // are still tried, and the exit code says whether everything landed (0), something failed (1),
 // or the flags or paths were wrong (2), which includes two files whose ids clash. A file that
 // cannot be read or parsed is reported as `fail <path>: <reason>`, the run goes on, and the exit
-// code is 1; so is a JSON or JSONL file with rows that could not be read (its good rows are still
-// sent). A file with nothing to ingest (no text, over the size cap) is `skip <path>: <reason>`.
+// code is 1; so is a JSON or JSONL file with rows that could not be read, or read only in part (an
+// image next to the text; its good rows and text are still sent). A file with nothing to ingest
+// (no text, over the size cap) is `skip <path>: <reason>`.
 // Names and email addresses become principal ids only through --principals FILE.
 
 import { existsSync, readFileSync, realpathSync, statSync } from "node:fs";
@@ -242,10 +243,10 @@ export async function run(argv, io = {}) {
       continue;
     }
     if (opts.only && built.kind !== opts.only) continue;
-    const lost = [built.meta?.unparsed_lines?.length && countList("line", built.meta.unparsed_lines), built.meta?.unparsed_rows?.length && countList("row", built.meta.unparsed_rows)].filter(Boolean);
-    if (lost.length) {
+    const loss = incompleteRead(built.meta);
+    if (loss) {
       unreadable++;
-      err(`fail  ${rel}: ${lost.join(" and ")} could not be read (not valid JSON, not an object, or no text we can read) and left out; the rest is in the session`);
+      err(`fail  ${rel}: ${loss}; the rest is in the session`);
     }
     sessions.push(built);
   }
@@ -299,6 +300,21 @@ export async function run(argv, io = {}) {
 
   err(`${posted} posted, ${failed} failed, ${sessions.length} total → ${url}${unreadNote}`);
   return failed || unreadable ? 1 : 0;
+}
+
+/**
+ * What a built session's meta says was not imported (see buildItem), as one clause, or undefined
+ * when the file was read in full: rows left out, then rows (or a document body) whose text was
+ * kept but whose image or other block that is not text was left out.
+ */
+export function incompleteRead(meta = {}) {
+  const count = (word, nums) => (nums?.length ? countList(word, nums) : undefined);
+  const out = [];
+  const left = [count("line", meta.unparsed_lines), count("row", meta.unparsed_rows)].filter(Boolean);
+  if (left.length) out.push(`${left.join(" and ")} could not be read (not valid JSON, not an object, or no text we can read) and left out`);
+  const part = [count("line", meta.partial_lines), count("row", meta.partial_rows), meta.partial_body ? "the body" : undefined].filter(Boolean);
+  if (part.length) out.push(`${part.join(" and ")} could only be read in part (the text is kept; an image or other block that is not text was left out)`);
+  return out.length ? out.join("; ") : undefined;
 }
 
 function hintFor(status) {

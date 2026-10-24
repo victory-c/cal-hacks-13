@@ -250,7 +250,9 @@ Several text pieces join with a blank line. Tool and thinking blocks are skipped
 Code hook, so a tool-only turn is not a loss; a blank message is skipped too. A row that **cannot
 be read** is never dropped without a word: a line or entry that is not an object, a text field
 that is not a string or text blocks (an image-only message, a number), or a row with a `role` or
-speaker and no text at all. An object with neither (export metadata) is skipped.
+speaker and no text at all. An object with neither (export metadata) is skipped. A message with
+text **and** a block we cannot read (text next to an image) keeps its text and is recorded as
+read in part, so the loss is reported just like an image-only message.
 
 **Failures.** A file that cannot be read or parsed (unreadable, bad JSON, a JSONL file with no
 valid line, a JSON `messages` that is not a list, a JSON file that is a bare string or number, a
@@ -259,7 +261,9 @@ the run goes on and exits 1. A JSON or JSONL file with only some unreadable rows
 from its good rows, prints `fail <path>: line N could not be read … and left out; the rest is in
 the session` (or `row N` for a JSON list), records them in `meta.unparsed_lines` (JSONL line
 numbers) or `meta.unparsed_rows` (1-based positions in a JSON message list), and also makes the
-run exit 1, because the import is incomplete. A file with nothing to
+run exit 1, because the import is incomplete. Rows read in part print `fail <path>: row N could
+only be read in part …` and go in `meta.partial_lines` / `meta.partial_rows` the same way (a JSON
+document whose body was read in part sets `meta.partial_body`); they exit 1 too. A file with nothing to
 ingest (over 1 MB, no text, JSON with no messages or body) prints `skip <path>: <reason>` and does
 not change the exit code. Each HTTP error status is logged once with a hint (401: register the
 token; 404: not a Bullwark server) and every remaining file is still tried. A dead server stops the

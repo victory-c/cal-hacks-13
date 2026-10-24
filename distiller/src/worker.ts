@@ -41,7 +41,7 @@ export function createHandler(opts: HandlerOptions): Handler {
   const debounceMs = opts.debounceMs ?? 3000;
   const startedAt = Date.now();
   const replayCutoff = startedAt - (opts.replayGraceMs ?? 5000);
-  const processed = new Set<string>(); // "<id>:<revision>" keys; an unchanged re-send is a no-op
+  const processed = new RevisionLedger(); // last revision distilled per session; an unchanged re-send is a no-op
   const pending = new Map<string, Pending>(); // live-mode debounce, one per session id
   const inflight = new Set<Promise<void>>();
 
@@ -107,21 +107,46 @@ export function sessionRevision(session: CapturedSession): string {
   return createHash("sha1").update(JSON.stringify(content)).digest("hex").slice(0, 12);
 }
 
-async function processSession(event: Captured, opts: HandlerOptions, processed: Set<string>): Promise<void> {
+/**
+ * The one revision per session that was last handed to the distiller, so an unchanged re-send is
+ * a no-op and any change is distilled again. Only the latest counts, not every past one: a memo
+ * imported as A, corrected to B, then restored to A distills A again, because the archive now
+ * holds A while the store last saw B. claim() checks and records with no await in between, so two
+ * copies of one event distill once.
+ */
+export class RevisionLedger {
+  readonly #last = new Map<string, string>();
+
+  /** The fetched session's revision when it is not the one last claimed for `id`, else undefined. */
+  claim(id: string, session: CapturedSession): string | undefined {
+    const revision = sessionRevision(session);
+    if (this.#last.get(id) === revision) return undefined;
+    this.#last.set(id, revision);
+    return revision;
+  }
+
+  /**
+   * A failed distill: forget it so a re-post runs again, unless a newer revision was claimed since.
+   * Never puts back the one before, which may have failed too.
+   */
+  release(id: string, revision: string): void {
+    if (this.#last.get(id) === revision) this.#last.delete(id);
+  }
+}
+
+async function processSession(event: Captured, opts: HandlerOptions, processed: RevisionLedger): Promise<void> {
   const { id } = event.session;
   // Keyed by the fetched content, not the event's message count: a re-imported memo keeps its id
-  // and usually its one message, so a corrected file must still be distilled again. The check and
-  // the add run with no await between them, so two copies of one event distill once.
-  let key: string | undefined;
+  // and usually its one message, so a corrected file must still be distilled again.
+  let claimed: string | undefined;
   try {
     const fetched = await timed(() => opts.client.getSession(id));
     const session = fetched.result;
-    key = `${id}:${sessionRevision(session)}`;
-    if (processed.has(key)) {
+    claimed = processed.claim(id, session);
+    if (!claimed) {
       log(`session ${id}: unchanged since it was distilled (${session.messages.length} messages), skipping`);
       return;
     }
-    processed.add(key);
     log(`session ${id}: fetched ${session.messages.length} messages in ${fetched.ms} ms`);
 
     const distilled = await timed(() => opts.distiller.distill(session));
@@ -142,7 +167,7 @@ async function processSession(event: Captured, opts: HandlerOptions, processed: 
     log(`session ${id}: saved ${posted.result.saved.length}, retired ${posted.result.retired.length} in ${posted.ms} ms`);
   } catch (err) {
     // Let a later re-post of the same session retry; do not take the loop down.
-    if (key) processed.delete(key);
+    if (claimed) processed.release(id, claimed);
     warn(`session ${id}: failed, skipping: ${errorMessage(err)}`);
   }
 }

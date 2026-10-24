@@ -317,6 +317,7 @@ test("JSON message content: Claude text blocks and ChatGPT parts are read, tool 
   ] }));
   assert.deepEqual(claude.messages.map((m) => [m.role, m.content]), [["user", "what is the RTF?"], ["assistant", "5%\n\nof equity value"]], "the user turn is kept");
   assert.equal(claude.meta.unparsed_rows, undefined, "tool-only turns are not conversation, not a loss");
+  assert.equal(claude.meta.partial_rows, undefined, "nor are tool or thinking blocks next to text");
 
   const chatgpt = item("x.json", JSON.stringify([
     { role: "user", content: { content_type: "text", parts: ["Comps for Nimbus?"] } },
@@ -354,6 +355,49 @@ test("JSON rows that cannot be read are recorded, not silently dropped; none rea
   assert.match(item("x.json", "42").error, /not an object or array/);
   assert.deepEqual(item("x.json", "null"), { skip: "JSON is null" }, "null holds nothing");
   assert.equal(item("x.json", JSON.stringify({ messages: null, body: "memo" })).messages[0].content, "memo", "a null messages is absent");
+});
+
+// Greptile on f069d37 ("Partial chats report success"): text next to an image used to keep the
+// text and drop the image without a word, while an image-only message was reported.
+test("a message with text and a block we cannot read keeps the text and records the loss", () => {
+  const image = { type: "image", source: {} };
+  const arr = item("x.json", JSON.stringify([
+    { role: "user", content: "hi" },
+    { role: "user", content: [{ type: "text", text: "see the chart" }, image] },
+    { role: "assistant", content: { content_type: "multimodal_text", parts: ["Revenue is up.", { content_type: "image_asset_pointer" }] } },
+    { role: "assistant", text: "ok", content: [image] }, // another text field holds the image
+    { role: "assistant", content: [image] },
+  ]));
+  assert.deepEqual(arr.messages.map((m) => m.content), ["hi", "see the chart", "Revenue is up.", "ok"], "the readable text is kept");
+  assert.deepEqual(arr.meta.partial_rows, [2, 3, 4], "rows read in part, 1-based");
+  assert.deepEqual(arr.meta.unparsed_rows, [5], "an image-only row is still left out and recorded");
+  assert.equal(arr.meta.partial_lines, undefined);
+
+  const jsonl = item("chat/x.jsonl", [JSON.stringify({ user: "dan", text: "LOI out" }), "{ cut off", JSON.stringify({ user: "nadia", content: [{ type: "text", text: "markup attached" }, image] })].join("\n"));
+  assert.deepEqual(jsonl.meta.partial_lines, [3], "JSONL line numbers");
+  assert.deepEqual(jsonl.meta.unparsed_lines, [2]);
+  assert.equal(jsonl.meta.partial_rows, undefined);
+
+  const doc = item("memos/x.json", JSON.stringify({ title: "Memo", content: [{ type: "text", text: "Falcon memo text" }, image] }));
+  assert.deepEqual(doc.messages, [{ role: "user", content: "Falcon memo text" }]);
+  assert.equal(doc.meta.partial_body, true, "a document body read in part is recorded too");
+  assert.equal(item("memos/y.json", JSON.stringify({ title: "Memo", body: "Falcon memo text" })).meta.partial_body, undefined, "a clean body records nothing");
+});
+
+test("CLI: a message read only in part fails the run (exit 1) and still sends its text", async () => {
+  const dir = mkdtempSync(join(tmpdir(), "canon-partial-"));
+  writeFileSync(join(dir, "claude.json"), JSON.stringify({ kind: "ai_session", principal: "dan", messages: [{ role: "user", content: "what is the RTF?" }, { role: "user", content: [{ type: "text", text: "see the chart" }, { type: "image", source: {} }] }] }));
+  writeFileSync(join(dir, "memo.json"), JSON.stringify({ title: "Memo", content: [{ type: "text", text: "Falcon memo text" }, { type: "image", source: {} }] }));
+  writeFileSync(join(dir, "clean.json"), JSON.stringify({ kind: "ai_session", principal: "dan", messages: [{ role: "user", content: [{ type: "text", text: "hi" }, { type: "tool_use", name: "search" }] }] }));
+  const r = await runCli([dir, "--dry-run"]);
+  assert.equal(r.code, 1, r.stderr);
+  assert.match(r.stderr, /fail {2}claude\.json: row 2 could only be read in part \(the text is kept; an image or other block that is not text was left out\); the rest is in the session/);
+  assert.match(r.stderr, /fail {2}memo\.json: the body could only be read in part/);
+  assert.doesNotMatch(r.stderr, /fail {2}clean\.json/, "tool blocks next to text are not a loss");
+  assert.match(r.stderr, /dry run: 3 sessions, nothing sent, 2 files could not be read or parsed in full/);
+  const sent = JSON.parse(r.stdout);
+  assert.deepEqual(sent.find((s) => s.meta.path === "claude.json").messages.map((m) => m.content), ["what is the RTF?", "see the chart"]);
+  assert.equal((await runCli([join(dir, "clean.json"), "--dry-run"])).code, 0);
 });
 
 test("CLI: a JSON file in a shape we cannot read fails the run (exit 1); valid JSON that holds nothing does not", async () => {

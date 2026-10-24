@@ -589,8 +589,11 @@ export function sessionIdFor(key) {
  * error makes the run exit 1. A JSONL or JSON file with some rows that could not be read (not
  * JSON, not an object, or a message whose text is not a string or text blocks) still becomes a
  * session from the good rows, and meta.unparsed_lines (JSONL line numbers) or meta.unparsed_rows
- * (1-based positions in a JSON message list) records what was left out; the CLI reports it and
- * exits 1, because the import is incomplete.
+ * (1-based positions in a JSON message list) records what was left out. A row read only in part
+ * (text next to an image or another block we cannot read: the text is kept) is recorded the same
+ * way in meta.partial_lines / meta.partial_rows, and a JSON document whose body was read in part
+ * sets meta.partial_body. The CLI reports any of these and exits 1, because the import is
+ * incomplete.
  *   relPath      path relative to the ingest root: folder-name kind signals, meta.path, title
  *   idKey        what the id is derived from (the CLI passes the real absolute path); default relPath
  *   text         file contents
@@ -605,7 +608,7 @@ export function buildItem({ relPath, idKey = relPath, text, firmDomain = DEFAULT
   const parsed = ext === ".json" || ext === ".jsonl" ? readJsonItem(text, ext) : readTextItem(text, ext);
   if (parsed.error) return { error: parsed.error };
   if (parsed.skip) return { skip: parsed.skip };
-  const { data, body, rows, unparsed, unparsedRows } = parsed;
+  const { data, body, rows, unparsed, unparsedRows, partial, partialRows, partialBody } = parsed;
   const { kind, by } = inferKind({ data, relPath: rel, text: body });
   const clock = { ...itemClock(data), elapsed: kind === "transcript" };
 
@@ -706,7 +709,19 @@ export function buildItem({ relPath, idKey = relPath, text, firmDomain = DEFAULT
     ended_at: endedAt,
     title: makeTitle(firstString(data.title, email?.subject, firstHeading(body)) ?? humanize(rel)),
     messages,
-    meta: compact({ path: rel, kind_from: by, source: firstString(data.source), participants, email, date: fromItem ? undefined : dated, unparsed_lines: unparsed, unparsed_rows: unparsedRows }),
+    meta: compact({
+      path: rel,
+      kind_from: by,
+      source: firstString(data.source),
+      participants,
+      email,
+      date: fromItem ? undefined : dated,
+      unparsed_lines: unparsed,
+      unparsed_rows: unparsedRows,
+      partial_lines: partial,
+      partial_rows: partialRows,
+      partial_body: partialBody,
+    }),
     kind,
   };
   if (principal) session.principal = principal;
@@ -742,7 +757,9 @@ const TEXT_BLOCK_RE = /^(?:input_|output_)?text$/;
  * only tool and thinking blocks), or { unreadable } when it holds something we cannot read (an
  * image block, a number, an object of unknown shape). Reads a string, a list of content blocks
  * (`[{ type: "text", text }]`, the Claude API and Claude export shape) and a ChatGPT export's
- * `{ content_type, parts: [...] }`; several text pieces join with a blank line.
+ * `{ content_type, parts: [...] }`; several text pieces join with a blank line. Text next to a
+ * block we cannot read (a message with text and an image) → { text, partial: true }: the text is
+ * kept and the loss is still reported, as for an image-only message.
  */
 function readText(v) {
   if (typeof v === "string") return v.trim() ? { text: v.trim() } : { none: true };
@@ -756,31 +773,41 @@ function readText(v) {
       if (t.trim()) texts.push(t.trim());
     } else if (!(isRecord(p) && NON_TEXT_BLOCKS.has(p.type))) unreadable = true;
   }
-  if (texts.length) return { text: texts.join("\n\n") };
+  if (texts.length) return unreadable ? { text: texts.join("\n\n"), partial: true } : { text: texts.join("\n\n") };
   return unreadable ? { unreadable: true } : { none: true };
+}
+
+/** Several reads of one object's text fields → the text to keep, and whether something was lost. */
+function firstText(reads) {
+  const hit = reads.find((r) => r.text);
+  // Lost: the kept field also held a block we cannot read, or another text field held one.
+  return hit ? { text: hit.text, partial: reads.some((r) => r.partial || r.unreadable) } : undefined;
 }
 
 /**
  * Message objects → rows, plus the positions (0-based) of entries that could not be read: not an
- * object, a text field we cannot read, or a speaker or role with no text field at all. A row
+ * object, a text field we cannot read, or a speaker or role with no text field at all; and of
+ * rows read only in part (text kept, an image or other block we cannot read left out). A row
  * whose text is blank or only tool calls, or an object that names no speaker and carries no text
  * (export metadata), is left out silently: nothing is lost.
  */
 function readRows(list) {
   const rows = [];
   const bad = [];
+  const partial = [];
   list.forEach((o, i) => {
     if (!isRecord(o)) return void bad.push(i);
     const speaker = firstString(...SPEAKER_KEYS.map((k) => o[k]));
     const role = typeof o.role === "string" ? o.role : undefined;
     const reads = TEXT_KEYS.filter((k) => o[k] !== undefined && o[k] !== null).map((k) => readText(o[k]));
-    const hit = reads.find((r) => r.text);
+    const hit = firstText(reads);
     if (hit) {
       const at = TIME_KEYS.map((k) => o[k]).find((v) => typeof v === "string" || typeof v === "number");
       rows.push({ speaker, label: speaker, role, at, text: hit.text });
+      if (hit.partial) partial.push(i);
     } else if (reads.some((r) => r.unreadable) || (reads.length === 0 && (speaker || role))) bad.push(i);
   });
-  return { rows, bad };
+  return { rows, bad, partial };
 }
 
 /**
@@ -788,10 +815,12 @@ function readRows(list) {
  * `messages`, or an object with a text `body` / `text` / `content`. Top-level keys of an object
  * act as front-matter (kind, principal, title, date, from, …). An entry that could not be read
  * (see readRows; for JSONL also a line that is not valid JSON) is left out and its JSONL line
- * number goes in `unparsed`, its 1-based position in a JSON list in `unparsedRows`; the CLI
- * reports either and exits 1, since the import is incomplete. Unparseable JSON, JSONL with no
- * valid line, a `messages` that is not a list, or a bare JSON string or number → { error }; valid
- * JSON that holds nothing (`null`, `{}`, an object with no messages or body) → { skip }.
+ * number goes in `unparsed`, its 1-based position in a JSON list in `unparsedRows`. A row read
+ * only in part (its text kept, an image or other block left out) goes in `partial` / `partialRows`
+ * the same way, and a document whose body was read in part sets `partialBody`. The CLI reports
+ * any of these and exits 1, since the import is incomplete. Unparseable JSON, JSONL with no valid
+ * line, a `messages` that is not a list, or a bare JSON string or number → { error }; valid JSON
+ * that holds nothing (`null`, `{}`, an object with no messages or body) → { skip }.
  */
 function readJsonItem(text, ext) {
   let data = {};
@@ -828,8 +857,8 @@ function readJsonItem(text, ext) {
       else if (value.messages !== undefined && value.messages !== null) return { error: "JSON whose `messages` is not a list" };
       else {
         const reads = TEXT_KEYS.filter((k) => value[k] !== undefined && value[k] !== null).map((k) => readText(value[k]));
-        const hit = reads.find((r) => r.text);
-        if (hit) return { data, body: hit.text };
+        const hit = firstText(reads);
+        if (hit) return { data, body: hit.text, partialBody: hit.partial || undefined };
         if (reads.some((r) => r.unreadable)) return { error: "JSON object whose text is not a string or text blocks" };
         return { skip: "JSON object with no messages or body" };
       }
@@ -837,15 +866,19 @@ function readJsonItem(text, ext) {
     // A bare string, number or boolean is not a shape we read; a string may be a whole memo.
     else return { error: "JSON is not an object or array" };
   }
-  const { rows, bad } = readRows(list);
+  const { rows, bad, partial } = readRows(list);
   const unparsed = lineOf ? [...badLines, ...bad.map((i) => lineOf[i])].sort((a, b) => a - b) : [];
   const unparsedRows = lineOf ? [] : bad.map((i) => i + 1);
+  const partialLines = lineOf ? partial.map((i) => lineOf[i]) : [];
+  const partialRows = lineOf ? [] : partial.map((i) => i + 1);
   return {
     data,
     body: rows.map((r) => (r.label ? `${r.label}: ${r.text}` : r.text)).join("\n"),
     rows,
     unparsed: unparsed.length ? unparsed : undefined,
     unparsedRows: unparsedRows.length ? unparsedRows : undefined,
+    partial: partialLines.length ? partialLines : undefined,
+    partialRows: partialRows.length ? partialRows : undefined,
   };
 }
 
