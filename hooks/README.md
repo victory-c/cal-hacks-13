@@ -16,7 +16,9 @@ Two capture paths live here:
 
 Every session now carries `kind` and, when known, `principal` (whose context it is). The hook
 sends `kind: "ai_session"` and `principal` from `CANON_PRINCIPAL` (process env, then `.env`,
-trimmed and lowercased; unset = left out, and triage treats an unknown principal cautiously).
+normalized like the extension and the ingest CLI: `Dan`, `Dan Okafor` and
+`dan.okafor@harborlane.com` all become `dan`, `agt_research_1` is kept; unset = left out, and
+triage treats an unknown principal cautiously).
 The debug line then reads `Stop ses_3f9a1c2b 8 msgs as dan → 200`.
 
 **Today's v1 server keeps only the v1 keys** (`server/src/api.ts` `parseSession`), so
@@ -132,34 +134,51 @@ test requires every default token to have demo grants; a 401 prints exactly this
 first signal wins:
 
 1. front-matter `kind:` (or `type:`)
-2. the nearest folder that names a kind: `memos/`, `chat/`, `slack/`, `transcripts/`, `meetings/`, `email/`, `mail/`, `notes/`, `news/`, `ai-sessions/`…
-3. a word in the file name: `falcon-ic-memo.md`, `2026-10-22-mgmt-call.md`
-4. the extension: `.eml` email, `.jsonl` chat, `.vtt` / `.srt` transcript
-5. the text: an email header block, or mostly `Speaker: text` lines → chat; else `note`
+2. raw email: an `.eml` file, or a header block with transport headers (`Message-ID`, `Received`, `Return-Path`…), so an outside email filed under `messages/` or `calls/` is not read as a chat
+3. the nearest folder that names a kind: `memos/`, `chat/`, `slack/`, `transcripts/`, `meetings/`, `email/`, `mail/`, `notes/`, `news/`, `ai-sessions/`…
+4. a word in the file name: `falcon-ic-memo.md`, `2026-10-22-mgmt-call.md`
+5. the extension: `.jsonl` chat, `.vtt` / `.srt` transcript
+6. the text: a `From`/`Subject` header block → email; mostly `Speaker: text` lines with at least two people evidently talking → chat; else `note`. A key/value sheet (`Buyer: …`, `Price: …`) stays a note.
 
 Files read: `.md .markdown .txt .eml .json .jsonl .vtt .srt` up to 1 MB. `README*`, dotfiles and
 `node_modules` are skipped.
 
 | Kind | Messages | Principal (after front-matter `principal` / `author`) | `external` |
 |---|---|---|---|
-| memo, note | one message with the body; split at paragraphs past 8,000 chars, never cut | `--principal` | front-matter only |
-| chat, transcript | one per speaker turn (`Dan: text`, `[09:12] Dan Okafor (MD): text`, JSONL / JSON rows, VTT `<v Dan>`); consecutive lines from one speaker merge, unprefixed lines continue the turn, the speaker label stays in the text | whoever opened it (`Dan Okafor` → `dan`) | front-matter only |
-| email | one message: `From/To/Cc/Subject/Date` block + body; transport headers go to `meta.email` | a firm sender, else the first firm recipient (whose inbox it is) | sender domain is not the firm domain or a subdomain of it; an unreadable sender counts as external |
+| memo, note | one message with the body; split at paragraphs past 8,000 chars, never cut | an email header block's (below), else `--principal` | front-matter, else an email header block's (below) |
+| chat, transcript | one per speaker turn (`Dan: text`, `[09:12] Dan Okafor (MD): text`, JSONL / JSON rows, VTT `<v Dan>`); consecutive lines from one speaker merge, unprefixed lines continue the turn, the speaker label stays in the text | an email header block's, else whoever opened it (`Dan Okafor` → `dan`) if they evidently take part (say more than one line, speak on a timestamped line, are in `participants:`, or are a JSON row's speaker), else `--principal`. A header line such as `Meeting:` or `Location: Zoom` never names the principal | front-matter, else an email header block's (below) |
+| email | one message: `From/To/Cc/Subject/Date` block + body; `Message-ID`, `Reply-To` and `Return-Path` go to `meta.email`, other transport headers (`Received`, `X-*`) are dropped | a firm sender, else the first firm recipient (whose inbox it is) | the sender is not at the firm domain or a subdomain of it |
 | ai_session | one per turn; `ChatGPT:` / `Claude:` / `Assistant:` are the assistant | front-matter or `--principal` (never "You") | front-matter only |
+
+**External never depends on the folder.** Any item whose text opens with a header block whose
+`From` names an address (or whose front-matter has `from:`) is judged by its sender, whatever its
+kind. The sender is the mailbox: the `<angle-addr>`, or a bare address when there are no
+brackets. Quoted display names and `(comments)` are never read as the address, and a `From` with
+no address, several mailboxes, or a different address anywhere in the display name counts as
+external. So `"dan.okafor@harborlane.com" <creyes@ashdownreyes.com>` is external and is not
+attributed to Dan. Recipients (`To`, `Cc`) are read the same way.
 
 **Times are exact or absent.** A line's stamp becomes `at` only when it resolves to an instant:
 a full date-time with an offset; a time of day on the item's `date` with a `tz:` (or an offset
-on `date`); for transcripts, an elapsed `00:03:41` from a `date` that is an exact start. Anything
-less certain stays in the text as `[09:12]`, so nothing is lost and no time zone is invented.
-`started_at` is the item's date (or the email `Date:`), else the first message time, else now.
+on `date`); for transcripts, an elapsed `00:03:41` from a `date` that is an exact start, unless
+the stamp could just as well be a clock time after the start (`14:03` in a 14:00 call). JSON
+row times must be epoch seconds or ms (9 to 13 digits) or a date-time with an offset; a small
+number such as `3.5` is not 1970. Dates with no zone (`2026-10-21 09:12`, a `Date:` header
+without an offset) are not read in the machine's local zone. Anything less certain stays in the
+text as `[09:12]`, so nothing is lost and no time zone is invented. `started_at` is the item's
+date (or the email `Date:`), else the first message time, else now.
 
 **Ids.** `ses_` + the first 8 hex of sha1(path relative to the root), so re-ingesting the same
 root upserts (the CLI prints `new` or `updated`). Ingesting a subfolder? Pass `--root` with the
-world's root to keep the same ids.
+world's root to keep the same ids. Two different files that would get the same id (two files
+named `notes.md` given directly, or two roots with the same layout) stop the run with exit 2
+before anything is sent, because the server's upsert would overwrite the first in the archive;
+pass `--root` with a folder that contains both. The same file named twice is posted once.
 
-**Failures.** Each HTTP error status is logged once with a hint (401: register the token; 404:
-not a Canon server) and every remaining file is still tried. A dead server stops the run after
-one line. Exit code: 0 all posted, 1 anything failed, 2 bad flags or paths.
+**Failures.** A file that cannot be read or parsed prints `skip <path>: <reason>` and the run
+goes on. Each HTTP error status is logged once with a hint (401: register the token; 404: not a
+Canon server) and every remaining file is still tried. A dead server stops the run after one
+line. Exit code: 0 all posted, 1 anything failed, 2 bad flags or paths, or a session id clash.
 
 **Verified against today's v1 server** (Sat 05:00, `CANON_CLIENT_TOKENS` with `ingest=dev-ingest`):
 all 5 world items archived, a second run printed `updated` for the same ids. The archive kept

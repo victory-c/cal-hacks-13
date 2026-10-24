@@ -1,9 +1,9 @@
 ---
-title: "#falcon-dd (deal team channel), Tue 21 Oct"
+title: "#falcon-dd (deal team channel), Wed 21 Oct"
 date: 2026-10-21
 tz: -04:00
 ---
-[08:47] Dan Okafor: morning. board call moved to Thu 4pm, need the deck by Wed EOD
+[08:47] Dan Okafor: morning. board call moved to Fri 4pm, need the deck by Thu EOD
 [08:52] Nadia Haddad: model v14 is up in the VDR. synergy case is a toggle now, base = $40m like you wanted
 [08:53] Nadia Haddad: fyi the LTM EBITDA bridge still shows 221, haven't pulled the customs rebate out yet
 [09:10] Dan Okafor: pull it out, use 208 as base and show 221 as "mgmt adjusted"

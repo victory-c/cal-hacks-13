@@ -163,11 +163,22 @@ export function buildSession({ payload = {}, messages = [], hookEvent, git = {},
   return session;
 }
 
-/** " Dan " → "dan". Empty or not a string → undefined, and the field is left out. */
+/**
+ * A principal id the way every capture path writes it, so one person gets one id whether they
+ * typed it into .env, the extension's options page, or an ingested file named them:
+ *   " Dan " → "dan", "agt_research_1" kept, "Dan Okafor" → "dan",
+ *   "dan.okafor@harborlane.com" / "Dan Okafor <dan.okafor@harborlane.com>" → "dan" (the address's
+ *   first token), "Maya (Compliance)" → "maya".
+ * Empty, not a string, or nothing that starts with a letter → undefined, and the field is left out.
+ * Mirrored in extension/src/shared/session.ts (normalizePrincipal); keep the two in step.
+ */
 export function normalizePrincipal(value) {
   if (typeof value !== "string") return undefined;
   const v = value.trim().toLowerCase();
-  return v || undefined;
+  if (/^[a-z][a-z0-9_]*$/.test(v)) return v;
+  const local = /(?<![a-z0-9._+'-])([a-z0-9._+'-]+)@[a-z0-9-]+(?:\.[a-z0-9-]+)+/.exec(v)?.[1];
+  const first = (local ?? v).split(/[^a-z0-9]+/).find(Boolean);
+  return first && /^[a-z]/.test(first) ? first : undefined;
 }
 
 /** First user message, whitespace collapsed, cut to TITLE_MAX chars. */

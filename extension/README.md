@@ -22,8 +22,10 @@ stable across reloads with no state. Session capture does not call any AI; nothi
 simulated. (The server downstream may run its judge/distiller in simulated mode and says so.)
 
 **v2 (walls).** Every captured chat is `kind: "ai_session"`, and carries `principal` (whose
-context it is, e.g. `dan`) when one is set on the options page. The value is trimmed and
-lowercased; blank means the field is left out and triage treats the session cautiously. Today's
+context it is, e.g. `dan`) when one is set on the options page. The value is normalized the same
+way as in the Claude Code hook and the ingest CLI (`Dan`, `Dan Okafor` and
+`dan.okafor@harborlane.com` all become `dan`; `agt_research_1` is kept), so one person has one
+id; blank means the field is left out and triage treats the session cautiously. Today's
 v1 server accepts and drops both fields until lane A's v2 server keeps them; nothing else
 changes. The PRD cut order lists this extension last, so it stays this small.
 

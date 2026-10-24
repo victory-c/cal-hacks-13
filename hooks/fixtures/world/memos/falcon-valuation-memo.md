@@ -11,7 +11,7 @@ save outside the Falcon VDR folder, do not paste into any AI tool that isn't Can
 
 To: Falcon deal team (D. Okafor, N. Haddad, T. Whitcombe)
 From: Dan Okafor, MD
-Date: Mon 20 Oct 2026
+Date: Tue 20 Oct 2026
 
 ## Situation
 
@@ -25,7 +25,7 @@ banker says "a couple of other parties are looking" (we think that's posturing).
 - Indicative range in the letter: $31.50-$33.00/sh, so roughly a 35-41% premium to unaffected.
 - ~68.2m diluted shares, net debt ~$480m → implied EV ~$2.63-2.73bn.
 - LTM adj. EBITDA $221m per mgmt. We think it's closer to $208m once you back out the
-  one-off customs rebate in Q2 (~$13m). TBC on the mgmt call Wed.
+  one-off customs rebate in Q2 (~$13m). TBC on the mgmt call Thu.
   - on $221m: 11.9x-12.4x
   - on $208m: 12.6x-13.1x  <- use this one for the board, show 221 as "mgmt adjusted"
 - Synergies: Osprey's model has $55m run-rate cost synergies by yr 2 (Southeast network overlap
@@ -35,7 +35,7 @@ banker says "a couple of other parties are looking" (we think that's posturing).
 
 ## Process / timing
 
-- Mgmt diligence call Wed 10/22, 2pm ET (CFO + head of brokerage).
+- Mgmt diligence call Thu 10/22, 2pm ET (CFO + head of brokerage).
 - Confirmatory diligence ~3 weeks. Target signing wk of 11/17, announce same day pre-market.
 - Nimbus's counsel (Ashdown Reyes) sends the first merger agreement issues list this week.
 

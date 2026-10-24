@@ -1,8 +1,12 @@
 // Pure helpers for the ingest CLI (canon-ingest.mjs): firm content on disk → CapturedSession.
 // One file is one item is one session, posted as client "ingest". Layout-tolerant on purpose:
 // lane A owns the official synthetic world and its layout is not fixed, so the kind comes from
-// front-matter, then a folder name, then the file name, then the extension, then a sniff of the
-// text. Only walk() and readItem() touch the disk.
+// front-matter, then raw email (an .eml, or a header block with transport headers), then a folder
+// name, then the file name, then the extension, then a sniff of the text. Only walk() and
+// readItem() touch the disk.
+//
+// Security rule: `external` never depends on where a file sits. Any item whose text opens with an
+// email header block naming an address is judged by its sender, whatever its kind or folder.
 //
 // Zero dependencies and no import of @canon/shared, like the Claude Code hook next door: the
 // output mirrors shared/src/types/session.ts (CapturedSession, SOURCE_KINDS). Keep them in sync
@@ -11,6 +15,7 @@
 import { createHash } from "node:crypto";
 import { readdirSync, readFileSync, statSync } from "node:fs";
 import { basename, extname, join, relative, sep } from "node:path";
+import { normalizePrincipal } from "../claude-code/lib.mjs";
 
 export const CLIENT = "ingest";
 /** Mirrors SOURCE_KINDS in shared/src/types/session.ts. */
@@ -53,8 +58,8 @@ export function splitFrontMatter(text) {
   const data = {};
   for (const raw of m[1].split(/\r?\n/)) {
     if (/^\s/.test(raw) || raw.trim().startsWith("#")) continue;
-    const kv = /^([A-Za-z_][\w-]*)\s*:\s*(.*?)\s*$/.exec(raw);
-    if (kv) data[kv[1].toLowerCase()] = yamlValue(kv[2]);
+    const kv = /^([A-Za-z_][\w-]*)\s*:(.*)$/.exec(raw); // no lazy `.*?\s*$`: it backtracks quadratically
+    if (kv) data[kv[1].toLowerCase()] = yamlValue(kv[2].trim());
   }
   return { data, body: text.slice(m[0].length) };
 }
@@ -99,9 +104,12 @@ function splitTopLevel(s) {
 // ------------------------------------------------------------------------------------- kind
 
 /**
- * First signal wins: front-matter `kind` (or `type`), the nearest folder that names a kind, a
- * word in the file name, the extension, then the text itself (email headers, speaker lines).
- * Nothing at all → "note", the most generic kind. `by` says which signal decided, for meta.
+ * First signal wins: front-matter `kind` (or `type`); raw email (an `.eml`, or a header block that
+ * carries transport headers such as Message-ID or Received, which no memo has); the nearest
+ * folder that names a kind; a word in the file name; the extension; then the text itself (a
+ * From/Subject header block, speaker lines). Nothing at all → "note", the most generic kind. `by`
+ * says which signal decided, for meta. Raw email beats the folder so an outside email saved
+ * under `messages/` or `calls/` is not read as a chat.
  */
 export function inferKind({ data = {}, relPath = "", text = "" }) {
   for (const key of ["kind", "type"]) {
@@ -110,11 +118,13 @@ export function inferKind({ data = {}, relPath = "", text = "" }) {
   }
   const parts = relPath.split("/");
   const file = parts.pop() ?? "";
+  const ext = extname(file).toLowerCase();
+  if (ext === ".eml") return { kind: "email", by: "extension" };
+  if (looksLikeRawEmail(text)) return { kind: "email", by: "content" };
   for (const dir of parts.reverse()) {
     const k = kindFromWord(dir);
     if (k) return { kind: k, by: "folder" };
   }
-  const ext = extname(file).toLowerCase();
   for (const word of basename(file, ext).toLowerCase().split(/[^a-z]+/)) {
     const k = kindFromWord(word);
     if (k) return { kind: k, by: "file name" };
@@ -130,35 +140,84 @@ function looksLikeEmail(text) {
   return Boolean(headers.from && (headers.subject || headers.to));
 }
 
-/** Most non-empty lines are "Speaker: text". */
+const TRANSPORT_HEADERS = ["message-id", "received", "return-path", "mime-version", "dkim-signature", "x-mailer"];
+
+/** A From with an address plus a transport header: a mail system wrote this, not a person. */
+function looksLikeRawEmail(text) {
+  const { headers } = parseEmail(text);
+  return addressesIn(headers.from).length > 0 && TRANSPORT_HEADERS.some((h) => headers[h] !== undefined);
+}
+
+/**
+ * Most non-empty lines are "Speaker: text", and at least two people evidently talk (each says
+ * more than one line, or speaks on a timestamped line). A key/value sheet such as
+ * "Buyer: …\nTarget: …\nPrice: …" names each key once, so it stays a note.
+ */
 function looksLikeChat(text) {
   const lines = String(text).split(/\r?\n/).filter((l) => l.trim());
   if (lines.length < 2) return false;
-  return lines.filter((l) => parseSpeakerLine(l)).length / lines.length >= 0.6;
+  const said = lines.map(parseSpeakerLine).filter(Boolean);
+  if (said.length / lines.length < 0.6) return false;
+  return evidentSpeakers(said.map((s) => ({ speaker: s.speaker, said: 1, stamped: Boolean(s.stamp) }))).size >= 2;
+}
+
+/**
+ * Speakers that are evidently people in the conversation: they say more than one line, speak
+ * on a timestamped line, or are named in the item's participants. A one-off "Location: Zoom" or
+ * "Recorded by: Otter" header line is none of these.
+ */
+function evidentSpeakers(turns, participants = []) {
+  const said = new Map();
+  const stamped = new Set();
+  for (const t of turns) {
+    if (!t.speaker) continue;
+    said.set(t.speaker, (said.get(t.speaker) ?? 0) + (t.said ?? 1));
+    if (t.stamped) stamped.add(t.speaker);
+  }
+  const named = new Set(participants.map((p) => toPrincipalId(String(p))).filter(Boolean));
+  return new Set([...said.keys()].filter((s) => said.get(s) > 1 || stamped.has(s) || named.has(toPrincipalId(s))));
 }
 
 // ----------------------------------------------------------------------------- speaker lines
 
-// Header-ish words that are not people: "Note: …" inside a chat is a continuation line.
+// Header-ish words that are not people: "Note: …" inside a chat is a continuation line. Covers
+// email headers (so a raw email under a chat folder never yields a speaker such as "Return-Path"),
+// meeting-header and key/value labels. x-* headers are caught by prefix in parseSpeakerLine.
 const NOT_SPEAKERS = new Set([
   "http", "https", "note", "notes", "nb", "ps", "subject", "from", "to", "cc", "bcc", "date", "re", "fw", "fwd",
   "action", "action items", "todo", "next steps", "summary", "agenda", "title", "attendees", "participants", "q", "a",
+  // email transport headers
+  "return-path", "received", "message-id", "reply-to", "in-reply-to", "references", "sender", "delivered-to",
+  "mime-version", "content-type", "content-transfer-encoding", "content-disposition", "dkim-signature",
+  "authentication-results", "importance", "thread-topic", "thread-index",
+  // meeting and transcript headers
+  "meeting", "meeting id", "location", "time", "when", "where", "host", "organizer", "topic", "duration",
+  "recorded by", "recording", "transcript", "transcribed by", "minutes", "present", "absent", "dial-in", "dial in",
+  "passcode", "link", "url", "start", "end", "start time", "end time", "speakers", "channel",
+  // key/value labels in deal documents
+  "buyer", "seller", "target", "acquirer", "client", "price", "consideration", "structure", "status", "owner",
+  "author", "project", "deal", "ticker", "version", "draft", "confidential", "privileged", "priority", "type", "kind",
+  "source", "tags", "category", "phone", "tel", "fax", "email",
 ]);
 
 const SPEAKER_RE = new RegExp(
   String.raw`^(?:[-*•]\s+)?` + // bullet
     String.raw`(?:\[(?<stamp>[^\]]{1,40})\]\s*|(?<bare>\d{1,2}:\d{2}(?::\d{2})?(?:\s?[AaPp][Mm])?)\s+)?` + // [09:12] or 09:12
     String.raw`(?:\*\*|__)?(?<speaker>[A-Za-z][\w.'’-]*(?: [A-Za-z][\w.'’-]*){0,3})` + // Dan, Dan Okafor, dan.okafor
-    String.raw`(?:\s*\((?<aside>[^)]{1,48})\))?(?:\*\*|__)?\s*:(?:\*\*|__)?(?:\s+(?<text>.*?))?\s*$`,
+    // The line is trimmed first, so the text runs to the end greedily. (A lazy `.*?\s*$` here
+    // backtracked quadratically on long whitespace runs inside a line.)
+    String.raw`(?:\s*\((?<aside>[^)]{1,48})\))?(?:\*\*|__)?\s*:(?:\*\*|__)?(?:\s+(?<text>.*))?$`,
 );
 
 /** "[09:12] Dan Okafor (MD): text" → { speaker, label, stamp, text }, or null. */
 export function parseSpeakerLine(line) {
-  const m = SPEAKER_RE.exec(String(line).trim());
+  const trimmed = String(line).trim();
+  const m = SPEAKER_RE.exec(trimmed);
   if (!m) return null;
   const { stamp, bare, speaker, aside, text } = m.groups;
-  if (NOT_SPEAKERS.has(speaker.toLowerCase())) return null;
-  if (!text && !/:\s*$/.test(line)) return null;
+  const key = speaker.toLowerCase();
+  if (NOT_SPEAKERS.has(key) || key.startsWith("x-")) return null;
+  if (!text && !/:\s*$/.test(trimmed)) return null;
   return {
     speaker,
     label: aside ? `${speaker} (${aside})` : speaker,
@@ -172,6 +231,8 @@ export function parseSpeakerLine(line) {
  * merge, lines with no speaker continue the turn above, and text before the first speaker is a
  * preamble turn with no speaker. Timestamps become `at` only when they resolve to an exact
  * instant (see stampToIso); otherwise the stamp stays in the text, so nothing is lost or invented.
+ * Each turn also says how many speaker lines it merged (`said`) and whether any carried a
+ * timestamp (`stamped`), which is how the opener is told apart from a header line.
  */
 export function parseTurns(text, clock = {}) {
   const turns = [];
@@ -182,7 +243,7 @@ export function parseTurns(text, clock = {}) {
     const s = parseSpeakerLine(line);
     if (!s) {
       if (!cur) {
-        cur = { speaker: undefined, label: undefined, lines: [] };
+        cur = { speaker: undefined, label: undefined, said: 0, stamped: false, lines: [] };
         turns.push(cur);
       }
       cur.lines.push(line.trim());
@@ -191,14 +252,16 @@ export function parseTurns(text, clock = {}) {
     const at = s.stamp ? stampToIso(s.stamp, clock) : undefined;
     const body = s.stamp && !at ? `[${s.stamp}] ${s.text}`.trim() : s.text;
     if (cur && cur.speaker === s.speaker) {
+      cur.said++;
+      cur.stamped ||= Boolean(s.stamp);
       if (body) cur.lines.push(body);
       continue;
     }
-    cur = { speaker: s.speaker, label: s.label, at, lines: body ? [body] : [] };
+    cur = { speaker: s.speaker, label: s.label, at, said: 1, stamped: Boolean(s.stamp), lines: body ? [body] : [] };
     turns.push(cur);
   }
   return turns
-    .map((t) => ({ speaker: t.speaker, label: t.label, at: t.at, text: t.lines.join("\n").trim() }))
+    .map((t) => ({ speaker: t.speaker, label: t.label, at: t.at, said: t.said, stamped: t.stamped, text: t.lines.join("\n").trim() }))
     .filter((t) => t.text);
 }
 
@@ -237,7 +300,9 @@ function normalizeOffset(s) {
 /**
  * A line's stamp → ISO 8601, only when exact:
  *   - a full date-time with an offset (or the item's offset)
- *   - transcripts: an elapsed `hh:mm:ss` / `mm:ss` from the item's exact `start`
+ *   - transcripts: an elapsed `hh:mm:ss` / `mm:ss` from the item's exact `start`, unless the same
+ *     stamp read as a time of day would fall at or after the start ("14:03" in a call that began
+ *     at 14:00 could be either, so it is neither)
  *   - otherwise: a time of day on the item's day, at the item's offset ("09:12", "9:12 PM")
  * Anything less certain returns undefined and the caller keeps the stamp as text.
  */
@@ -251,6 +316,8 @@ export function stampToIso(stamp, { day, offset, start, elapsed = false } = {}) 
   if (elapsed) {
     const e = /^(?:(\d{1,2}):)?(\d{1,2}):(\d{2})$/.exec(s);
     if (!e || !start) return undefined;
+    const asClock = stampToIso(s, { day, offset });
+    if (asClock && Date.parse(asClock) >= Date.parse(start)) return undefined;
     const secs = Number(e[1] ?? 0) * 3600 + Number(e[2]) * 60 + Number(e[3]);
     return new Date(Date.parse(start) + secs * 1000).toISOString();
   }
@@ -264,13 +331,36 @@ export function stampToIso(stamp, { day, offset, start, elapsed = false } = {}) 
   return Number.isNaN(ms) ? undefined : new Date(ms).toISOString();
 }
 
-/** A row's `at` from JSON: epoch seconds/ms (Slack `ts`), or an ISO string with an offset. */
-function rowInstant(v, clock) {
-  if (typeof v === "number" || (typeof v === "string" && /^\d{9,13}(\.\d+)?$/.test(v))) {
+/** Epoch numbers we read: 9 to 13 digits, i.e. epoch seconds or ms from 1973 to 2286. */
+const EPOCH_MIN = 1e8;
+const EPOCH_MAX = 1e13;
+
+/**
+ * A row's `at` from JSON: epoch seconds/ms (Slack `ts`), or an ISO string with an offset.
+ * Small numbers (elapsed seconds) and out-of-range ones are not instants → undefined.
+ */
+export function rowInstant(v, clock) {
+  if (typeof v === "number" || (typeof v === "string" && /^\d+(\.\d+)?$/.test(v))) {
     const n = Number(v);
-    return new Date(n < 1e12 ? n * 1000 : n).toISOString();
+    if (!Number.isFinite(n) || n < EPOCH_MIN || n >= EPOCH_MAX) return undefined;
+    return isoOrUndefined(n < 1e12 ? n * 1000 : n);
   }
   return typeof v === "string" ? stampToIso(v, clock) : undefined;
+}
+
+// A string that pins its own zone: a trailing Z or ±hh:mm / ±hhmm (an RFC 2822 "(EDT)" comment may
+// follow), or a zone name Date.parse knows exactly.
+const ZONE_RE = /\d\s*(?:Z|[+-]\d{2}:?\d{2})(?:\s*\([^)]*\))?\s*$|\b(?:GMT|UTC?|[ECMP][SD]T)\b/i;
+
+/**
+ * A date string → ISO, only when it names an instant on its own: it carries a zone, or it is a bare
+ * YYYY-MM-DD (UTC by definition). "2026-10-21 09:12" or "Oct 21 9am" → undefined, because
+ * Date.parse would silently read them in the ingesting machine's local zone.
+ */
+export function exactIso(s) {
+  if (typeof s !== "string") return undefined;
+  const t = s.trim();
+  return /^\d{4}-\d{2}-\d{2}$/.test(t) || ZONE_RE.test(t) ? isoOrUndefined(t) : undefined;
 }
 
 // -------------------------------------------------------------------------------- email
@@ -305,10 +395,60 @@ export function parseEmail(text) {
   return { headers, body: lines.slice(i).join("\n").trim() };
 }
 
-const ADDRESS_RE = /[\w.+'-]+@[A-Za-z0-9-]+(?:\.[A-Za-z0-9-]+)+/g;
+// The lookbehind keeps matchAll linear: a match can only start where a local part starts.
+const ADDRESS_RE = /(?<![\w.+'-])[\w.+'-]+@[A-Za-z0-9-]+(?:\.[A-Za-z0-9-]+)+/g;
+const ADDR_SPEC_RE = /^[\w.+'-]+@[A-Za-z0-9-]+(?:\.[A-Za-z0-9-]+)+$/;
+/** Longer address headers are not parsed; an unreadable sender counts as external anyway. */
+const ADDRESS_HEADER_MAX = 4000;
 
+/** Every address-shaped string anywhere in the value, display names and comments included. */
 export function addressesIn(value) {
   return typeof value === "string" ? [...value.matchAll(ADDRESS_RE)].map((m) => m[0].toLowerCase()) : [];
+}
+
+/**
+ * An address header (From, To, Cc) → one entry per mailbox: its address, lowercased, or
+ * undefined when that mailbox cannot be read with confidence. Quoted display names and
+ * (comments) are removed first, so an address written inside a display name is never taken for
+ * the mailbox. The address is the one `<angle-addr>` when there is one, else a bare addr-spec.
+ *   '"dan.okafor@harborlane.com" <creyes@ashdownreyes.com>'  → ["creyes@ashdownreyes.com"]
+ *   "Dan <dan@harborlane.com>, nadia@harborlane.com"          → ["dan@…", "nadia@…"]
+ *   "undisclosed sender"                                      → [undefined]
+ */
+export function mailboxesIn(value) {
+  if (typeof value !== "string" || !value.trim()) return [];
+  if (value.length > ADDRESS_HEADER_MAX) return [undefined];
+  let v = value.replace(/"(?:[^"\\]|\\.)*"/g, " ");
+  for (let prev = ""; prev !== v; ) {
+    prev = v;
+    v = v.replace(/\([^()]*\)/g, " ");
+  }
+  return v
+    .replace(/;/g, ",")
+    .split(",")
+    .map((part) => part.trim().replace(/^[^<>@:]*:\s*/, "")) // a group label: "Deal team: a@x, b@x;"
+    .filter(Boolean)
+    .map((part) => {
+      if (/["()]/.test(part)) return undefined; // an unbalanced quote or comment
+      const angles = [...part.matchAll(/<([^<>]*)>/g)];
+      const rest = angles.length === 1 ? part.replace(angles[0][0], "") : part;
+      if (angles.length > 1 || /[<>]/.test(rest)) return undefined;
+      const addr = angles.length === 1 ? angles[0][1].trim() : part;
+      return ADDR_SPEC_RE.test(addr) ? addr.toLowerCase() : undefined;
+    });
+}
+
+/**
+ * The From header's one sender address, or undefined when there is no single readable sender:
+ * no address, several mailboxes, or another address anywhere else in the header. A display name
+ * or comment that names a different mailbox ("dan.okafor@harborlane.com" <creyes@ashdownreyes.com>,
+ * 'Dan (dan.okafor@harborlane.com)' via VDR <noreply@vdr.example>) is the classic spoof, so it
+ * gets no benefit of the doubt.
+ */
+export function senderOf(from) {
+  const boxes = mailboxesIn(from);
+  if (boxes.length !== 1 || !boxes[0]) return undefined;
+  return addressesIn(from).every((a) => a === boxes[0]) ? boxes[0] : undefined;
 }
 
 /** The firm's own domain or a subdomain of it. `harborlane.co` and `harbor-lane.com` are outside. */
@@ -319,11 +459,12 @@ export function isFirmAddress(address, firmDomain = DEFAULT_FIRM_DOMAIN) {
 }
 
 /**
- * External = the sender is not at the firm domain. A sender we cannot read counts as external:
- * triage reads external text with extra suspicion, and "unknown" should not get the benefit.
+ * External = the sender is not at the firm domain. A sender we cannot read (see senderOf) counts
+ * as external: triage reads external text with extra suspicion, and "unknown" should not get the
+ * benefit.
  */
 export function isExternalSender(from, firmDomain = DEFAULT_FIRM_DOMAIN) {
-  const [sender] = addressesIn(from);
+  const sender = senderOf(from);
   return !sender || !isFirmAddress(sender, firmDomain);
 }
 
@@ -331,16 +472,10 @@ export function isExternalSender(from, firmDomain = DEFAULT_FIRM_DOMAIN) {
 
 /**
  * "Dan Okafor", "dan.okafor@harborlane.com", "Maya (Compliance)" → "dan" / "maya". Values that
- * already look like a principal id (`dan`, `agt_research_1`) are kept as they are.
+ * already look like a principal id (`dan`, `agt_research_1`) are kept. The same rule as the
+ * Claude Code hook's CANON_PRINCIPAL and the extension's options page, so one person has one id.
  */
-export function toPrincipalId(value) {
-  if (typeof value !== "string") return undefined;
-  const v = value.trim();
-  if (/^[a-z][a-z0-9_]*$/.test(v)) return v;
-  const local = v.includes("@") ? (addressesIn(v)[0] ?? v).split("@")[0] : v;
-  const first = local.toLowerCase().split(/[^a-z0-9]+/).find(Boolean);
-  return first && /^[a-z]/.test(first) ? first : undefined;
-}
+export const toPrincipalId = normalizePrincipal;
 
 // --------------------------------------------------------------------------------- items
 
@@ -369,21 +504,41 @@ export function buildItem({ relPath, text, firmDomain = DEFAULT_FIRM_DOMAIN, pri
   const { kind, by } = inferKind({ data, relPath: rel, text: body });
   const clock = { ...itemClock(data), elapsed: kind === "transcript" };
 
+  // Email headers are read for every item, not only kind "email": an outside email filed under
+  // notes/ or calls/ is still from outside. Front-matter can supply them too.
+  const parsedEmail = parseEmail(body);
+  const headers = { ...pick(data, ["from", "to", "cc", "subject", "date"]), ...parsedEmail.headers };
+  const mailish = kind === "email" || ext === ".eml" || addressesIn(headers.from).length > 0;
+  const email = mailish
+    ? compact({
+        from: headers.from,
+        to: headers.to,
+        cc: headers.cc,
+        subject: headers.subject,
+        date: headers.date,
+        message_id: headers["message-id"],
+        reply_to: headers["reply-to"],
+        return_path: headers["return-path"],
+      })
+    : undefined;
+
   let messages = [];
-  let email;
   let turns = [];
   if (kind === "email") {
-    const parsedEmail = parseEmail(body);
-    const headers = { ...pick(data, ["from", "to", "cc", "subject", "date"]), ...parsedEmail.headers };
-    email = compact({ from: headers.from, to: headers.to, cc: headers.cc, subject: headers.subject, date: headers.date, message_id: headers["message-id"] });
     const block = ["from", "to", "cc", "subject", "date"]
       .filter((h) => headers[h])
       .map((h) => `${h[0].toUpperCase()}${h.slice(1)}: ${headers[h]}`)
       .join("\n");
-    const at = headers.date ? isoOrUndefined(headers.date) : undefined;
+    const at = exactIso(headers.date);
     messages = chunk([block, parsedEmail.body].filter(Boolean).join("\n\n")).map((content, i) => withAt({ role: "user", content }, i === 0 ? at : undefined));
   } else if (rows || kind === "chat" || kind === "transcript" || kind === "ai_session") {
-    turns = rows ? rows.map((r) => ({ ...r, at: rowInstant(r.at, clock) })) : parseTurns(body, clock);
+    // A row time that is not an exact instant stays in the text as "[3.5]", as in parseTurns.
+    turns = rows
+      ? rows.map((r) => {
+          const at = rowInstant(r.at, clock);
+          return { ...r, at, text: r.at !== undefined && !at ? `[${r.at}] ${r.text}` : r.text };
+        })
+      : parseTurns(body, clock);
     messages = turns.flatMap((t) => {
       const role = ROLES.includes(t.role) ? t.role : kind === "ai_session" && t.speaker && AI_SPEAKER_RE.test(t.speaker) ? "assistant" : "user";
       const content = t.label && kind !== "ai_session" ? `${t.label}: ${t.text}` : t.text;
@@ -398,24 +553,30 @@ export function buildItem({ relPath, text, firmDomain = DEFAULT_FIRM_DOMAIN, pri
   const startedAt =
     clock.start ??
     (clock.day ? isoOrUndefined(`${clock.day}T00:00:00${clock.offset ?? "Z"}`) : undefined) ??
-    (dated ? isoOrUndefined(dated) : undefined) ??
+    exactIso(dated) ??
     messages.find((m) => m.at)?.at ??
     now;
   const lastAt = [...messages].reverse().find((m) => m.at)?.at;
   const endedAt = lastAt && Date.parse(lastAt) >= Date.parse(startedAt) ? lastAt : startedAt;
 
-  // A chat or meeting is attributed to whoever opened it. Not AI sessions: "You" is not a principal.
-  const opener = kind === "chat" || kind === "transcript" ? turns.find((t) => t.speaker)?.speaker : undefined;
+  // A chat or meeting is attributed to whoever opened it, but only a speaker who is evidently a
+  // participant (several lines, a timestamp, or named in participants; structured JSON rows
+  // count). A header line such as "Meeting: …" or "Location: Zoom" never is, so --principal stays.
+  // Not AI sessions: "You" is not a principal.
+  let opener;
+  if (kind === "chat" || kind === "transcript") {
+    const evident = evidentSpeakers(turns, Array.isArray(data.participants) ? data.participants : []);
+    opener = turns.find((t) => t.speaker && (rows || evident.has(t.speaker)))?.speaker;
+  }
   const principal =
     toPrincipalId(firstString(data.principal, data.author, data.owner, data.by)) ??
-    (email ? emailPrincipal(email, firmDomain) : undefined) ??
+    (mailish ? emailPrincipal(headers, firmDomain) : undefined) ??
     toPrincipalId(opener) ??
     toPrincipalId(fallback);
 
   let external;
   if (typeof data.external === "boolean") external = data.external;
-  else if (email) external = isExternalSender(email.from, firmDomain);
-  else if (typeof data.from === "string" && addressesIn(data.from).length) external = isExternalSender(data.from, firmDomain);
+  else if (mailish) external = isExternalSender(headers.from, firmDomain);
 
   const speakers = [...new Set(turns.map((t) => t.label).filter(Boolean))];
   const participants = Array.isArray(data.participants) ? data.participants : speakers.length ? speakers : undefined;
@@ -434,11 +595,14 @@ export function buildItem({ relPath, text, firmDomain = DEFAULT_FIRM_DOMAIN, pri
   return session;
 }
 
-/** Sender at the firm → them; an outside sender → the first firm recipient (whose inbox it is). */
-function emailPrincipal(email, firmDomain) {
-  const [sender] = addressesIn(email.from);
+/**
+ * Sender at the firm → them; otherwise the first firm recipient (whose inbox it is). Addresses
+ * come from mailboxes only (see mailboxesIn), never from display names.
+ */
+function emailPrincipal(headers, firmDomain) {
+  const sender = senderOf(headers.from);
   if (sender && isFirmAddress(sender, firmDomain)) return toPrincipalId(sender);
-  const recipient = [...addressesIn(email.to), ...addressesIn(email.cc)].find((a) => isFirmAddress(a, firmDomain));
+  const recipient = [...mailboxesIn(headers.to), ...mailboxesIn(headers.cc)].find((a) => a && isFirmAddress(a, firmDomain));
   return recipient ? toPrincipalId(recipient) : undefined;
 }
 
@@ -586,9 +750,10 @@ function toPosix(p) {
   return String(p).split(sep).join("/");
 }
 
-function isoOrUndefined(s) {
-  const ms = Date.parse(s);
-  return Number.isNaN(ms) ? undefined : new Date(ms).toISOString();
+/** A date string or epoch ms → ISO, or undefined; never throws on out-of-range values. */
+function isoOrUndefined(v) {
+  const d = new Date(typeof v === "number" ? v : Date.parse(v));
+  return Number.isNaN(d.getTime()) ? undefined : d.toISOString();
 }
 
 function withAt(msg, at) {

@@ -12,13 +12,15 @@
 // are ses_ + sha1 of the path relative to the root, so re-ingesting the same root upserts. The
 // parsing lives in lib.mjs (pure, tested); this file is flags, config and HTTP. A 404 or 401
 // from the server is logged once with a hint, the rest of the files are still tried, and the
-// exit code says whether everything landed (0), something failed (1) or the flags were wrong (2).
+// exit code says whether everything landed (0), something failed (1), or the flags or paths were
+// wrong (2), which includes two files that would share one session id. A file that cannot be
+// read or parsed is reported as `skip <path>: <reason>` and the run goes on.
 
-import { existsSync, statSync } from "node:fs";
+import { existsSync, realpathSync, statSync } from "node:fs";
 import { dirname, relative, resolve } from "node:path";
-import { fileURLToPath, pathToFileURL } from "node:url";
+import { fileURLToPath } from "node:url";
 import { readDotEnv } from "../claude-code/lib.mjs";
-import { CLIENT, DEFAULT_FIRM_DOMAIN, KINDS, buildItem, isIngestible, kindFromWord, readItem, walk } from "./lib.mjs";
+import { CLIENT, DEFAULT_FIRM_DOMAIN, KINDS, buildItem, isIngestible, kindFromWord, readItem, sessionIdFor, walk } from "./lib.mjs";
 
 export const DEFAULT_URL = "http://localhost:4100";
 /** Dev value, not a secret: .env.example's CANON_TOKEN_INGEST. The server must list ingest=<it>. */
@@ -92,7 +94,12 @@ export function resolveConfig(opts, env = process.env) {
   };
 }
 
-/** Every file to ingest with the path its id comes from: [{ abs, rel }], in a stable order. */
+/**
+ * Every file to ingest with the path its id comes from: [{ abs, rel }], in a stable order. The
+ * same file named twice is kept once. Two different files that would get the same session id
+ * (`a/notes.md` and `b/notes.md` given as files, or two roots with the same layout) throw: the
+ * server upserts by id, so the second would overwrite the first in the cold archive.
+ */
 export function collect(paths, root) {
   const items = [];
   for (const p of paths) {
@@ -106,7 +113,22 @@ export function collect(paths, root) {
       items.push({ abs, rel: relative(root ? resolve(root) : dirname(abs), abs) });
     }
   }
-  return items;
+  const byId = new Map();
+  const unique = [];
+  for (const item of items) {
+    const id = sessionIdFor(item.rel);
+    const prev = byId.get(id);
+    if (!prev) {
+      byId.set(id, item);
+      unique.push(item);
+    } else if (prev.abs !== item.abs) {
+      throw new Error(
+        `${prev.abs} and ${item.abs} would both be ${id} (paths "${prev.rel}" and "${item.rel}" relative to their root), ` +
+          "so the second would overwrite the first in the archive. Pass --root with a folder that contains both, or ingest them in separate runs.",
+      );
+    }
+  }
+  return unique;
 }
 
 /** One line per item: id, kind, principal, external, message count, path. */
@@ -146,8 +168,14 @@ export async function run(argv, io = {}) {
 
   const sessions = [];
   for (const { abs, rel } of items) {
-    const read = readItem(abs);
-    const built = read.skip ? read : buildItem({ relPath: rel, text: read.text, firmDomain: opts.firmDomain, principal: opts.principal, now: io.now });
+    // One unreadable or malformed file is reported and skipped; it never stops the other items.
+    let built;
+    try {
+      const read = readItem(abs);
+      built = read.skip ? read : buildItem({ relPath: rel, text: read.text, firmDomain: opts.firmDomain, principal: opts.principal, now: io.now });
+    } catch (e) {
+      built = { skip: `could not read or parse it (${e?.message ?? e})` };
+    }
     if (built.skip) {
       err(`skip  ${rel}: ${built.skip}`);
       continue;
@@ -213,7 +241,17 @@ function hintFor(status) {
   return "";
 }
 
-if (process.argv[1] && import.meta.url === pathToFileURL(resolve(process.argv[1])).href) {
+/** Run as a script, also through a symlink: Node resolves import.meta.url to the real path. */
+function isMain() {
+  if (!process.argv[1]) return false;
+  try {
+    return realpathSync(process.argv[1]) === fileURLToPath(import.meta.url);
+  } catch {
+    return false;
+  }
+}
+
+if (isMain()) {
   run(process.argv.slice(2)).then(
     (code) => process.exit(code),
     (e) => {

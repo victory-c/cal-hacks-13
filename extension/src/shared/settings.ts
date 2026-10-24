@@ -2,6 +2,7 @@
 // normalizeSettings() is pure so tests can cover the defaults; readSettings() needs chrome.*.
 
 import { DEFAULT_SERVER_URL } from "@canon/shared";
+import { normalizePrincipal } from "./session.ts";
 
 export const STORAGE = {
   canonUrl: "canonUrl",
@@ -18,8 +19,9 @@ export interface Settings {
   /** The `chatgpt=…` value from CANON_CLIENT_TOKENS. Empty until the user pastes it. */
   token: string;
   /**
-   * v2: the person's principal id at the firm (`dan`, `priya`), lowercased. Empty = not set: the
-   * session goes out with no principal and triage treats it cautiously.
+   * v2: the person's principal id at the firm (`dan`, `priya`), normalized by normalizePrincipal
+   * (a name or email becomes its first token, as in the hook and the ingest CLI). Empty = not set:
+   * the session goes out with no principal and triage treats it cautiously.
    */
   principal: string;
 }
@@ -34,7 +36,7 @@ export function normalizeSettings(raw: Record<string, unknown>): Settings {
   return {
     canonUrl: text(STORAGE.canonUrl) || DEFAULT_SERVER_URL,
     token: text(STORAGE.token),
-    principal: text(STORAGE.principal).toLowerCase(),
+    principal: normalizePrincipal(raw[STORAGE.principal]),
   };
 }
 

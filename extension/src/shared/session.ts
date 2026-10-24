@@ -58,7 +58,24 @@ export function toCapturedSession(msg: TurnsMessage, startedAt: string, endedAt:
   const title = msg.title ?? titleFrom(turns);
   if (title) session.title = title;
   if (msg.ended) session.ended_at = endedAt;
-  const who = principal.trim().toLowerCase();
+  const who = normalizePrincipal(principal);
   if (who) session.principal = who;
   return session;
+}
+
+/**
+ * The principal id every capture path sends, so one person gets one id whether they typed `dan`,
+ * `Dan Okafor` or `dan.okafor@harborlane.com` on the options page: " Dan " → "dan",
+ * "agt_research_1" kept, a name or an email → its first token ("dan"), "Maya (Compliance)" →
+ * "maya". Blank, or nothing that starts with a letter → "" (not sent).
+ * Mirrors normalizePrincipal in hooks/claude-code/lib.mjs (the hook and the ingest CLI); keep the
+ * two in step.
+ */
+export function normalizePrincipal(value: unknown): string {
+  if (typeof value !== "string") return "";
+  const v = value.trim().toLowerCase();
+  if (/^[a-z][a-z0-9_]*$/.test(v)) return v;
+  const local = /(?<![a-z0-9._+'-])([a-z0-9._+'-]+)@[a-z0-9-]+(?:\.[a-z0-9-]+)+/.exec(v)?.[1];
+  const first = (local ?? v).split(/[^a-z0-9]+/).find(Boolean);
+  return first && /^[a-z]/.test(first) ? first : "";
 }

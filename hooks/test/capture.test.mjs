@@ -168,6 +168,25 @@ test("buildSession v2: kind is always ai_session; principal only when set, trimm
   assert.equal(normalizePrincipal("agt_research_1"), "agt_research_1");
 });
 
+// The same table is in extension/src/shared/session.test.ts: the hook, the ingest CLI and the
+// extension must turn one person into one principal id.
+test("normalizePrincipal: names and emails map to the same id the ingest CLI uses", () => {
+  const table = [
+    [" Dan ", "dan"],
+    ["dan", "dan"],
+    ["agt_research_1", "agt_research_1"],
+    ["AGT_Research_1", "agt_research_1"],
+    ["Dan Okafor", "dan"],
+    ["dan.okafor@harborlane.com", "dan"],
+    ["Dan Okafor <DAN.OKAFOR@harborlane.com>", "dan"],
+    ["Maya (Compliance)", "maya"],
+    ["   ", undefined],
+    ["42", undefined],
+  ];
+  for (const [input, want] of table) assert.equal(normalizePrincipal(input), want, JSON.stringify(input));
+  assert.equal(buildSession({ payload: PAYLOAD, messages: [], principal: "Dan Okafor" }).principal, "dan");
+});
+
 // ---------- lib: readDotEnv, gitInfo ----------
 
 test("readDotEnv parses the flat .env format and ignores noise", () => {
