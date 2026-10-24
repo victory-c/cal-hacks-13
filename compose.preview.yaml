@@ -15,6 +15,7 @@ services:
       - "${PREVIEW_BIND_ADDRESS:-127.0.0.1}:${PREVIEW_HTTPS_PORT:-8443}:443"
     volumes:
       - canon-data:/app/data
+      - moss-models:/root/.cache/moss-models
     healthcheck:
       test: ["CMD", "node", "-e", "Promise.all([fetch('http://127.0.0.1:4100/health'),fetch('http://127.0.0.1:4200/'),fetch('http://127.0.0.1:4300/')]).then(rs=>process.exit(rs.every(r=>r.ok)?0:1)).catch(()=>process.exit(1))"]
       interval: 15s
@@ -40,5 +41,6 @@ services:
 
 volumes:
   canon-data:
+  moss-models:
   caddy-data:
   caddy-config:

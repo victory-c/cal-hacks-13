@@ -106,7 +106,7 @@ docker compose --env-file .env.preview -f compose.preview.yaml up -d --build --w
 docker compose --env-file .env.preview -f compose.preview.yaml down
 ```
 
-The `canon-data` volume preserves sessions and facts across restarts/rebuilds; Caddy's volumes
+The `canon-data` volume preserves sessions and facts, and `moss-models` preserves downloaded embedding assets across restarts/rebuilds; Caddy's volumes
 preserve certificates. Keep the same Compose project name across deployments and back up the data
 volume before replacing the VM. Do not use `down --volumes` on the shared preview.
 
