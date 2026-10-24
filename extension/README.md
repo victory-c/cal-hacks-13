@@ -1,6 +1,6 @@
-# extension/ — Canon Capture (Chrome MV3)
+# extension/ — Bullwark Capture (Chrome MV3)
 
-**Owner:** lane B, Victor Chun. Captures ChatGPT web sessions live and streams them to the Canon
+**Owner:** lane B, Victor Chun. Captures ChatGPT web sessions live and streams them to the Bullwark
 server. Part of the "live, no export/import" story: the same conversation shows up on the dashboard
 while you are still typing in it.
 
@@ -10,9 +10,9 @@ while you are still typing in it.
 |---|---|---|
 | `src/content/chatgpt.ts` | the chatgpt.com tab (isolated world) | Watches the DOM, extracts the turns 1.5 s after the last change, sends `{ kind: "turns", … }` to the worker. On `pagehide` sends `ended: true`. |
 | `src/background.ts` | extension service worker | Throttles per conversation (2 s), stamps `started_at`, `POST /api/sessions` with the bearer token. Badge `•` green on success, `!` red on failure. |
-| `src/options.html` + `options.ts` | options page | Canon URL, client token, Save, Test connection (`GET /health`), last post result. |
+| `src/options.html` + `options.ts` | options page | Bullwark URL, client token, Save, Test connection (`GET /health`), last post result. |
 | `src/shared/` | both | `protocol.ts` (messages), `session.ts` (turns → `CapturedSession`, FNV-1a session ids), `settings.ts` (storage keys). Pure, tested. |
-| `src/content/claude.ts`, `gemini.ts` | claude.ai / gemini.google.com | Stubs: `console.info("not implemented (B9)")`. |
+| Other content scripts | Other declared sites | Inactive compatibility stubs; outside the current capture scope. |
 
 What gets captured: **turn text only** (`user` / `assistant`), the page URL and the conversation title.
 No cookies, no account data, no DOM beyond the message nodes. Every snapshot re-sends the whole
@@ -28,7 +28,7 @@ npm run build -w extension          # → extension/dist (or: npm run dev -w ext
 ```
 
 1. `chrome://extensions` → Developer mode → **Load unpacked** → pick `extension/dist`.
-2. Click the extension → **Options**. Canon URL is `http://localhost:4100` by default. Token: the
+2. Click the extension → **Options**. Bullwark URL is `http://localhost:4100` by default. Token: the
    `chatgpt=…` value from `CANON_CLIENT_TOKENS` in the repo's `.env` (`dev-chatgpt` in
    `.env.example`). Save, then **Test connection** should report the server's health.
 3. Open chatgpt.com and chat. The badge turns green on the first successful post; the session
@@ -71,8 +71,8 @@ package.
 None plug in here. The extension is a capture client; Droid, Jev and Moss do their work in
 `distiller/` and `server/` on what it sends.
 
-## Stretch (B9)
+## Current capture scope
 
-claude.ai and gemini.google.com: replace the stubs with a copy of `chatgpt.ts` using that site's
-selectors and `site: "claude" | "gemini"`; `clientFor()` already maps them to `claude-web` /
-`gemini-web`, which need tokens and grants on the server side.
+The finance demo uses the Claude Code hook, ingest API and ChatGPT capture. Other capture
+stubs are preserved in source and are not scheduled work. The ChatGPT extension is the first
+capture path to cut if time runs short. Use `../docs/WORK_SPLIT.md` for ownership and gates.

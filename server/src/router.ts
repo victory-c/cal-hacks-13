@@ -56,7 +56,7 @@ export function createRouter(deps: RouterDeps): Handler {
         const viewer = optionalAuth(req, deps.tokens);
         if (viewer === "unknown") return sendJson(res, 401, UNKNOWN_TOKEN);
         if (path === ROUTES.events) {
-          attachSse(res, deps.bus, viewer ? undefined : publicEvent);
+          attachSse(res, deps.bus, viewer ? undefined : publicEvent, viewer?.client === "distiller" ? undefined : withoutExtractionPlan);
           return;
         }
         if (path === ROUTES.grants) return sendJson(res, 200, api.grants(deps));
@@ -106,6 +106,13 @@ const publicFolder = (folder: Folder): boolean => !folderAllows(["private"], fol
 
 /** The tokenless SSE view: the same rule applied to the one event that carries a whole fact. */
 const publicEvent = (e: CanonEvent): boolean => e.type !== "fact.saved" || publicFolder(e.fact.folder);
+
+/** Plans summarize raw transcripts and may mention facts not in the emitted batch. */
+function withoutExtractionPlan(event: CanonEvent): CanonEvent {
+  if (event.type !== "distill.finished") return event;
+  const { plan: _plan, ...safe } = event;
+  return safe;
+}
 
 /** A token's view of GET /api/facts is its read grant; undefined when the client has no grant. */
 function grantView(deps: RouterDeps, client: string): ((folder: Folder) => boolean) | undefined {

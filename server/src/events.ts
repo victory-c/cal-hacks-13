@@ -14,6 +14,7 @@ export type EventInput = CanonEvent extends infer E ? (E extends { at: string } 
 type Listener = (e: CanonEvent) => void;
 /** True when a subscriber may see this event. */
 export type EventFilter = (e: CanonEvent) => boolean;
+export type EventProjection = (e: CanonEvent) => CanonEvent;
 
 const HEARTBEAT_MS = 15_000;
 
@@ -54,8 +55,8 @@ export class EventBus {
   }
 
   /** Writes one SSE frame per entry with the ring id as the SSE id. */
-  private writeReplay(res: ServerResponse, filter: EventFilter): void {
-    for (const r of this.ring) if (filter(r.event)) res.write(formatSseEvent(r.event, String(r.id)));
+  private writeReplay(res: ServerResponse, filter: EventFilter, project: EventProjection): void {
+    for (const r of this.ring) if (filter(r.event)) res.write(formatSseEvent(project(r.event), String(r.id)));
   }
 
   /**
@@ -64,7 +65,7 @@ export class EventBus {
    * `filter` drops events this subscriber may not see (the router passes one for tokenless
    * callers); ids keep their ring positions, so Last-Event-ID still lines up.
    */
-  attachSse(res: ServerResponse, filter: EventFilter = () => true): () => void {
+  attachSse(res: ServerResponse, filter: EventFilter = () => true, project: EventProjection = e => e): () => void {
     res.writeHead(200, {
       "Content-Type": "text/event-stream; charset=utf-8",
       "Cache-Control": "no-cache, no-transform",
@@ -72,10 +73,10 @@ export class EventBus {
       "Access-Control-Allow-Origin": "*",
     });
     res.write(": canon events\n\n");
-    this.writeReplay(res, filter);
+    this.writeReplay(res, filter, project);
     // Live events after the replay carry the same monotonically increasing id.
     const unsubscribe = this.subscribe((e) => {
-      if (filter(e)) res.write(formatSseEvent(e, String(this.seq)));
+      if (filter(e)) res.write(formatSseEvent(project(e), String(this.seq)));
     });
     const heartbeat = setInterval(() => res.write(": ping\n\n"), HEARTBEAT_MS);
     heartbeat.unref();
@@ -89,6 +90,6 @@ export class EventBus {
 }
 
 /** Convenience for the router. */
-export function attachSse(res: ServerResponse, bus: EventBus, filter?: EventFilter): () => void {
-  return bus.attachSse(res, filter);
+export function attachSse(res: ServerResponse, bus: EventBus, filter?: EventFilter, project?: EventProjection): () => void {
+  return bus.attachSse(res, filter, project);
 }

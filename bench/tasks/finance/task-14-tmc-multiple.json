@@ -1,0 +1,20 @@
+{
+  "title": "Where does TMC trade on 2027 earnings?",
+  "principal": "ben",
+  "question": "Where does TMC trade on 2027 earnings?",
+  "needed_fact_ids": [
+    "fct_57001a"
+  ],
+  "answer_key": {
+    "must_include": [
+      "8.6x"
+    ],
+    "must_not_include": [
+      "52.75",
+      "tender offer",
+      "Stonewall",
+      "11x"
+    ]
+  },
+  "notes": "Asked from the public side (scope excludes deal/*)."
+}

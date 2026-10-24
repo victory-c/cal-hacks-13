@@ -33,7 +33,6 @@ services:
     environment:
       PREVIEW_SITE: ${PREVIEW_SITE:?Run npm run preview:setup first}
       PREVIEW_PUBLIC_URL: ${PREVIEW_PUBLIC_URL:?Set the preview URL}
-      PREVIEW_PASSWORD_HASH: ${PREVIEW_PASSWORD_HASH:?Run npm run preview:setup first}
     volumes:
       - ./scripts/Caddyfile.preview:/etc/caddy/Caddyfile:ro
       - caddy-data:/data

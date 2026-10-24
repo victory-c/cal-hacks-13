@@ -1,0 +1,15 @@
+{
+  "title": "What did TMC's counsel ask for before the data room?",
+  "principal": "axe",
+  "question": "What did TMC's counsel ask for before the data room?",
+  "needed_fact_ids": [
+    "fct_570011"
+  ],
+  "answer_key": {
+    "must_include": [
+      "standstill",
+      "data room"
+    ]
+  },
+  "notes": "Asked from the deal side (scope includes deal/stonewall)."
+}

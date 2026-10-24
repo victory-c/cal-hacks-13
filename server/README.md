@@ -1,8 +1,9 @@
 # `@canon/server` — MCP + REST + SSE, fact store, cold archive, grants, retrieval
 
-**Owner:** lane A, Henry Lai. This is the **stub** from the first hour (CLAUDE.md: "Henry ships a
-stub server that writes local files"). Everything runs offline with no keys; every stub says so in
-its log line. Replace pieces one by one; the shape of each file is the contract lane B builds against.
+**Owner:** lane A, Henry Lai. This README describes the implemented file-backed server and
+its local fallbacks. Tiers, groups and labels, scope rules, the scope builder, living scopes and
+audit records are tracked in `../docs/PRD.md` and `../STATUS.md`. Existing folder grants are not
+scopes; do not claim information barriers from this scaffold.
 
 ## Run, seed, test
 
@@ -54,16 +55,19 @@ sessions/<id>.json         raw CapturedSession, the cold archive
 Writes are tmp + rename. `FileStore.loadAll()` skips unparsable files with a warning. Only `hot`
 facts are indexed for retrieval; the index refreshes on every `fact.saved` / `fact.retired`.
 
-## Where each lane-A task lives
+## Where each server area lives
 
-| Task | File | Now | Next |
+Task ids refer to the current board in `../STATUS.md`. Some areas were built before the finance
+task list was written, so an area can run today while its finance task is still open.
+
+| Area (task) | File | Now | Next |
 |---|---|---|---|
-| A2 MCP server | `src/mcp.ts`, `src/router.ts` | Real: four tools over the SDK's stateless Streamable HTTP | — |
-| A3 Cold archive | `src/store.ts` | Real: JSON per session, atomic writes | Pull-from-cold when `enough` is false |
-| A4 Moss | `src/retrieval/moss.ts` | Official SDK local session: embeds hot facts, applies granted-folder metadata filters before hybrid ranking, replaces retired facts and validates returned IDs against canonical facts. Keyword fallback only without credentials | First startup downloads the embedding model; indexing failures fail closed |
-| A5 SSE | `src/events.ts` | Real: ring buffer, replay, heartbeat, ids | SpacetimeDB only with Saturday slack |
-| A6 Grants | `src/auth.ts` | Real: bearer → client → `Grant` (`DEMO_GRANTS` or `CANON_GRANTS_FILE`) | Team mode (A9) |
-| A7 Jev filter | `src/mcp.ts` → `runContext` | Real flow: retrieve k=20 → **one** `judge.ask()` (a noul per candidate + "enough?") → keep p > 0.7 → `cutToBudget`. Judge comes from `createJudge()`: `fake` (simulated) without keys. A judge failure (timeout, 5xx) is not an MCP error: no fact is served, `enough` is false and `missing` carries the reason | Nothing here changes when Jev's real API lands; fix `shared/src/judge/jev.ts` |
+| MCP server | `src/mcp.ts`, `src/router.ts` | Real: four tools over the SDK's stateless Streamable HTTP | — |
+| Cold archive (A3) | `src/store.ts` | Real: JSON per session, atomic writes | Pull-from-cold when `enough` is false |
+| Moss search (A4) | `src/retrieval/moss.ts` | Official SDK local hybrid index over hot facts. Folder metadata filters run before ranking, followed by canonical-ID and grant checks. Updates retire removed facts; failed indexing fails closed | Add finance group/label and scope fact-ID filters (A4). First use downloads an embedding model. Keyword is selected only without Moss credentials |
+| SSE (A5) | `src/events.ts` | Real: ring buffer, replay, heartbeat, ids | Add scope and audit events; keep plain SSE |
+| Grants → scopes (A6) | `src/auth.ts` | Real: bearer → client → `Grant` (`DEMO_GRANTS` or `CANON_GRANTS_FILE`) | Each token maps to one person or agent and their scope (A6) |
+| Jev filter (part of A7) | `src/mcp.ts` → `runContext` | Real flow: retrieve k=20 → **one** `judge.ask()` (a noul per candidate + "enough?") → keep p > 0.7 → `cutToBudget`. Judge comes from `createJudge()`: `fake` (simulated) without keys. A judge failure (timeout, 5xx) is not an MCP error: no fact is served, `enough` is false and `missing` carries the reason | Documented Jev API is wired and live-tested; add the planned in-scope handoff and audit record (A7) |
 
 `canon_save` never writes a hot fact: it archives a one-message session and emits `session.captured`
 for the distiller. `src/seed.ts` copies `fixtures/` (sample data, see `fixtures/README.md`).

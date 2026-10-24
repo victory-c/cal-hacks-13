@@ -22,5 +22,12 @@
         ]
       }
     ]
+  },
+  "permissions": {
+    "deny": [
+      "Read(/.archive/**)",
+      "Edit(/.archive/**)",
+      "Read(/docs/history/**)"
+    ]
   }
 }

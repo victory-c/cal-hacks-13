@@ -1,20 +1,20 @@
 {
-  "project": "Canon",
-  "updated": "2026-10-24T22:35:58Z",
+  "project": "Bullwark",
+  "updated": "2026-10-24T22:46:11Z",
   "team": [
     {
       "id": "A",
-      "role": "Builder: server & retrieval",
+      "role": "Server, walls & benchmark runner",
       "name": "Henry Lai"
     },
     {
       "id": "B",
-      "role": "Builder: capture, distill, UI & story",
+      "role": "Capture, triage, agents & story",
       "name": "Victor Chun"
     },
     {
       "id": "C",
-      "role": "Ops & QA",
+      "role": "Frontend, QA & logistics",
       "name": "Edan Wong"
     }
   ],
@@ -48,33 +48,33 @@
   "milestones": [
     {
       "id": "M1",
-      "window": "Fri 20:00–24:00",
-      "end": "2026-10-24T00:00:00-07:00",
-      "label": "Schema frozen; Claude Code can save + get context on local files"
+      "window": "Sat 04:00–09:00",
+      "end": "2026-10-24T09:00:00-07:00",
+      "label": "Schema frozen (tiers, groups, scope rules, scopes), ingest and synthetic fixtures"
     },
     {
       "id": "M2",
-      "window": "Sat 00:00–09:00",
-      "end": "2026-10-24T09:00:00-07:00",
-      "label": "Moss index, Droid distiller v0, dashboard shows live events"
+      "window": "Sat 09:00–14:00",
+      "end": "2026-10-24T14:00:00-07:00",
+      "label": "Scope builder end to end, grouping at save, filtered handoff and live feed"
     },
     {
       "id": "M3",
-      "window": "Sat 09:00–18:00",
-      "end": "2026-10-24T18:00:00-07:00",
-      "label": "ChatGPT capture + read, Jev both ways, grants, resume flow"
+      "window": "Sat 14:00–20:00",
+      "end": "2026-10-24T20:00:00-07:00",
+      "label": "Agent profiles, Droid lanes, living scopes, people and tiers, quarantine and evaluation sets"
     },
     {
       "id": "M4",
-      "window": "Sat 18:00–24:00",
+      "window": "Sat 20:00–24:00",
       "end": "2026-10-24T23:59:00-07:00",
-      "label": "Benchmark chart, Devpost draft, first video cut"
+      "label": "Measured benchmark, Devpost draft and first video cut"
     },
     {
       "id": "M5",
       "window": "Sun 00:00–07:00",
       "end": "2026-10-25T07:00:00-07:00",
-      "label": "Polish, fallback recording, sponsor READMEs"
+      "label": "Polish, scope map, attack box, fallback recording, sponsor READMEs"
     },
     {
       "id": "M6",
@@ -90,8 +90,8 @@
       "milestone": "M1",
       "priority": "must",
       "state": "todo",
-      "title": "Scaffold server/ and freeze the fact file schema",
-      "note": "First hour, together with Victor: freeze fact format + 4 MCP tools"
+      "title": "Freeze the contract with Victor: principals and tiers, groups and labels, scope rules, scopes, audit, REST and SSE",
+      "note": "Unblocks all three lanes; current source types remain the implemented contract until changed."
     },
     {
       "id": "A2",
@@ -99,17 +99,17 @@
       "milestone": "M1",
       "priority": "must",
       "state": "todo",
-      "title": "Stub MCP server (canon_save + canon_context over local files), then real version",
-      "note": ""
+      "title": "Fixture-backed REST and MCP stubs for the moderator console and member view",
+      "note": "Publish agreed responses early so B and C can build independently; seed from fixtures/world/."
     },
     {
       "id": "A3",
       "owner": "A",
-      "milestone": "M2",
+      "milestone": "M1",
       "priority": "must",
       "state": "todo",
       "title": "Cold archive for raw sessions",
-      "note": ""
+      "note": "Scaffold archive exists in server/src/store.ts (JSON per session, atomic writes; see server/README.md). Confirm what the finance build still needs before marking done."
     },
     {
       "id": "A4",
@@ -117,8 +117,8 @@
       "milestone": "M2",
       "priority": "must",
       "state": "todo",
-      "title": "Moss index over hot facts",
-      "note": "Needs Moss credentials (blocker Q2)"
+      "title": "Moss index with group and label metadata; scope builds and handoffs filter by scope fact ids",
+      "note": "B22 adds a local Moss hybrid adapter with folder prefilters. Credentials authenticated successfully; embedding-model download/live retrieval verification pending. Group/label metadata and scope fact-ID filters remain A4 work."
     },
     {
       "id": "A5",
@@ -126,26 +126,26 @@
       "milestone": "M2",
       "priority": "must",
       "state": "todo",
-      "title": "SSE event stream for the dashboard",
-      "note": ""
+      "title": "SSE events for the console: scope builds and changes, facts joining scopes, handoffs, audit",
+      "note": "Keep plain SSE; members' streams carry only their own scope's events."
     },
     {
       "id": "A6",
       "owner": "A",
-      "milestone": "M3",
+      "milestone": "M1",
       "priority": "must",
       "state": "todo",
-      "title": "Folder grants per client token (+ canon_whoami)",
-      "note": ""
+      "title": "Scope builder: exclusions in code → Moss candidates → Jev yes/no → scope, with living updates",
+      "note": "Excluded groups and labels never reach Moss or Jev; maybe counts as excluded; inbox and quarantined facts join no member scope; shows each stage's measured time."
     },
     {
       "id": "A7",
       "owner": "A",
-      "milestone": "M3",
+      "milestone": "M2",
       "priority": "must",
       "state": "todo",
-      "title": "Jev retrieval filter in canon_context, Claude fallback behind judge()",
-      "note": ""
+      "title": "Handoff: search inside the scope → Jev relevance → token budget → audit",
+      "note": "Include the inject-nothing check and the Claude fallback behind judge()."
     },
     {
       "id": "A8",
@@ -153,31 +153,49 @@
       "milestone": "M4",
       "priority": "must",
       "state": "todo",
-      "title": "Benchmark runner: 3 baselines, results JSON + chart data",
-      "note": "Task set comes from C5"
+      "title": "Finance benchmark runner: four setups, leak and missing-context rates, accuracy, tokens, latency, cost and scope build time",
+      "note": "C6 supplies 30 legitimate tasks and 60 attacks; existing three strategies are scaffold only."
     },
     {
-      "id": "A9",
+      "id": "A16",
       "owner": "A",
-      "milestone": "M4",
-      "priority": "stretch",
+      "milestone": "M2",
+      "priority": "must",
       "state": "todo",
-      "title": "Team mode: second user + team/ folder",
-      "note": ""
+      "title": "Pinned profile per person and agent: name, tier and task (never the exclusions)",
+      "note": "PRD must-ship #7 (about 200 tokens). Sent on every handoff, including when the inject-nothing check sends no facts."
     },
     {
-      "id": "A10",
+      "id": "A17",
       "owner": "A",
-      "milestone": "M5",
+      "milestone": "M1",
       "priority": "stretch",
+      "state": "done",
+      "title": "Visual HTML PRD for review and handoff",
+      "note": "Moved to docs/history/ (a human-only record of earlier designs)."
+    },
+    {
+      "id": "A18",
+      "owner": "A",
+      "milestone": "M3",
+      "priority": "must",
       "state": "todo",
-      "title": "Move event stream to SpacetimeDB",
-      "note": ""
+      "title": "People and tiers: moderators add people, edit any scope rule and promote; members create only agent profiles",
+      "note": "No MCP tool or agent can change rules, scopes or tiers."
+    },
+    {
+      "id": "A19",
+      "owner": "A",
+      "milestone": "M3",
+      "priority": "must",
+      "state": "todo",
+      "title": "Agent profiles: scope built from and kept inside the creator's scope",
+      "note": "Subset checked in code at build time and on every live update."
     },
     {
       "id": "B1",
       "owner": "B",
-      "milestone": "M2",
+      "milestone": "M1",
       "priority": "must",
       "state": "done",
       "title": "Claude Code capture hook",
@@ -186,20 +204,11 @@
     {
       "id": "B2",
       "owner": "B",
-      "milestone": "M2",
-      "priority": "must",
-      "state": "doing",
-      "title": "Droid distiller v0: session in, facts out",
-      "note": "Official headless SDK + pinned CLI implementation and mock tests landed in B18; live run awaits a complete CLI download on this network."
-    },
-    {
-      "id": "B3",
-      "owner": "B",
-      "milestone": "M2",
+      "milestone": "M3",
       "priority": "must",
       "state": "todo",
-      "title": "Dashboard v0: live session + fact events",
-      "note": ""
+      "title": "Droid agent runs: sandbox folder holding only the agent's scope as markdown, with steps and files streamed",
+      "note": "Scoped finance-agent runs remain pending (Q1). B22 implements an optional headless Factory extractor for the existing scaffold; this is not the scoped-agent runner. Set DISTILLER=claude for the finance fact-writer path."
     },
     {
       "id": "B4",
@@ -207,17 +216,17 @@
       "milestone": "M3",
       "priority": "must",
       "state": "todo",
-      "title": "Extension: live capture from ChatGPT web",
-      "note": ""
+      "title": "ChatGPT capture for the synthetic finance demo",
+      "note": "Optional capture path in the cut order; hook and ingest are guaranteed paths."
     },
     {
       "id": "B5",
       "owner": "B",
-      "milestone": "M3",
+      "milestone": "M2",
       "priority": "must",
       "state": "todo",
-      "title": "Jev save-time decisions: hot/cold, folder, dedupe/supersede",
-      "note": ""
+      "title": "Jev triage: keep, group, labels, instructions aimed at an AI, relation to existing facts",
+      "note": "Unplaceable facts go to the moderators-only inbox group; planted instructions are quarantined."
     },
     {
       "id": "B6",
@@ -225,44 +234,8 @@
       "milestone": "M3",
       "priority": "must",
       "state": "todo",
-      "title": "ChatGPT MCP connector (read path) set up and demo-tested",
-      "note": ""
-    },
-    {
-      "id": "B7",
-      "owner": "B",
-      "milestone": "M3",
-      "priority": "must",
-      "state": "todo",
-      "title": "Token / latency / cost counter on dashboard",
-      "note": ""
-    },
-    {
-      "id": "B8",
-      "owner": "B",
-      "milestone": "M3",
-      "priority": "must",
-      "state": "todo",
-      "title": "Resume viewer: each line links to its source session",
-      "note": ""
-    },
-    {
-      "id": "B9",
-      "owner": "B",
-      "milestone": "M4",
-      "priority": "stretch",
-      "state": "todo",
-      "title": "Extension: capture from Claude + Gemini web",
-      "note": ""
-    },
-    {
-      "id": "B10",
-      "owner": "B",
-      "milestone": "M4",
-      "priority": "stretch",
-      "state": "todo",
-      "title": "Apify job-posting → requirements Actor",
-      "note": ""
+      "title": "ChatGPT MCP read connector configured and demo-tested",
+      "note": "Capture remains through the extension; the token maps to one person, so answers come only from their scope."
     },
     {
       "id": "B11",
@@ -270,8 +243,8 @@
       "milestone": "M5",
       "priority": "stretch",
       "state": "todo",
-      "title": "Quarantine for prompt-injected facts",
-      "note": ""
+      "title": "Quarantine review view",
+      "note": "Optional view; quarantine enforcement belongs to B5."
     },
     {
       "id": "B12",
@@ -279,26 +252,26 @@
       "milestone": "M4",
       "priority": "must",
       "state": "todo",
-      "title": "Devpost text: problem, how it works, tracks, built-with",
-      "note": "Block Sat 19:00–21:00; Edan handles the logistics in C7"
+      "title": "Devpost text: finance problem, product, real integrations and limits",
+      "note": "Draft by Sat 23:59; C8 handles logistics."
     },
     {
       "id": "B13",
       "owner": "B",
-      "milestone": "M4",
+      "milestone": "M5",
       "priority": "must",
       "state": "todo",
-      "title": "Scale slide + sponsor README sections",
-      "note": ""
+      "title": "Small-team-to-company scale slide and sponsor README evidence",
+      "note": "State what runs today and what is simulated."
     },
     {
       "id": "B14",
       "owner": "B",
-      "milestone": "M5",
+      "milestone": "M4",
       "priority": "must",
       "state": "todo",
-      "title": "Video script + voiceover (≤3 min, opens on token counter)",
-      "note": "Edan records the footage (C9)"
+      "title": "Video script and voiceover opening on the question that doesn't leak",
+      "note": "C9 records footage and backup; show the scope inspector and agents capped at their creator."
     },
     {
       "id": "B15",
@@ -306,8 +279,8 @@
       "milestone": "M6",
       "priority": "must",
       "state": "todo",
-      "title": "Pitch: 2-min version + answers to hard questions",
-      "note": "Pick interview quotes from Edan's notes (C3)"
+      "title": "Two-minute finance pitch and answers to judge questions",
+      "note": "Use the finance interview quote from C4."
     },
     {
       "id": "B16",
@@ -316,7 +289,43 @@
       "priority": "must",
       "state": "done",
       "title": "Repo layering: npm workspaces, shared/ contract package, lane stubs, doctor/dev scripts, CI",
-      "note": "Merged scaffold: workspaces, shared/ frozen contract, stub server, distiller worker, hook, extension, dashboard, bench runner, CI. Henry owns server/ internals from here."
+      "note": "Completed workspace scaffold, capture-to-fact plumbing, local dashboard, runner and CI. Finance features remain separate tasks."
+    },
+    {
+      "id": "B17",
+      "owner": "B",
+      "milestone": "M2",
+      "priority": "must",
+      "state": "todo",
+      "title": "Claude fact writer with source, author, dates and history",
+      "note": "Each fact is filed into one group, with labels where the group is too coarse."
+    },
+    {
+      "id": "B18",
+      "owner": "B",
+      "milestone": "M3",
+      "priority": "must",
+      "state": "todo",
+      "title": "Route newly in-scope facts to agent inboxes; restart runs when a scope narrows",
+      "note": "Check between work steps; a narrowed scope discards the run folder and restarts from the plan step."
+    },
+    {
+      "id": "B19",
+      "owner": "B",
+      "milestone": "M1",
+      "priority": "must",
+      "state": "todo",
+      "title": "Ingest client for synthetic memos, chat and meeting notes",
+      "note": "Posts to POST /api/items (docs/INTEGRATION.md), the same route Bullwark's Add item form uses."
+    },
+    {
+      "id": "B20",
+      "owner": "B",
+      "milestone": "M2",
+      "priority": "stretch",
+      "state": "done",
+      "title": "Rename the product to Bullwark in user-facing text",
+      "note": "Docs, README, extension name/options, dashboard titles and wordmark, hook messages. Code identifiers (canon_* tools, @canon/shared, CANON_* env, bench baseline label) unchanged."
     },
     {
       "id": "C1",
@@ -324,8 +333,8 @@
       "milestone": "M1",
       "priority": "must",
       "state": "todo",
-      "title": "Sponsor answers: Droid headless, Moss creds, Jev access, track cap",
-      "note": "Post answers in team chat and resolve blockers Q1–Q5"
+      "title": "Sponsor answers: Droid finance runs, Moss credentials, Jev access and track cap",
+      "note": "Resolve Q1–Q5; share keys directly with builders."
     },
     {
       "id": "C2",
@@ -333,7 +342,7 @@
       "milestone": "M1",
       "priority": "must",
       "state": "todo",
-      "title": "Workshop schedule (Factory, Moss, Anthropic, Microsoft) + attend",
+      "title": "Relevant sponsor workshop schedule and attendance",
       "note": ""
     },
     {
@@ -342,8 +351,8 @@
       "milestone": "M1",
       "priority": "must",
       "state": "todo",
-      "title": "Accounts and keys: Devpost team, GoDaddy domain, sponsor signups",
-      "note": "Hand keys to builders directly, never through git"
+      "title": "Team accounts, repo access and required sponsor signups",
+      "note": "Hand keys to builders directly, never through Git."
     },
     {
       "id": "C4",
@@ -351,8 +360,8 @@
       "milestone": "M3",
       "priority": "must",
       "state": "todo",
-      "title": "Interview 5 students: raw notes + exact quotes",
-      "note": "Victor picks pitch quotes (B15)"
+      "title": "Finance or compliance interview: raw notes and at least one exact quote",
+      "note": "Victor selects the quote for the pitch (B15)."
     },
     {
       "id": "C5",
@@ -360,17 +369,17 @@
       "milestone": "M3",
       "priority": "must",
       "state": "todo",
-      "title": "Run real demo sessions in ChatGPT / Claude / Claude Code",
-      "note": "Gives A sample facts to build against"
+      "title": "Review synthetic-world realism and run finance capture sessions",
+      "note": "C20 is the world; review it against how a hedge fund works and run capture sessions on it. Synthetic data only."
     },
     {
       "id": "C6",
       "owner": "C",
       "milestone": "M3",
       "priority": "must",
-      "state": "todo",
-      "title": "Write 20 benchmark handoff tasks with answer keys",
-      "note": "Put them in bench/tasks/; A runs them"
+      "state": "done",
+      "title": "Write 30 legitimate finance tasks and 60 attacks with answer keys",
+      "note": "bench/tasks/finance/: 60 attacks (10 per style) and 30 tasks in lane A's case format, checked against fixtures/world/ by web/src/cases.test.ts. Post-announcement, dead-deal and promotion cases wait on a state field in the evaluator."
     },
     {
       "id": "C7",
@@ -378,8 +387,8 @@
       "milestone": "M3",
       "priority": "must",
       "state": "todo",
-      "title": "QA after every sync (03/09/15/21): full demo run, ranked break list",
-      "note": ""
+      "title": "QA after Saturday syncs at 09:00, 15:00 and 21:00",
+      "note": "Full demo run; rank failures and check that nothing outside a scope is ever mentioned, counted or named."
     },
     {
       "id": "C8",
@@ -427,49 +436,162 @@
       "note": ""
     },
     {
-      "id": "B17",
-      "owner": "B",
-      "milestone": "M2",
+      "id": "C13",
+      "owner": "C",
+      "milestone": "M3",
       "priority": "must",
-      "state": "doing",
-      "title": "Sponsor credentials and shared preview deployment",
-      "note": "Vultr MLH selected. Docker preview package, random local credentials and sponsor checklist prepared; npm run check and simulated container login/SSE/capture/MCP/persistence checks passed. Not deployed: awaiting Vultr login/credit/spending limit and ANTHROPIC_API_KEY."
+      "state": "todo",
+      "title": "Moderator console: people and tiers, scope builder, scope inspector, live feed and agent lanes",
+      "note": "Edan owns web/; build against agreed mock REST and SSE before connecting to the server. Includes the Add item form."
     },
     {
-      "id": "B18",
+      "id": "C14",
+      "owner": "C",
+      "milestone": "M3",
+      "priority": "must",
+      "state": "todo",
+      "title": "Handoff inspector with candidate decisions, cut reasons, tokens, latency and cost",
+      "note": ""
+    },
+    {
+      "id": "C15",
+      "owner": "C",
+      "milestone": "M5",
+      "priority": "stretch",
+      "state": "todo",
+      "title": "Scope map",
+      "note": ""
+    },
+    {
+      "id": "C16",
+      "owner": "C",
+      "milestone": "M5",
+      "priority": "stretch",
+      "state": "todo",
+      "title": "Judge attack box",
+      "note": "Judges attack as a member or by creating an agent."
+    },
+    {
+      "id": "C17",
+      "owner": "C",
+      "milestone": "M1",
+      "priority": "must",
+      "state": "done",
+      "title": "Align product docs, agent guidance, ownership and task board",
+      "note": "Current guidance, ownership and board aligned; source and fixtures preserved. Status, links, stale-reference scan and archive exclusions verified."
+    },
+    {
+      "id": "C18",
+      "owner": "C",
+      "milestone": "M3",
+      "priority": "must",
+      "state": "todo",
+      "title": "Memory browser: view, edit and retire facts",
+      "note": "PRD must-ship #6. Members browse only their scope. Retire moves a fact to cold with history kept; needs fact edit and retire REST endpoints from A."
+    },
+    {
+      "id": "C19",
+      "owner": "C",
+      "milestone": "M3",
+      "priority": "must",
+      "state": "todo",
+      "title": "Member view: my agents, create an agent, my memory",
+      "note": "Members see only their own agents and scope; no people list, scope inspector or audit log."
+    },
+    {
+      "id": "C20",
+      "owner": "C",
+      "milestone": "M1",
+      "priority": "must",
+      "state": "done",
+      "title": "Synthetic demo world: Axe Capital / Stonewall / Taylor Mason Capital items and answer key",
+      "note": "fixtures/world/: 12 items in the Item shape, people, groups, scope rules, timeline and expected facts; checked by web/src/world.test.ts. Seeding Canon from it is A2."
+    },
+    {
+      "id": "B21",
       "owner": "B",
       "milestone": "M2",
       "priority": "must",
       "state": "doing",
-      "title": "Activate Factory, Moss and Jev and fix blank preview login",
-      "note": "Implemented official Factory SDK + CLI extraction, Moss local hybrid retrieval with grant prefilters, Jev documented URL/contract, and visible preview login. 261 tests pass; Jev live save-time call and Moss authentication verified. Local login patched and HTTP-verified. Full provider activation awaits stalled CLI/model downloads and rebuilt image; existing preview remains Claude/keyword."
+      "title": "Shared preview infrastructure and sponsor-host deployment",
+      "note": "Renumbered from this branch's original B17 to preserve main's Claude fact-writer task. Docker, visible login, random client tokens and persistent volumes implemented. Local scaffold HTTP checks passed; Vultr activation, credit and VM deployment remain pending."
+    },
+    {
+      "id": "B22",
+      "owner": "B",
+      "milestone": "M2",
+      "priority": "must",
+      "state": "doing",
+      "title": "Factory and Moss scaffold adapters; verified Jev contract and preview login",
+      "note": "Renumbered from this branch's original B18 to preserve main's live agent-routing task. SDK adapters implemented; offline checks pass, Jev live requests and Moss authentication verified. Factory CLI/model downloads and full live activation remain pending. Does not implement finance scopes or agent dispatch."
+    },
+    {
+      "id": "B23",
+      "owner": "B",
+      "milestone": "M2",
+      "priority": "must",
+      "state": "done",
+      "title": "Reconcile provider preview with current Bullwark main",
+      "note": "PR #27 reconciled against current Bullwark main: retained branding, PRDs and datasets; preserved B17/B18 finance tasks by moving preview work to B21/B22; removed obsolete Docker password-hash setup; restricted raw extraction plans to the internal worker stream. npm run check: 276 tests pass; browser builds, Compose configuration and fresh credential setup checks pass. Provider live-download limits remain tracked in B22."
     }
   ],
   "tracks": [
     {
+      "id": "hyphenate",
+      "name": "Hyphenate: Autonomous Systems for Finance",
+      "tier": "core",
+      "prize": "$8,000 / $5,000 / $3,000 + interviews",
+      "proofs": [
+        {
+          "label": "Video opens on the question that doesn't leak",
+          "done": false
+        },
+        {
+          "label": "Live judge-selected scenario and agent roles",
+          "done": false
+        },
+        {
+          "label": "Real versus simulated behavior stated",
+          "done": false
+        }
+      ]
+    },
+    {
       "id": "anthropic",
       "name": "Anthropic",
       "tier": "core",
-      "prize": "$5k Claude credits + 1 yr Max 20x",
+      "prize": "$5,000 credits + 1 yr Max 20x + office hours",
       "proofs": [
         {
-          "label": "Named community stated on Devpost",
+          "label": "Finance community and interview quote",
           "done": false
         },
         {
-          "label": "Interview quote in pitch",
+          "label": "Claude role and failure modes documented",
           "done": false
         },
         {
-          "label": "Claude's role + failure modes in README",
+          "label": "Scope inspector shows the wall held without hinting at hidden data",
+          "done": false
+        }
+      ]
+    },
+    {
+      "id": "microsoft",
+      "name": "Microsoft: Built for the Real World + Customer Impact",
+      "tier": "core",
+      "prize": "Surface per member + FDE mentorship",
+      "proofs": [
+        {
+          "label": "Measured leak versus missing-context chart",
           "done": false
         },
         {
-          "label": "Private-folder refusal shown in demo",
+          "label": "Audit trail and scale slide",
           "done": false
         },
         {
-          "label": "Confirmed selectable on Devpost",
+          "label": "Responsible design and production limits",
           "done": false
         }
       ]
@@ -478,22 +600,18 @@
       "id": "factory",
       "name": "Factory Droid SDK",
       "tier": "core",
-      "prize": "$2,000",
+      "prize": "$2,000 + credits",
       "proofs": [
         {
-          "label": "Droid runs in the product on our trigger",
+          "label": "Droid runs each agent in a scope-limited sandbox",
           "done": false
         },
         {
-          "label": "Droid can only write to the fact store",
+          "label": "Agent steps, files and inbox updates visible",
           "done": false
         },
         {
-          "label": "Plan + fact diffs visible on dashboard",
-          "done": false
-        },
-        {
-          "label": "README: where and how Droid runs",
+          "label": "README states where Droid runs",
           "done": false
         }
       ]
@@ -501,39 +619,75 @@
     {
       "id": "moss",
       "name": "Moss",
-      "tier": "core",
+      "tier": "add",
       "prize": "AirPods Max / Pro",
       "proofs": [
         {
-          "label": "Moss is the retrieval layer in canon_context",
+          "label": "Scope builds and in-scope handoffs on Moss, with measured latency",
           "done": false
         },
         {
-          "label": "Retrieval latency on dashboard",
+          "label": "README describes real integration",
           "done": false
         },
         {
-          "label": "README section",
+          "label": "Demo social post",
           "done": false
         }
       ]
     },
     {
-      "id": "microsoft",
-      "name": "Microsoft: Built for the Real World",
-      "tier": "core",
-      "prize": "Surface per member",
+      "id": "armadin",
+      "name": "Armadin: Best Security Hack",
+      "tier": "add",
+      "prize": "Apple headphones",
       "proofs": [
         {
-          "label": "Benchmark chart (accuracy vs tokens)",
+          "label": "Posted criteria confirmed",
           "done": false
         },
         {
-          "label": "Scale slide: personal → team → company",
+          "label": "Scopes in code, agent escalation and quarantine shown",
+          "done": false
+        }
+      ]
+    },
+    {
+      "id": "mana",
+      "name": "Mana.space",
+      "tier": "add",
+      "prize": "$5,000",
+      "proofs": [
+        {
+          "label": "Public build artifact and documented product decision",
+          "done": false
+        }
+      ]
+    },
+    {
+      "id": "bitdeer",
+      "name": "Bitdeer AI Model Studio",
+      "tier": "add",
+      "prize": "$500 credits + mice",
+      "proofs": [
+        {
+          "label": "Open-model fact writing on chat and meeting text",
           "done": false
         },
         {
-          "label": "Responsible design notes (folders, cold archive)",
+          "label": "Integration shown in README and demo",
+          "done": false
+        }
+      ]
+    },
+    {
+      "id": "notability",
+      "name": "Notability",
+      "tier": "add",
+      "prize": "1 yr Pro + merch",
+      "proofs": [
+        {
+          "label": "Design notes and decisions recorded",
           "done": false
         }
       ]
@@ -542,82 +696,18 @@
       "id": "general",
       "name": "Cal Hacks general",
       "tier": "add",
-      "prize": "Overall, Most Technically Complex, Hacker's Choice",
+      "prize": "Overall, Most Technically Complex, Best People-First, Hacker's Choice",
       "proofs": [
         {
-          "label": "Devpost image + GitHub link",
+          "label": "Devpost image and GitHub link",
           "done": false
         },
         {
-          "label": "Video demo uploaded",
+          "label": "Demo video uploaded",
           "done": false
         },
         {
           "label": "Live demo works at the table",
-          "done": false
-        }
-      ]
-    },
-    {
-      "id": "mlh",
-      "name": "MLH: Gemini API + GoDaddy domain",
-      "tier": "add",
-      "prize": "Swag",
-      "proofs": [
-        {
-          "label": "Gemini CLI captured as a client",
-          "done": false
-        },
-        {
-          "label": "Domain registered",
-          "done": false
-        }
-      ]
-    },
-    {
-      "id": "spacetime",
-      "name": "SpacetimeDB",
-      "tier": "if-time",
-      "prize": "$2,048 / $1,024 / $512",
-      "proofs": [
-        {
-          "label": "Event stream on SpacetimeDB",
-          "done": false
-        },
-        {
-          "label": "Confirmed selectable on Devpost",
-          "done": false
-        }
-      ]
-    },
-    {
-      "id": "apify",
-      "name": "Apify",
-      "tier": "if-time",
-      "prize": "$5k pool + $400 Best Actor",
-      "proofs": [
-        {
-          "label": "Job-posting Actor used by resume flow",
-          "done": false
-        },
-        {
-          "label": "Actor published",
-          "done": false
-        }
-      ]
-    },
-    {
-      "id": "armadin",
-      "name": "Armadin Best Security Hack",
-      "tier": "if-time",
-      "prize": "$996 + Apple headphones",
-      "proofs": [
-        {
-          "label": "Criteria checked on live site",
-          "done": false
-        },
-        {
-          "label": "Injection quarantine in demo",
           "done": false
         }
       ]
@@ -628,22 +718,22 @@
       "id": "Q1",
       "owner": "C",
       "state": "open",
-      "text": "Can the Factory Droid SDK run headless on our trigger?",
+      "text": "Can Droid run finance tasks headless by Sat 11:00, and can running agents receive updates?",
       "answer": ""
     },
     {
       "id": "Q2",
       "owner": "C",
-      "state": "open",
+      "state": "resolved",
       "text": "Moss project credentials",
-      "answer": ""
+      "answer": "Local Moss project credentials were configured and authenticated. First embedding-model download and full live retrieval are still pending (B22); no secrets are stored here."
     },
     {
       "id": "Q3",
       "owner": "C",
-      "state": "open",
-      "text": "Jev early access (TypeSafe AI)",
-      "answer": ""
+      "state": "resolved",
+      "text": "Jev access and verified API contract by Sat 09:00, or use Claude fallback",
+      "answer": "Jev credentials and official keyed request/response contract verified with live calls. Default URL: https://api.typesafe.ai/v1/systemone. Scoped finance behavior is separate work."
     },
     {
       "id": "Q4",
@@ -656,14 +746,7 @@
       "id": "Q5",
       "owner": "C",
       "state": "open",
-      "text": "Are Anthropic and SpacetimeDB selectable on Devpost?",
-      "answer": ""
-    },
-    {
-      "id": "Q6",
-      "owner": "B",
-      "state": "open",
-      "text": "Can Hermes connect over MCP?",
+      "text": "Are the four core tracks selectable on Devpost, and what are the posted security-track criteria?",
       "answer": ""
     },
     {
@@ -679,12 +762,20 @@
       "state": "open",
       "text": "Make sure Henry and Edan both have repo access (collaborators now: victory-c, kokomeam)",
       "answer": ""
+    },
+    {
+      "id": "Q11",
+      "owner": "C",
+      "state": "open",
+      "text": "Henry: the finance case loader on a/scopes-server lists dan, priya and leo as members; update it to the Billions world (axe, ben, dollar-bill, wags) and add a state field so post-announcement cases can run",
+      "answer": ""
     }
   ],
   "cutList": [
-    "Apify",
-    "Team mode",
-    "Gemini web capture",
-    "SpacetimeDB"
+    "Scope map",
+    "Attack box",
+    "Quarantine view",
+    "Bitdeer",
+    "ChatGPT extension"
   ]
 }

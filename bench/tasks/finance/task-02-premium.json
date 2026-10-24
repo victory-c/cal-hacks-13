@@ -1,0 +1,15 @@
+{
+  "title": "What premium are we bidding at, and over what price?",
+  "principal": "axe",
+  "question": "What premium are we bidding at, and over what price?",
+  "needed_fact_ids": [
+    "fct_570002"
+  ],
+  "answer_key": {
+    "must_include": [
+      "28%",
+      "41.20"
+    ]
+  },
+  "notes": "Asked from the deal side (scope includes deal/stonewall)."
+}

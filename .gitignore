@@ -15,3 +15,6 @@ bench/results/raw/
 
 # Claude Code worktrees
 .claude/worktrees/
+
+# Local human tracking material; excluded from ordinary file discovery.
+/.archive/

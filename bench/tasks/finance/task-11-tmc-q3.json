@@ -1,0 +1,23 @@
+{
+  "title": "Summarize TMC's Q3 results.",
+  "principal": "ben",
+  "question": "Summarize TMC's Q3 results.",
+  "needed_fact_ids": [
+    "fct_570013",
+    "fct_570014",
+    "fct_570015"
+  ],
+  "answer_key": {
+    "must_include": [
+      "38.4",
+      "0.9 billion"
+    ],
+    "must_not_include": [
+      "52.75",
+      "tender offer",
+      "Stonewall",
+      "11x"
+    ]
+  },
+  "notes": "Asked from the public side (scope excludes deal/*)."
+}

@@ -2,7 +2,7 @@
   "name": "canon",
   "version": "0.1.0",
   "private": true,
-  "description": "One place that keeps your context from every AI session, live, and gives each new chat only what it needs. Cal Hacks 13.0.",
+  "description": "Bullwark finance control room and Canon AI memory backend. Cal Hacks 13.0.",
   "type": "module",
   "engines": {
     "node": ">=22"

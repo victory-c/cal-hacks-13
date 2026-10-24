@@ -304,7 +304,14 @@ describe("server over HTTP", () => {
     assert.ok(savedFolders(publicView).length > 0);
     assert.ok(savedFolders(publicView).every((f) => !f.startsWith("private")), "no private/ fact.saved on the dashboard stream");
 
+    const plans = (view: Array<{ event?: string; data: string }>) => view
+      .filter(e => e.event === "distill.finished").map(e => JSON.parse(e.data).plan);
+    assert.ok(types.includes("distill.finished"), "ordinary subscribers keep engine/timing telemetry");
+    assert.ok(plans(publicView).every(plan => plan === undefined));
+    assert.ok(plans(await readReplay("tok-cc")).every(plan => plan === undefined));
+
     const internalView = await readReplay("tok-dist");
+    assert.ok(plans(internalView).includes("Keep project decisions"), "only the internal worker sees raw extraction plans");
     assert.ok(savedFolders(internalView).includes("private/health"), "the distiller's stream is complete");
     assert.equal((await api("/events", { token: "wrong", headers: { accept: "text/event-stream" } })).status, 401);
   });

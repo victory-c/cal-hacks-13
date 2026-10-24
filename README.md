@@ -1,103 +1,115 @@
-# Canon
+# Bullwark + Canon
 
-One place that keeps your context from every AI session, live, and gives each new chat only
-what it needs. Built at Cal Hacks 13.0.
+Scoped AI memory for small finance teams. Moderators see everything; every other person and agent
+gets a memory that holds only what their task needs, and anything else simply isn't there.
+Built at Cal Hacks 13.0.
 
-Canon captures sessions from Claude, ChatGPT and Gemini on the web and from Claude Code,
-Cursor and Hermes as they happen, with no export or import. When you open a new session
-anywhere, Jev picks the small slice of context that's relevant and Moss retrieves it. You
-decide which AI can see which folder.
+| | Bullwark | Canon |
+|---|---|---|
+| **Is** | The control room people use | The agentic backend that does the work |
+| **Does** | Moderator console, member view, finance wording, the demo | Capture, facts and groups, tiers and scopes, handoffs, agents, MCP, audit |
+| **Spec** | [`docs/BULLWARK-PRD.md`](docs/BULLWARK-PRD.md) | [`docs/CANON-PRD.md`](docs/CANON-PRD.md) |
+| **Code** | `web/` | `server/`, `distiller/`, `hooks/`, `extension/`, `shared/` |
 
-- **Spec:** [`docs/PRD.md`](docs/PRD.md)
-- **Working agreement for humans and agents:** [`CLAUDE.md`](CLAUDE.md)
+Bullwark decides what to show; Canon decides who may see what. They meet only through
+[`docs/INTEGRATION.md`](docs/INTEGRATION.md): REST, server-sent events and one token per person or agent.
+
+- **Owners and build order:** [`docs/WORK_SPLIT.md`](docs/WORK_SPLIT.md)
+- **Working agreement:** [`CLAUDE.md`](CLAUDE.md)
 - **Progress:** [`STATUS.md`](STATUS.md), generated from [`status/status.json`](status/status.json)
+
+The current code is a working capture, distillation and retrieval scaffold. Tiers, scopes, the
+scope builder, audit records and agent runs are planned work; existing folder grants do not
+establish those protections. Package READMEs describe implemented behavior.
 
 ## Quick start
 
 ```bash
-npm install            # Node 22+ (see .nvmrc)
-cp .env.example .env   # optional: without keys everything runs on local stubs, labelled simulated
-npm run doctor         # preflight: node, install, .env, ports, data dir
-npm run seed -w server # demo facts + a session into data/ (skips files already there)
-npm run dev            # server :4100 + distiller worker + dashboard :4200
+npm install            # Node 22+, see .nvmrc
+cp .env.example .env   # optional; without keys, providers are labelled simulated
+npm run doctor
+npm run seed -w server # optional development fixtures; skips existing files
+npm run dev            # server :4100, distiller worker, frontend :4200
 ```
 
-| URL | What |
+| URL | What runs today |
 |---|---|
-| http://localhost:4200 | Live dashboard: sessions, facts, token / latency / cost counter |
-| http://localhost:4200/resume.html | Resume viewer, each line linking to its source session |
-| http://localhost:4100/health | Server health; `/events` is the SSE stream, `/mcp` the MCP endpoint |
+| http://localhost:4200 | Development dashboard: sessions, facts, tokens, latency and cost |
+| http://localhost:4100/health | Server health; `/events` for SSE, `/mcp` for MCP |
 | http://localhost:4173 | Team status board (`npm run status:board`) |
 
-Before every PR: `npm run check` (status.json valid → typecheck → tests).
+## Shared preview
 
-For a shared preview on a sponsor VM, see [sponsor accounts and preview deployment](docs/PREVIEW.md).
-`npm run preview:setup` creates a separate gitignored secret file with random team/client credentials;
-`npm run preview:check` reports missing provider credentials without printing their values.
+See [`docs/PREVIEW.md`](docs/PREVIEW.md) for the Docker preview and sponsor-host deployment.
+`npm run preview:setup` generates local credentials in gitignored `.env.preview`;
+`npm run preview:check` checks configured provider credentials without printing values.
+The browser preview is at `http://localhost:8080`, with a visible team sign-in page.
 
-## How it fits together
+This runs the current scaffold. A shared browser password does not implement the planned
+moderator/member roles or scopes. Factory CLI and Moss embedding assets must download before
+those providers can run; a successful offline test suite does not establish live provider health.
 
-```
-hooks/ (Claude Code)   ─┐
-extension/ (ChatGPT)   ─┼─ POST /api/sessions ─▶  server/  ─▶ cold archive   data/sessions/*.json
-canon_save over MCP    ─┘                            │
-                                              SSE  /events  (session.captured, fact.saved, context.served …)
-                                                     │
-                      distiller/ worker:  session ─▶ Droid distills ─▶ Jev decides (hot? folder? dupe?) ─▶ POST /api/facts
-                                                     │
-                                        hot facts   data/facts/<folder>/*.md   ─▶ retriever (Moss)
-                                                     │
-   Claude Code · ChatGPT · Cursor  ──  MCP canon_context(task)  ─▶  Jev filters candidates  ─▶  ~1–2K tokens back
-                                                     │
-                                          web/ dashboard renders every event + the counter
-```
+## How it works
 
-Every piece is a separate process talking over HTTP, so each lane runs and tests its own
-folder against the server (or against a recorded session fixture) without waiting.
+**Canon.** Capture and ingest archive raw context. Triage and the fact writer turn it into short facts,
+each linked to its source and author and filed into one group. A moderator gives each member a
+scope rule (a task in plain language plus optional exclusions): code removes excluded groups,
+Moss finds candidates and Jev answers yes or no, and the result is the member's scope. Scopes
+stay current as new facts arrive. Each handoff searches only inside the requester's scope, keeps
+what helps, fits a token budget and is logged. Agents a member creates get the same scope or less.
+It keeps the existing file store and plain SSE.
+
+**Bullwark.** A moderator console (people and tiers, scope builder, scope inspector, feed, agent
+lanes, handoff inspector) and a member view (my agents, create an agent, my memory), reading Canon
+only through the integration contract. See the PRDs for the full design and the work split for
+implementation ownership.
 
 ## Layout
 
-| Folder | Lane | What |
-|---|---|---|
-| [`shared/`](shared/) | A + B | The A↔B contract as code: fact schema, session capture, MCP tool I/O, SSE events, grants, `judge()` interface. `shared/src/types/` is frozen; change it with `CLAUDE.md` and the other builder. |
-| [`server/`](server/) | A · Henry | MCP server (Streamable HTTP) + REST + SSE, file-backed fact store, cold archive, folder grants, retrieval (Moss with credentials, keyword fallback offline). |
-| [`distiller/`](distiller/) | B · Victor | Worker on the event stream: captured session → facts (Droid, Claude fallback, heuristic stub) → Jev save-time decisions → server. |
-| [`hooks/`](hooks/) | B · Victor | Claude Code capture hook. Plain Node, zero deps. |
-| [`extension/`](extension/) | B · Victor | Chrome MV3 extension capturing ChatGPT (then Claude, Gemini) web sessions live. |
-| [`web/`](web/) | B · Victor | Live dashboard with the token counter, and the resume viewer. Static, bundled with esbuild. |
-| [`bench/`](bench/) | A runs · C writes tasks | 20 handoff tasks × 3 baselines. The only source of quotable numbers. |
-| [`status/`](status/) | everyone | `status.json` (source of truth), board, sync script. |
-| [`scripts/`](scripts/) | root | `doctor.mjs` preflight, `dev.mjs` runs the stack. |
-| [`docs/`](docs/) | B | PRD, demo script, sponsor notes. |
+| Folder | Part | Owner | Purpose |
+|---|---|---|---|
+| [`shared/`](shared/) | Canon | A + B | Contract types, validation, grants, events and `judge()` |
+| [`server/`](server/) | Canon | A · Henry | Store, archive, MCP, REST, SSE, retrieval; planned scopes, scope builder and audit |
+| [`distiller/`](distiller/) | Canon | B · Victor | Capture-to-facts worker; planned triage, grouping, fact writing and agent runs |
+| [`hooks/`](hooks/) | Canon | B · Victor | Claude Code capture hook |
+| [`extension/`](extension/) | Canon | B · Victor | ChatGPT web capture |
+| [`web/`](web/) | Bullwark | C · Edan | Dashboard, moderator console and member view |
+| [`fixtures/world/`](fixtures/world/) | Both | C · Edan | The synthetic demo world (Axe Capital, Project Stonewall) and its answer key |
+| [`bench/`](bench/) | Both | A runs, C writes tasks | Measured results; target attack and legitimate-task evaluation |
+| [`status/`](status/) | Team | Everyone; C maintains blockers | Progress source, generated board and sync script |
+| [`scripts/`](scripts/) | Team | Root | Preflight and local process launcher |
+| [`docs/`](docs/) | Both | B | PRDs, integration contract, work split, demo and sponsor documentation |
 
-## Root scripts
+## Commands
 
-| Command | Does |
+| Command | Purpose |
 |---|---|
-| `npm run doctor` | Checks Node ≥ 22, install, `.env` keys (names only), free ports, `status.json`, data dir (warns to seed) |
-| `npm run dev [-- server web distiller status \| all]` | Runs the stack in one terminal, prefixed per process |
-| `npm run check` | `status:check` + `typecheck` + `test` across all workspaces. CI runs the same |
-| `npm run build` | Bundles the extension and the dashboard into their `dist/` |
-| `npm run status` / `status:check` / `status:board` | Regenerate `STATUS.md` / validate only / serve the board |
-| `npm run <script> -w <pkg>` | Any single package, e.g. `npm run dev -w server`, `npm test -w shared` |
+| `npm run doctor` | Check Node, dependencies, environment, ports, status and data directory |
+| `npm run dev [-- server web distiller status \| all]` | Run selected processes |
+| `npm run check` | Validate status, typecheck workspaces and run tests |
+| `npm run build` | Build browser bundles |
+| `npm run status` / `status:check` / `status:board` | Regenerate, validate or serve the progress board |
+| `npm run <script> -w <pkg>` | Run a package command |
 
-## Status board
+After editing `status/status.json`, run `npm run status` and commit the generated board with
+the work. Keep credentials in `.env`; share keys directly between teammates.
 
-`npm run status:board`, then open http://localhost:4173. After editing `status/status.json`,
-run `npm run status`: it validates the file and regenerates `STATUS.md`. Commit both with your
-work.
+## Integration evidence
 
-## Setup
+- **Anthropic:** Claude fact writing and briefs are the product plan. Existing Claude adapters
+  are in `distiller/src/engines/claude.ts`, `shared/src/judge/claude.ts` and `bench/src/responder.ts`.
+- **Factory:** the target is Droid running every agent in a sandbox folder holding only its scope,
+  with visible steps and inbox updates. The scaffold now has an optional headless SDK distiller
+  (`distiller/src/engines/droid.ts`) that proposes structured facts with tools disabled. Scoped
+  finance-agent dispatch is separate pending work.
+- **Moss:** scope builds and in-scope handoff search are planned. `server/src/retrieval/moss.ts` now implements
+  local hybrid retrieval over hot facts with folder metadata prefilters and canonical-ID checks.
+  Scope-based group, label and fact-ID filtering remains pending; keyword retrieval is the offline fallback.
+- **Jev:** `shared/src/judge/jev.ts` provides the adapter behind `judge()`. It uses TypeSafe's
+  documented keyed questions and answers at `https://api.typesafe.ai/v1/systemone` by default. Live
+  requests passed; this does not validate the planned scope pipeline.
+- **Hyphenate and Microsoft:** proof will come from the finance demo, audit trail and measured
+  leak, missing-context, accuracy, token, latency and cost results. Existing scaffold results
+  alone do not measure information barriers.
 
-Copy `.env.example` to `.env` and fill in the keys you have. Never commit `.env`. Keys are
-handed person to person, never through git or chat logs.
-
-## Sponsor integrations
-
-Each section says where the integration does real work in the running product. They get
-filled in as the work lands.
-
-- **Anthropic (Claude):** distiller fallback (`distiller/src/engines/claude.ts`, `claude-sonnet-5-5`), judge fallback (`shared/src/judge/claude.ts`, `claude-haiku-5-5`), resume writing. _Role and failure modes: TBD_
-- **Factory Droid SDK:** the headless distiller (`distiller/src/engines/droid.ts`) uses the official SDK and bundled CLI on captured sessions. It returns structured proposals and a plan with tools disabled; Jev judges them before the worker writes facts. The dashboard receives the actual plan and engine after saving.
-- **Moss:** the local semantic + keyword index behind `canon_context` (`server/src/retrieval/moss.ts`). Hot facts are embedded with the official SDK. Granted folders filter candidates before ranking; canonical IDs and grants are checked again afterward. Retrieval latency shows on the dashboard.
-- **Microsoft (Built for the Real World):** benchmark chart from `bench/results/`, scale slide, responsible-design notes (folders, cold archive). _TBD_
+The demo uses synthetic data. Quote measured runs only and label simulated behavior.

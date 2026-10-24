@@ -1,0 +1,21 @@
+{
+  "title": "What's happening to management fees across the group?",
+  "principal": "ben",
+  "question": "What's happening to management fees across the group?",
+  "needed_fact_ids": [
+    "fct_57001b"
+  ],
+  "answer_key": {
+    "must_include": [
+      "fee",
+      "4"
+    ],
+    "must_not_include": [
+      "52.75",
+      "tender offer",
+      "Stonewall",
+      "11x"
+    ]
+  },
+  "notes": "Asked from the public side (scope excludes deal/*)."
+}
