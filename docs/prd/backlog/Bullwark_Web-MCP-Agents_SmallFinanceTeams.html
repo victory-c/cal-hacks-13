@@ -1,0 +1,840 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Bullwark_Web/MCP/Agents_SmallFinanceTeams</title>
+<meta name="description" content="Bullwark PRD: task-scoped memory for small finance teams. Purpose, competitor research, product solution, functional design and acceptance stories.">
+<style>
+/* Tokens copied from web/src/styles.css (the dashboard) so mockups match the product. */
+:root {
+  --bg: #0b0d12; --panel: #12151c; --panel-2: #181c26; --border: #232836;
+  --fg: #e8eaf0; --fg-dim: #9aa3b5; --fg-faint: #5d6679;
+  --accent: #5eead4; --accent-ink: #0b0d12;
+  --hot: #f5a524; --cold: #8b9bb4; --inbox: #a78bfa; --danger: #f87171;
+  --radius: 10px;
+  --font: -apple-system, BlinkMacSystemFont, "Segoe UI", Inter, Roboto, Helvetica, Arial, sans-serif;
+  --mono: ui-monospace, SFMono-Regular, Menlo, Consolas, "Liberation Mono", monospace;
+  --doc-w: 1180px;
+  --deal: #f87171;
+  --mod: #a78bfa;
+}
+* { box-sizing: border-box; }
+html { color-scheme: dark; scroll-behavior: smooth; }
+body { margin: 0; background: var(--bg); color: var(--fg); font: 15px/1.55 var(--font); -webkit-font-smoothing: antialiased; }
+a { color: var(--accent); text-decoration: none; }
+a:hover { text-decoration: underline; }
+code, .mono { font-family: var(--mono); font-size: 0.9em; }
+.num { font-variant-numeric: tabular-nums; }
+.dim { color: var(--fg-dim); }
+.meta { color: var(--fg-faint); font-size: 12px; }
+
+/* ---------- document shell ---------- */
+.doc { max-width: var(--doc-w); margin: 0 auto; padding: 0 24px 80px; }
+.cover { padding: 56px 0 28px; border-bottom: 1px solid var(--border); }
+.eyebrow { font-size: 12px; letter-spacing: .12em; text-transform: uppercase; color: var(--fg-faint); }
+h1 { font-size: clamp(26px, 4.4vw, 44px); line-height: 1.1; letter-spacing: -0.03em; margin: 10px 0 14px; word-break: break-word; }
+.lede { font-size: 19px; color: var(--fg); max-width: 860px; margin: 0 0 18px; }
+.lede b { color: var(--accent); font-weight: 600; }
+.cover-meta { display: flex; flex-wrap: wrap; gap: 8px 22px; color: var(--fg-dim); font-size: 13px; }
+.cover-meta span b { color: var(--fg); font-weight: 600; }
+
+.toc { position: sticky; top: 0; z-index: 5; background: color-mix(in srgb, var(--bg) 90%, transparent); backdrop-filter: blur(8px); border-bottom: 1px solid var(--border); margin: 0 -24px; padding: 10px 24px; }
+.toc ol { list-style: none; display: flex; flex-wrap: wrap; gap: 6px; margin: 0; padding: 0; counter-reset: toc; }
+.toc li { counter-increment: toc; }
+.toc a { display: inline-block; padding: 5px 12px; border: 1px solid var(--border); border-radius: 999px; font-size: 13px; color: var(--fg-dim); }
+.toc a::before { content: counter(toc) "  "; color: var(--accent); font-family: var(--mono); }
+.toc a:hover { color: var(--fg); text-decoration: none; border-color: var(--fg-faint); }
+
+section.top { padding-top: 48px; scroll-margin-top: 56px; }
+h2.sec { font-size: 28px; letter-spacing: -0.02em; margin: 0 0 6px; display: flex; align-items: baseline; gap: 14px; }
+h2.sec .n { font-family: var(--mono); color: var(--accent); font-size: 16px; }
+.reader { font-size: 12px; color: var(--fg-faint); margin: 0 0 22px; }
+h3 { font-size: 13px; text-transform: uppercase; letter-spacing: .08em; color: var(--fg-dim); margin: 34px 0 12px; font-weight: 600; }
+h4 { margin: 0 0 6px; font-size: 15px; }
+p { margin: 0 0 12px; }
+.callout { border-left: 3px solid var(--accent); background: var(--panel); padding: 12px 16px; border-radius: 0 8px 8px 0; margin: 14px 0; color: var(--fg-dim); }
+.callout.warn { border-left-color: var(--hot); }
+.callout b { color: var(--fg); }
+
+.g { display: grid; gap: 14px; }
+.g2 { grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); }
+.g3 { grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); }
+.g4 { grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); }
+.card { background: var(--panel); border: 1px solid var(--border); border-radius: var(--radius); padding: 16px 18px; min-width: 0; }
+.card .k { font-family: var(--mono); color: var(--accent); font-size: 12px; }
+.card p { color: var(--fg-dim); margin: 4px 0 0; font-size: 14px; }
+.card.pick { border-color: color-mix(in srgb, var(--accent) 60%, transparent); box-shadow: 0 0 0 1px color-mix(in srgb, var(--accent) 30%, transparent) inset; }
+.card.reject { opacity: .78; }
+
+.tw { overflow-x: auto; border: 1px solid var(--border); border-radius: var(--radius); background: var(--panel); }
+table { width: 100%; border-collapse: collapse; font-size: 14px; }
+th { text-align: left; font-size: 11px; text-transform: uppercase; letter-spacing: .08em; color: var(--fg-faint); padding: 10px 12px; border-bottom: 1px solid var(--border); background: var(--panel-2); white-space: nowrap; }
+td { padding: 10px 12px; border-top: 1px solid var(--border); vertical-align: top; color: var(--fg-dim); }
+tr:first-child td { border-top: 0; }
+td b, td strong { color: var(--fg); font-weight: 600; }
+.yes { color: var(--accent); } .no { color: var(--danger); } .part { color: var(--hot); }
+td.c { text-align: center; }
+
+.chip { display: inline-block; padding: 1px 8px; border-radius: 999px; font-size: 11px; line-height: 18px; border: 1px solid var(--border); color: var(--fg-dim); white-space: nowrap; font-family: var(--mono); }
+.chip.deal { color: var(--deal); border-color: color-mix(in srgb, var(--deal) 45%, transparent); }
+.chip.acc { color: var(--accent); border-color: color-mix(in srgb, var(--accent) 45%, transparent); }
+.chip.mod { color: var(--mod); border-color: color-mix(in srgb, var(--mod) 50%, transparent); }
+.chip.hot { color: var(--hot); border-color: color-mix(in srgb, var(--hot) 45%, transparent); }
+.chip.solid { background: var(--panel-2); color: var(--fg); }
+.tag { font-size: 11px; padding: 1px 6px; border-radius: 4px; font-family: var(--mono); }
+.tag.sim { background: color-mix(in srgb, var(--hot) 18%, transparent); color: var(--hot); }
+.tag.should { background: color-mix(in srgb, var(--inbox) 18%, transparent); color: var(--inbox); }
+.tag.plan { background: var(--panel-2); color: var(--fg-dim); border: 1px solid var(--border); }
+.tag.tent { background: color-mix(in srgb, var(--accent) 12%, transparent); color: var(--accent); }
+
+/* ---------- diagrams ---------- */
+.flow { display: flex; flex-wrap: wrap; align-items: stretch; margin: 6px 0; }
+.flow .step { flex: 1 1 150px; min-width: 140px; background: var(--panel); border: 1px solid var(--border); border-radius: 8px; padding: 12px; position: relative; }
+.flow .step + .step { margin-left: 22px; }
+.flow .step + .step::before { content: "→"; position: absolute; left: -18px; top: 50%; transform: translateY(-50%); color: var(--fg-faint); font-size: 16px; }
+.flow .step .who { font-size: 11px; font-family: var(--mono); color: var(--fg-faint); text-transform: uppercase; letter-spacing: .06em; }
+.flow .step b { display: block; margin: 2px 0 4px; }
+.flow .step span { color: var(--fg-dim); font-size: 13px; }
+.flow .step.gate { border: 2px solid var(--accent); background: color-mix(in srgb, var(--accent) 7%, var(--panel)); }
+@media (max-width: 720px) {
+  .flow { flex-direction: column; }
+  .flow .step { flex: none; }
+  .flow .step + .step { margin: 18px 0 0; }
+  .flow .step + .step::before { content: "↓"; left: 50%; top: -17px; transform: translateX(-50%); }
+}
+
+/* decision tree for living scopes */
+.tree-d { display: grid; gap: 8px; }
+.q { display: grid; grid-template-columns: 34px 1fr auto; gap: 10px; align-items: center; background: var(--panel); border: 1px solid var(--border); border-radius: 8px; padding: 10px 12px; }
+.q .i { font-family: var(--mono); color: var(--accent); }
+.q .who { font-family: var(--mono); font-size: 11px; color: var(--fg-faint); text-transform: uppercase; }
+.q .out { font-size: 12px; color: var(--fg-dim); text-align: right; }
+.q .out b { color: var(--accent); } .q .out i { color: var(--danger); font-style: normal; }
+@media (max-width: 640px) { .q { grid-template-columns: 26px 1fr; } .q .out { grid-column: 2; text-align: left; } }
+
+/* tiers diagram */
+.tiers { display: grid; gap: 12px; }
+.tier { border: 1px solid var(--border); border-radius: 10px; padding: 14px; background: var(--panel); }
+.tier.top { border-color: color-mix(in srgb, var(--mod) 55%, transparent); }
+.tier h4 { font-family: var(--mono); font-size: 12px; letter-spacing: .08em; text-transform: uppercase; }
+.tier.top h4 { color: var(--mod); } .tier.low h4 { color: var(--accent); }
+.members { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 10px; margin-top: 8px; }
+.mem { border: 1px solid var(--border); border-radius: 8px; padding: 10px 12px; background: var(--bg); }
+.mem b { display: block; }
+.mem .scope { font-size: 12px; color: var(--fg-dim); margin: 4px 0 6px; }
+.agent { margin-top: 6px; border-left: 2px solid var(--hot); padding: 4px 0 4px 10px; font-size: 13px; color: var(--fg-dim); }
+.agent b { display: inline; color: var(--fg); }
+
+.kpi { background: var(--panel); border: 1px solid var(--border); border-radius: var(--radius); padding: 14px 16px; }
+.kpi dt { font-size: 11px; text-transform: uppercase; letter-spacing: .08em; color: var(--fg-faint); }
+.kpi dd { margin: 4px 0 0; }
+.kpi .v { font-size: 30px; font-weight: 650; letter-spacing: -0.02em; color: var(--accent); }
+.kpi .now { font-size: 12px; color: var(--fg-faint); }
+.kpi p { font-size: 13px; color: var(--fg-dim); margin: 6px 0 0; }
+
+/* ---------- terminal groups + screen frames ---------- */
+.terminal { border: 1px solid var(--border); border-radius: 14px; padding: 18px; margin: 22px 0; background: linear-gradient(180deg, color-mix(in srgb, var(--panel-2) 60%, var(--bg)), var(--bg)); }
+.terminal > header { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; margin-bottom: 14px; }
+.terminal > header h3 { margin: 0; color: var(--fg); font-size: 14px; }
+.terminal > header .who { color: var(--fg-dim); font-size: 13px; }
+.tlabel { font-family: var(--mono); font-size: 11px; padding: 3px 9px; border-radius: 6px; background: var(--accent); color: var(--accent-ink); font-weight: 700; letter-spacing: .06em; }
+.tlabel.modr { background: var(--mod); }
+.tlabel.mcp { background: var(--cold); }
+.tlabel.agent { background: var(--hot); }
+
+.screen { border: 1px solid var(--border); border-radius: 10px; overflow: hidden; background: var(--bg); min-width: 0; }
+.screen-bar { display: flex; align-items: center; gap: 6px; padding: 7px 10px; background: var(--panel-2); border-bottom: 1px solid var(--border); font-size: 11px; color: var(--fg-faint); font-family: var(--mono); }
+.screen-bar i { width: 8px; height: 8px; border-radius: 50%; background: var(--border); display: inline-block; }
+.screen-bar .u { margin-left: 8px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.screen-cap { font-size: 12px; color: var(--fg-faint); padding: 8px 2px 0; }
+.screen-cap b { color: var(--fg-dim); }
+.req { margin-top: 12px; background: var(--panel); border: 1px solid var(--border); border-radius: 10px; padding: 14px 16px; }
+.req h4 { font-size: 12px; text-transform: uppercase; letter-spacing: .08em; color: var(--fg-dim); margin-bottom: 8px; }
+.req ul { margin: 0; padding-left: 18px; color: var(--fg-dim); font-size: 14px; }
+.req li { margin: 3px 0; }
+.req li b { color: var(--fg); }
+
+.app { font-size: 13px; line-height: 1.45; }
+.app-top { display: flex; align-items: center; justify-content: space-between; gap: 10px; flex-wrap: wrap; padding: 10px 14px; border-bottom: 1px solid var(--border); }
+.app-brand { display: flex; align-items: baseline; gap: 10px; flex-wrap: wrap; }
+.wordmark { font-weight: 700; font-size: 15px; letter-spacing: -0.02em; }
+.tagline { color: var(--fg-dim); font-size: 12px; }
+.conn { display: flex; align-items: center; gap: 8px; color: var(--fg-dim); font-size: 12px; flex-wrap: wrap; }
+.dot { width: 8px; height: 8px; border-radius: 50%; background: var(--accent); display: inline-block; box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 22%, transparent); }
+.app-grid { display: grid; gap: 10px; padding: 12px; grid-template-columns: repeat(12, minmax(0, 1fr)); }
+.p { grid-column: span 12; background: var(--panel); border: 1px solid var(--border); border-radius: 8px; padding: 10px 12px; min-width: 0; }
+@media (min-width: 820px) { .s7 { grid-column: span 7; } .s5 { grid-column: span 5; } .s6 { grid-column: span 6; } .s4 { grid-column: span 4; } .s8 { grid-column: span 8; } }
+.ph { display: flex; align-items: baseline; justify-content: space-between; gap: 8px; margin-bottom: 6px; flex-wrap: wrap; }
+.ph h5 { margin: 0; font-size: 11px; font-weight: 600; letter-spacing: .08em; text-transform: uppercase; color: var(--fg-dim); }
+.ph .c { color: var(--fg-faint); font-size: 11px; }
+.rows { list-style: none; margin: 0; padding: 0; }
+.rows li { padding: 7px 0; border-top: 1px solid var(--border); display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.rows li:first-child { border-top: 0; }
+.rows .t { margin-left: auto; color: var(--fg-faint); font-size: 11px; white-space: nowrap; }
+.rows li.ok { border-left: 2px solid var(--accent); padding-left: 8px; }
+.rows li.warn { border-left: 2px solid var(--hot); padding-left: 8px; }
+.rows .main { flex: 1 1 180px; min-width: 0; }
+.btn { font: inherit; font-size: 12px; padding: 4px 10px; border-radius: 6px; border: 0; font-weight: 600; background: var(--accent); color: var(--accent-ink); cursor: default; white-space: nowrap; }
+.btn.ghost { background: transparent; color: var(--fg-dim); border: 1px solid var(--border); }
+.btn.mod { background: transparent; color: var(--mod); border: 1px solid color-mix(in srgb, var(--mod) 50%, transparent); }
+.big { font-size: 40px; font-weight: 650; letter-spacing: -0.03em; color: var(--accent); line-height: 1; }
+.mini { display: grid; grid-template-columns: repeat(auto-fit, minmax(90px, 1fr)); gap: 8px; margin-top: 8px; }
+.mini div { border-top: 1px solid var(--border); padding-top: 6px; }
+.mini dt { font-size: 10px; text-transform: uppercase; letter-spacing: .08em; color: var(--fg-faint); }
+.mini dd { margin: 2px 0 0; font-size: 16px; font-weight: 600; }
+.bar { display: inline-block; width: 54px; height: 5px; border-radius: 3px; background: var(--border); overflow: hidden; vertical-align: middle; }
+.bar i { display: block; height: 100%; background: var(--accent); }
+.bar.lo i { background: var(--fg-faint); }
+.strike { text-decoration: line-through; color: var(--fg-faint); }
+.banner { margin: 12px 12px 0; padding: 8px 12px; border-radius: 8px; font-size: 12px; display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+.banner.ok { background: color-mix(in srgb, var(--accent) 12%, transparent); color: var(--accent); }
+.empty { color: var(--fg-faint); font-style: italic; padding: 8px 0; font-size: 12px; }
+.pre { margin: 0; padding: 8px 10px; background: var(--bg); border: 1px solid var(--border); border-radius: 6px; color: var(--fg-dim); font: 12px/1.5 var(--mono); white-space: pre-wrap; word-break: break-word; }
+.pre .hl { color: var(--accent); } .pre .rd { color: var(--danger); } .pre .am { color: var(--hot); } .pre .fa { color: var(--fg-faint); } .pre .mo { color: var(--mod); }
+
+/* forms */
+.field { margin-top: 10px; }
+.field label { display: block; font-size: 11px; text-transform: uppercase; letter-spacing: .08em; color: var(--fg-faint); margin-bottom: 4px; }
+.field label span { text-transform: none; letter-spacing: 0; }
+.in { border: 1px solid var(--border); background: var(--bg); border-radius: 6px; padding: 6px 8px; font-size: 13px; min-height: 30px; }
+.seg { display: inline-flex; border: 1px solid var(--border); border-radius: 6px; overflow: hidden; }
+.seg span { padding: 4px 10px; font-size: 12px; color: var(--fg-dim); }
+.seg span.on { background: var(--panel-2); color: var(--fg); }
+.actions { display: flex; gap: 8px; justify-content: flex-end; margin-top: 12px; flex-wrap: wrap; }
+
+/* builder stages */
+.stages { list-style: none; margin: 0; padding: 0; counter-reset: st; }
+.stages li { counter-increment: st; display: grid; grid-template-columns: 22px 1fr auto; gap: 8px; align-items: baseline; padding: 7px 0; border-top: 1px solid var(--border); }
+.stages li:first-child { border-top: 0; }
+.stages li::before { content: counter(st); font-family: var(--mono); color: var(--accent); font-size: 12px; }
+.stages .r { font-family: var(--mono); font-size: 12px; color: var(--fg); text-align: right; white-space: nowrap; }
+.stages .d { color: var(--fg-dim); font-size: 12px; }
+
+/* chat */
+.chat { padding: 12px; display: flex; flex-direction: column; gap: 8px; }
+.msg { max-width: 86%; padding: 8px 11px; border-radius: 10px; font-size: 13px; }
+.msg.u { align-self: flex-end; background: var(--panel-2); border: 1px solid var(--border); }
+.msg.a { align-self: flex-start; background: var(--panel); border: 1px solid var(--border); }
+.msg .who { display: block; font-size: 10px; text-transform: uppercase; letter-spacing: .08em; color: var(--fg-faint); margin-bottom: 2px; }
+
+.ftree { font: 12px/1.7 var(--mono); color: var(--fg-dim); margin: 0; padding: 0; list-style: none; }
+.ftree li { padding-left: 14px; position: relative; }
+.ftree li::before { content: "├"; position: absolute; left: 0; color: var(--fg-faint); }
+
+.story { display: grid; grid-template-columns: 44px 1fr; gap: 14px; background: var(--panel); border: 1px solid var(--border); border-radius: var(--radius); padding: 16px 18px; margin-bottom: 12px; }
+.story .sn { font-family: var(--mono); font-size: 22px; color: var(--accent); }
+.story h4 { font-size: 16px; }
+.story dl { display: grid; grid-template-columns: 120px 1fr; gap: 6px 14px; margin: 8px 0 0; font-size: 14px; }
+.story dt { color: var(--fg-faint); font-size: 12px; text-transform: uppercase; letter-spacing: .06em; padding-top: 2px; }
+.story dd { margin: 0; color: var(--fg-dim); }
+.story dd b { color: var(--fg); }
+.story ol { margin: 0; padding-left: 18px; }
+@media (max-width: 640px) { .story { grid-template-columns: 1fr; } .story dl { grid-template-columns: 1fr; } }
+
+footer.end { margin-top: 56px; padding-top: 18px; border-top: 1px solid var(--border); color: var(--fg-faint); font-size: 12px; }
+@media (max-width: 640px) { .doc { padding: 0 16px 60px; } .toc { margin: 0 -16px; padding: 10px 16px; } .terminal { padding: 12px; } }
+@media print { .toc { position: static; } }
+</style>
+</head>
+<body>
+<div class="doc">
+
+<header class="cover">
+  <div class="eyebrow">Product requirements · Cal Hacks 13.0 · Team Bullwark</div>
+  <h1>Bullwark_Web/MCP/Agents_SmallFinanceTeams</h1>
+  <p class="lede">Bullwark is the control room for a small finance team's AI: moderators see everything, and every other person and agent gets <b>a memory that holds only what their task needs</b>. Anything else simply isn't there.</p>
+  <div class="cover-meta">
+    <span><b>Source</b> docs/PRD.md</span>
+    <span><b>Updated</b> Sat 10/24/2026</span>
+    <span><b>Submit</b> Sun 10/25 08:30 PDT (hard deadline 09:00)</span>
+    <span><b>Judging</b> 10:30–12:30</span>
+    <span><b>Owners</b> Henry (A) · Victor (B) · Edan (C)</span>
+  </div>
+</header>
+
+<nav class="toc" aria-label="Contents">
+  <ol>
+    <li><a href="#purpose">Purpose</a></li>
+    <li><a href="#competitors">Competitor Research</a></li>
+    <li><a href="#solution">Product Solution</a></li>
+    <li><a href="#design">Functional Design</a></li>
+    <li><a href="#ux">User Experience</a></li>
+  </ol>
+</nav>
+
+<!-- ===================================================== 1 PURPOSE -->
+<section class="top" id="purpose">
+  <h2 class="sec"><span class="n">01</span>Purpose</h2>
+  <p class="reader">For leadership and judges: the problem, who has it, and what success looks like.</p>
+
+  <div class="tw">
+    <table>
+      <tr><th style="width:140px">Field</th><th>Value</th></tr>
+      <tr><td><b>Purpose</b></td><td>Small finance teams must keep inside information (MNPI) behind <b>information barriers</b>. Once AI chats and agents hold that context, a spreadsheet and an inbox can no longer keep the walls up.</td></tr>
+      <tr><td><b>Terminals</b></td><td><span class="chip solid">Web</span> moderator console + member view · <span class="chip solid">MCP</span> AI tools (Claude, ChatGPT, Cursor) · <span class="chip solid">Agents</span> Factory Droid workers. Context comes in through the Claude Code hook, the ChatGPT extension and an ingest API.</td></tr>
+      <tr><td><b>Site</b></td><td>Small finance teams of 10–50 people with a private (deal) side and a public (research and trading) side: boutique investment banks and small investment firms. Demo firm: <b>Harbor Lane Partners</b> <span class="tag sim">synthetic</span></td></tr>
+    </table>
+  </div>
+
+  <h3>The problem today</h3>
+  <div class="g g4">
+    <div class="card"><div class="k">01 · leaks</div><h4>Context crosses the wall</h4><p>A shared AI tool or a carelessly briefed agent shows a deal code name or deal terms to someone on the public side.</p></div>
+    <div class="card"><div class="k">02 · wrong dose</div><h4>Agents get too much or too little</h4><p>Given everything, they're distracted and dangerous. Given nothing, they ask people to re-explain, or they guess.</p></div>
+    <div class="card"><div class="k">03 · no proof</div><h4>Nobody can show what each agent knew</h4><p>When a regulator asks who saw what and when, the answer is spread across chat logs.</p></div>
+    <div class="card"><div class="k">04 · stale walls</div><h4>Walls change, agents don't</h4><p>A deal is announced or dies, and running agents keep acting on old context.</p></div>
+  </div>
+
+  <h3>Who it's for</h3>
+  <div class="g g2">
+    <div class="card">
+      <div class="k">primary persona · moderator</div>
+      <h4>Maya, the firm's only compliance officer</h4>
+      <p>Works at a 30-person advisory firm that advises on deals and also runs a small research and trading desk. She tracks who has been "brought over the wall" in a spreadsheet and her inbox. Every banker and analyst now also uses two or three AI tools and agents.</p>
+    </div>
+    <div class="card">
+      <div class="k">what Bullwark replaces</div>
+      <h4>Spreadsheet + manual briefings + "paste everything"</h4>
+      <p>The compliance spreadsheet, hand-written agent briefings, and prompts that paste in everything with nothing held back.</p>
+    </div>
+  </div>
+  <div class="callout warn"><b>Evidence gap.</b> We have no interview quote from a finance or compliance person yet. Edan collects at least one at the sponsor booths: "How do you track who's over the wall today?" and "What happens when someone asks about a restricted name?" Fallback: published regulator guidance.</div>
+
+  <h3>Target metrics</h3>
+  <p class="dim">We have no measurements yet. Every number on a slide comes from <code>bench/</code> runs or the live counter, never from estimates.</p>
+  <dl class="g g4">
+    <div class="kpi"><dt>Leak rate</dt><dd><span class="v">0</span> <span class="now">target · now N/A</span><p>Attacks (of 60) that get any Falcon fact to a member whose scope excludes it.</p></dd></div>
+    <div class="kpi"><dt>Missing-context rate</dt><dd><span class="v">Low</span> <span class="now">target set after first run · now N/A</span><p>Real tasks (of 30) missing a fact they needed.</p></dd></div>
+    <div class="kpi"><dt>Task accuracy</dt><dd><span class="v">≥ baseline</span> <span class="now">now N/A</span><p>Answers that match the answer key, compared with the shared-memory setup.</p></dd></div>
+    <div class="kpi"><dt>Scope build time</dt><dd><span class="v">Measured</span> <span class="now">now N/A</span><p>From "Build scope" to a live scope, shown per stage in the builder.</p></dd></div>
+  </dl>
+</section>
+
+<!-- ===================================================== 2 COMPETITORS -->
+<section class="top" id="competitors">
+  <h2 class="sec"><span class="n">02</span>Competitor Research</h2>
+  <p class="reader">For leadership: where the market is and what we borrow. No competitor screenshots were provided. The comparison is based on the sources in the PRD, and anything not confirmed there is marked <span class="tag plan">inference</span>.</p>
+
+  <div class="callout"><b>Positioning:</b> "Other memory tools ask what's relevant. Bullwark first decides what each person's memory should hold, then what's relevant."</div>
+
+  <div class="tw">
+    <table>
+      <tr><th>Product</th><th>What it does</th><th>Who may see what</th><th>Per-task memory</th><th>Agents capped at creator</th><th>Audit of each handoff</th><th>Fits a 10–50 team</th></tr>
+      <tr><td><b>Glean</b></td><td>Enterprise search and agents across 275+ apps</td><td class="part">Copies app permissions</td><td class="no">No</td><td class="no">No <span class="tag plan">inference</span></td><td class="part">Partial <span class="tag plan">inference</span></td><td class="no">Reported 100-seat minimum</td></tr>
+      <tr><td><b>Supermemory · Mem0 · Zep</b></td><td>Memory engines for developers</td><td class="no">No</td><td class="part">Retrieval only</td><td class="no">No</td><td class="no">No <span class="tag plan">inference</span></td><td class="yes">Yes</td></tr>
+      <tr><td><b>Memory Store · Compendium</b></td><td>Shared "company brain" for teams and agents</td><td class="no">Shares everything</td><td class="no">No</td><td class="no">No</td><td class="no">No <span class="tag plan">inference</span></td><td class="yes">Yes</td></tr>
+      <tr><td><b>Built-in memory (ChatGPT, Claude)</b></td><td>Memory inside one vendor's app</td><td class="no">No</td><td class="no">No</td><td class="no">No</td><td class="no">No</td><td class="yes">Yes</td></tr>
+      <tr><td><b>Control-room compliance software</b></td><td>Restricted lists and wall-crossing records for big banks</td><td class="yes">Yes</td><td class="no">No</td><td class="no">Not connected to AI</td><td class="yes">Yes</td><td class="no">Priced for big institutions</td></tr>
+      <tr><td><b style="color:var(--accent)">Bullwark</b></td><td>Task-scoped memory for AI</td><td class="yes">Two tiers, code-enforced</td><td class="yes">Built from the task</td><td class="yes">Always a subset</td><td class="yes">Every fact sent</td><td class="yes">Built for it</td></tr>
+    </table>
+  </div>
+
+  <h3>Takeaways</h3>
+  <div class="g g3">
+    <div class="card"><div class="k">borrow</div><h4>Memory engines' handoff shape</h4><p>Short facts with sources and two dates, served over MCP. The same tool names in every AI client.</p></div>
+    <div class="card"><div class="k">borrow</div><h4>Compliance software's audit trail</h4><p>"Who knew what, and when?" in one view. Maya already keeps this record; Bullwark keeps it automatically.</p></div>
+    <div class="card"><div class="k">differ</div><h4>Build the memory, don't gate it</h4><p>Glean filters search results by permissions apps already have. Bullwark builds each person's memory from their task, so there is nothing outside it to filter or refuse.</p></div>
+    <div class="card"><div class="k">simplify</div><h4>Two tiers, not a policy engine</h4><p>Big-bank tools assume a compliance department. Bullwark has moderators and members, and a plain-language form to set a scope.</p></div>
+    <div class="card"><div class="k">defer</div><h4>Connectors and SSO</h4><p>Real Slack, email and Jira connectors, SSO and billing are mid-size-firm features. The demo uses synthetic data.</p></div>
+    <div class="card"><div class="k">avoid</div><h4>"Memory everywhere" pitch</h4><p>Supermemory and Mem0 already own that message. Bullwark's pitch is that each memory holds only what it should.</p></div>
+  </div>
+</section>
+
+<!-- ===================================================== 3 SOLUTION -->
+<section class="top" id="solution">
+  <h2 class="sec"><span class="n">03</span>Product Solution</h2>
+  <p class="reader">For leadership: the approach we chose, how it works, and the rules it follows.</p>
+
+  <h3>Approaches considered</h3>
+  <div class="g g3">
+    <div class="card pick"><div class="k">✓ chosen</div><h4>A · Task-scoped memory</h4><p>A moderator describes each member's task; Moss and Jev build a scope once, after exclusions remove whole groups in code. At question time, code only searches inside that fixed list.</p><p><b class="yes">+</b> nothing to argue past, nothing that proves hidden data exists, one simple form for people and agents. <b class="no">−</b> a scope is only as good as its build, so exclusions are checked twice.</p></div>
+    <div class="card reject"><div class="k">replaced · previous draft</div><h4>B · Deal walls with neutral refusals</h4><p>Facts labelled per deal, entitlements per person, a restricted list, and a refusal when someone asks about a restricted name.</p><p><b class="no">−</b> a refusal proves there is something to refuse, a model-gated check can be argued with, and wall-crossing requests add a workflow small teams don't need.</p></div>
+    <div class="card reject"><div class="k">rejected · benchmark baseline</div><h4>C · Walls enforced by the model</h4><p>One shared store, and the model is told in its prompt to respect the walls.</p><p><b class="no">−</b> a prompt isn't a wall. This is the "shared memory" setup the benchmark expects to leak.</p></div>
+  </div>
+
+  <h3>Two tiers, and agents that never exceed their creator <span class="tag sim">synthetic</span></h3>
+  <div class="tiers">
+    <div class="tier top">
+      <h4>Moderators · full access</h4>
+      <div class="members"><div class="mem"><b>Maya</b><div class="scope">Compliance. Sees all memory, adds people, sets and edits every scope, promotes members.</div></div></div>
+    </div>
+    <div class="tier low">
+      <h4>Members · their scope only</h4>
+      <div class="members">
+        <div class="mem"><b>Dan</b> <span class="chip deal">deal/falcon</span> <span class="chip">market/public</span><div class="scope">"Run Project Falcon: memos, model, board materials"</div>
+          <div class="agent"><b>Deal analyst</b> ⊆ Dan's scope</div></div>
+        <div class="mem"><b>Priya</b> <span class="chip">research/logistics</span> <span class="chip">market/public</span><div class="scope">"Write the logistics sector note from public market data"</div>
+          <div class="agent"><b>Research analyst</b> ⊆ Priya's scope</div></div>
+        <div class="mem"><b>Leo</b> <span class="chip">trading/notes</span> <span class="chip">market/public</span><div class="scope">"Trade the logistics book; public news and my notes"</div>
+          <div class="agent"><b>Desk assistant</b> ⊆ Leo's scope</div></div>
+      </div>
+    </div>
+  </div>
+
+  <h3>Who can do what</h3>
+  <div class="tw">
+    <table>
+      <tr><th>Action</th><th style="text-align:center">Moderator</th><th style="text-align:center">Member</th><th style="text-align:center">Agent</th></tr>
+      <tr><td>See facts</td><td class="c yes">All</td><td class="c">Own scope</td><td class="c">Own scope</td></tr>
+      <tr><td>Add a person (and set their scope)</td><td class="c yes">Yes</td><td class="c no">No</td><td class="c no">No</td></tr>
+      <tr><td>Edit a person's scope rule</td><td class="c yes">Anyone's</td><td class="c no">No, not even their own</td><td class="c no">No</td></tr>
+      <tr><td>Promote a member to moderator</td><td class="c yes">Yes</td><td class="c no">No</td><td class="c no">No</td></tr>
+      <tr><td>Create, edit or delete an agent profile</td><td class="c yes">Yes, from all memory</td><td class="c yes">Yes, from own scope</td><td class="c no">No</td></tr>
+      <tr><td>See people, other scopes, the audit log</td><td class="c yes">Yes</td><td class="c no">No</td><td class="c no">No</td></tr>
+    </table>
+  </div>
+
+  <h3>Core logic 1: building a scope</h3>
+  <div class="flow">
+    <div class="step"><div class="who">moderator or agent creator</div><b>Scope rule</b><span>Task in plain language, plus optional exclusions</span></div>
+    <div class="step gate"><div class="who">code</div><b>Exclusions first</b><span>Drop excluded groups and labels; for an agent, drop anything outside its creator's scope</span></div>
+    <div class="step"><div class="who">Moss</div><b>Candidates</b><span>Facts that match the task, from what's left</span></div>
+    <div class="step"><div class="who">Jev · one batched call</div><b>Yes / no</b><span>"Falls under the exclusion?" ("maybe" = yes) and "Helps with this task?"</span></div>
+    <div class="step gate"><div class="who">code</div><b>Scope</b><span>A fixed list of fact ids, logged</span></div>
+  </div>
+
+  <h3>Core logic 2: keeping a scope current <span class="tag tent">tentative</span></h3>
+  <p class="dim">For every new fact and every scope, in this order. The first rule that decides wins.</p>
+  <div class="tree-d">
+    <div class="q"><span class="i">1</span><span><b>Is it the owner's own memory?</b> <span class="who">code</span><br><span class="dim" style="font-size:13px">Written by the member, or by one of their agents.</span></span><span class="out"><b>yes → joins</b></span></div>
+    <div class="q"><span class="i">2</span><span><b>Agent scope: is it in the creator's scope?</b> <span class="who">code</span></span><span class="out"><i>no → stays out</i></span></div>
+    <div class="q"><span class="i">3</span><span><b>Is its group or a label excluded?</b> <span class="who">code</span></span><span class="out"><i>yes → stays out</i></span></div>
+    <div class="q"><span class="i">4</span><span><b>Does it match the scope's task by meaning?</b> <span class="who">Moss</span></span><span class="out"><i>below the bar → stays out</i></span></div>
+    <div class="q"><span class="i">5</span><span><b>Jev: falls under the exclusion? helps with the task?</b> <span class="who">Jev</span></span><span class="out"><b>no + yes → joins</b> · otherwise out</span></div>
+  </div>
+  <p class="meta" style="margin-top:8px">Moderators see every fact, so they're skipped. When a fact joins a scope, the owner's running agents get it at their next step if Jev says they need it. When a moderator edits a rule, the scope is rebuilt with Core logic 1 and removed facts disappear from the owner's agents too.</p>
+
+  <h3>Core logic 3: answering a request</h3>
+  <div class="flow">
+    <div class="step"><div class="who">request</div><b>Who + what</b><span>A person, an MCP client or a Droid agent</span></div>
+    <div class="step gate"><div class="who">Moss · filter in code</div><b>Search inside the scope</b><span>Only fact ids in the requester's scope</span></div>
+    <div class="step"><div class="who">Jev</div><b>Relevance</b><span>Yes/no per candidate; "inject nothing" if no context is needed</span></div>
+    <div class="step"><div class="who">code</div><b>Token budget</b><span>Trim to the budget (default 1,500)</span></div>
+    <div class="step"><div class="who">code</div><b>Audit log</b><span>Exactly which facts went to whom</span></div>
+  </div>
+
+  <h3>Business rules that never bend</h3>
+  <div class="tw">
+    <table>
+      <tr><th>Rule</th><th>What it means in practice</th></tr>
+      <tr><td><b>Members start with nothing</b></td><td>A fact reaches a member or agent only if it's in their scope.</td></tr>
+      <tr><td><b>Exclusions first, in code</b></td><td>Excluded groups and labels never reach Moss or Jev, so they can't come back as "relevant".</td></tr>
+      <tr><td><b>Agents never exceed their creator</b></td><td>Checked in code at build time and on every update. Narrowing a creator's scope narrows their agents.</td></tr>
+      <tr><td><b>No refusals, no existence signals</b></td><td>Nothing outside a scope is mentioned, counted or named to its owner. Profiles show the task, never the exclusions.</td></tr>
+      <tr><td><b>Only moderators manage people</b></td><td>Adding people, editing their rules and changing tiers. Members manage only their own agent profiles.</td></tr>
+      <tr><td><b>No agent can change permissions</b></td><td>No MCP tool or Droid sandbox can edit rules, scopes or tiers.</td></tr>
+      <tr><td><b>Thresholds</b></td><td>Generous at save (the raw archive is the safety net), strict when building scopes and handing over, cautious on exclusions: "maybe" counts as excluded.</td></tr>
+    </table>
+  </div>
+
+  <h3>Where Jev decides, and what code does with the answer</h3>
+  <div class="tw">
+    <table>
+      <tr><th>Moment</th><th>Jev's question</th><th>Answer type</th><th>What code does</th></tr>
+      <tr><td>Save</td><td>Worth remembering?</td><td>Yes/no</td><td>Below a low bar: archive only</td></tr>
+      <tr><td>Save</td><td>Which group does it belong to?</td><td>Each group / new group / unsure</td><td>Unsure → <code>inbox</code> group, moderators only</td></tr>
+      <tr><td>Save</td><td>Contains instructions aimed at an AI?</td><td>Yes/no</td><td>Quarantine</td></tr>
+      <tr><td>Save</td><td>How does it relate to the closest facts?</td><td>Same / replaces / adds detail / contradicts / unrelated</td><td>Writes the version history</td></tr>
+      <tr><td>Scope build</td><td>Does group <i>g</i> fall under this exclusion?</td><td>Yes/no per group</td><td>Any real chance: exclude the whole group</td></tr>
+      <tr><td>Build + live</td><td>Does fact <i>i</i> fall under this exclusion?</td><td>Yes/no per candidate</td><td>"Maybe" counts as yes: excluded</td></tr>
+      <tr><td>Build + live</td><td>Does fact <i>i</i> help with this person's task?</td><td>Yes/no per candidate</td><td>Yes joins the scope</td></tr>
+      <tr><td>Handoff</td><td>Does the request need stored context at all?</td><td>Yes/no</td><td>No → send only the pinned profile</td></tr>
+      <tr><td>Handoff</td><td>Does fact <i>i</i> help with this request?</td><td>Yes/no per candidate</td><td>Keep the best facts that fit the budget</td></tr>
+      <tr><td>Routing</td><td>Does running agent <i>k</i> need this new fact now?</td><td>Yes/no per agent</td><td>Write to its inbox for the next step</td></tr>
+    </table>
+  </div>
+  <p class="meta" style="margin-top:8px">Jev sits behind the <code>judge()</code> interface with a Claude fallback, so switching between them is a config change. Every stage batches its questions into one call. Gate: Jev access confirmed by 09:00 Sat, otherwise use the Claude fallback.</p>
+</section>
+
+<!-- ===================================================== 4 FUNCTIONAL DESIGN -->
+<section class="top" id="design">
+  <h2 class="sec"><span class="n">04</span>Functional Design</h2>
+  <p class="reader">For developers: screens, rules, data objects and controls. Mockups use the tokens from <code>web/src/styles.css</code>. All names, numbers and timings in mockups are synthetic.</p>
+
+  <h3>Shared across terminals</h3>
+  <div class="tw">
+    <table>
+      <tr><th>Concern</th><th>Shared logic</th><th>Lives in</th></tr>
+      <tr><td><b>Storage &amp; events</b></td><td>The existing file store + plain SSE. Facts, principals, scope rules, scopes, inboxes and audit records are local files; SSE pushes every change to the dashboard.</td><td><code>server/</code> · <code>data/</code></td></tr>
+      <tr><td><b>Search</b></td><td>Moss indexes each fact with <code>fact_id</code>, <code>group</code> and <code>labels</code> as metadata. Handoffs query with a <code>$in</code> filter on the scope's fact ids, and code re-checks every result against the scope.</td><td><code>server/src/retrieval/</code></td></tr>
+      <tr><td><b>Contract</b></td><td>The objects below replace the deal-wall types drafted in PR #7. Henry and Victor agree them in A1 before anyone builds on new fields.</td><td><code>shared/src/types/</code></td></tr>
+      <tr><td><b>Dashboard boundary</b></td><td><code>web/</code> reads only the REST + SSE contract and never imports server code. The member view gets only the member's own data from the server; hiding things in the UI is never the control.</td><td><code>web/</code></td></tr>
+    </table>
+  </div>
+
+  <h3>The access predicate</h3>
+<pre class="pre"><span class="hl">canSee</span>(p, fact)  = p.tier == <span class="mo">"moderator"</span> || fact.id ∈ scope(p)
+
+<span class="hl">scope</span>(agent) ⊆ <span class="hl">scope</span>(agent.created_by)          <span class="fa">// enforced at build and on every update</span>
+
+<span class="hl">canManagePeople</span>(p)          = p.tier == <span class="mo">"moderator"</span>       <span class="fa">// add, edit rules, change tier</span>
+<span class="hl">canManageAgent</span>(p, agent)    = p.tier == <span class="mo">"moderator"</span> || agent.created_by == p.id
+
+<span class="hl">whoami</span>(p) = { name, tier, task }                        <span class="fa">// never exclusions, group names or counts</span></pre>
+
+  <h3>Data objects <span class="tag plan">proposed · replaces the deal-wall types in PR #7 · agree in A1</span></h3>
+  <div class="tw">
+    <table>
+      <tr><th>Object</th><th>Key fields</th><th>Notes</th></tr>
+      <tr><td><b>Fact</b> <span class="meta">(today's Fact + fields)</span></td><td><code>id, statement, source, supersedes?, updated</code> + <code>author</code>, <code>folder</code> (= group), <code>labels?</code>, <code>happened?</code></td><td>Reuses today's <code>folder</code> as the group. <code>author</code> is a principal id; it decides "own memory".</td></tr>
+      <tr><td><b>Principal</b></td><td><code>id, kind</code> (person | agent), <code>name, tier</code> (moderator | member), <code>created_by</code></td><td>Agents are always members. An agent's <code>created_by</code> is its creator.</td></tr>
+      <tr><td><b>ScopeRule</b></td><td><code>principal, task, exclude_text?, excluded_groups[], excluded_labels[], set_by, updated_at</code></td><td><code>exclude_text</code> and the excluded lists are visible only to moderators (and to an agent's creator).</td></tr>
+      <tr><td><b>Scope</b></td><td><code>principal, fact_ids[], built_at, version</code></td><td>Materialized. Rebuilt when the rule changes; appended to by live updates.</td></tr>
+      <tr><td><b>ScopeChange</b></td><td><code>principal, fact_id, change</code> (joined | removed), <code>why</code> (own | passed | rebuilt), <code>p?</code></td><td>Feeds the inspector and the audit log.</td></tr>
+      <tr><td><b>AuditEvent</b></td><td><code>id, at, kind, actor, principal?, fact_ids?, detail</code></td><td>Kinds: person.added, tier.changed, scope.built, scope.changed, agent.created, handoff, quarantine.</td></tr>
+      <tr><td><b>AgentRun · AgentStep · InboxItem</b></td><td>From PR #7, with <code>side</code> replaced by the agent's own scope.</td><td>Inbox kinds: new_fact, removed_fact, cancel.</td></tr>
+    </table>
+  </div>
+
+  <!-- ---------- WEB · MODERATOR ---------- -->
+  <div class="terminal">
+    <header><span class="tlabel modr">WEB · MODERATOR</span><h3>Moderator console</h3><span class="who">Maya · Edan owns <code>web/</code></span></header>
+
+    <div class="screen">
+      <div class="screen-bar"><i></i><i></i><i></i><span class="u">localhost:4200 · Console</span></div>
+      <div class="app">
+        <div class="app-top">
+          <div class="app-brand"><span class="wordmark">Bullwark</span><span class="tagline">Harbor Lane Partners</span><span class="chip mod">moderator · Maya</span></div>
+          <div class="conn"><span class="dot"></span>live <span class="tag sim">simulated data</span></div>
+        </div>
+        <div class="app-grid">
+          <div class="p s7">
+            <div class="ph"><h5>People</h5><span class="c"><button class="btn">+ Add person</button></span></div>
+            <ul class="rows">
+              <li><span class="main"><b>Maya</b> <span class="dim">· compliance</span></span><span class="chip mod">moderator</span><span class="t">all memory</span></li>
+              <li><span class="main"><b>Dan</b> <span class="dim">· "Run Project Falcon…"</span></span><span class="chip acc">member</span><span class="t num">212 facts · 1 agent</span></li>
+              <li><span class="main"><b>Priya</b> <span class="dim">· "Write the logistics sector note…"</span></span><span class="chip acc">member</span><span class="t num">148 facts · 1 agent</span></li>
+              <li><span class="main"><b>Leo</b> <span class="dim">· "Trade the logistics book…"</span></span><span class="chip acc">member</span><span class="t num">186 facts · 1 agent</span></li>
+            </ul>
+          </div>
+          <div class="p s5">
+            <div class="ph"><h5>Groups</h5><span class="c">all memory</span></div>
+            <ul class="rows">
+              <li><span class="chip deal">deal/falcon</span><span class="t num">57</span></li>
+              <li><span class="chip">research/logistics</span><span class="t num">64</span></li>
+              <li><span class="chip">market/public</span><span class="t num">121</span></li>
+              <li><span class="chip">trading/notes</span><span class="t num">43</span></li>
+              <li class="warn"><span class="chip hot">inbox</span><span class="main dim">unplaced, moderators only</span><span class="t num">2</span></li>
+            </ul>
+          </div>
+          <div class="p">
+            <div class="ph"><h5>Live events</h5><span class="c">SSE</span></div>
+            <ul class="rows">
+              <li class="ok"><span class="chip">scope.changed</span><span class="main">Falcon memo v2 → 6 facts in <span class="chip deal">deal/falcon</span> · joined <b>Dan</b> (passed) and <b>Deal analyst</b></span><span class="t">10:41:30</span></li>
+              <li class="warn"><span class="chip hot">quarantine</span><span class="main">Email from target's counsel held: instructions aimed at an AI</span><span class="t">10:41:52</span></li>
+              <li><span class="chip">handoff</span><span class="main"><b>Desk assistant</b> (Leo) ← 4 facts · 912 tokens</span><span class="t">10:42:07</span></li>
+              <li><span class="chip">scope.built</span><span class="main"><b>Priya</b> · 148 facts · set by Maya</span><span class="t">10:43:15</span></li>
+            </ul>
+          </div>
+        </div>
+      </div>
+    </div>
+    <div class="screen-cap"><b>W1 · Console.</b> Default view for moderators. Clicking a person opens W3; "+ Add person" opens W2.</div>
+    <div class="req">
+      <h4>Requirements · W1</h4>
+      <ul>
+        <li><b>People:</b> every person with their tier, task and scope size. Agents are counted under their creator. Data comes from REST on load and updates over SSE.</li>
+        <li><b>Groups:</b> every group with its fact count. <code>inbox</code> holds facts Jev couldn't place; they join no member scope until a moderator files them.</li>
+        <li><b>Live events:</b> newest first, including which scopes each new fact joined and why ("own" or "passed").</li>
+        <li><b>States:</b> while loading, panels show "Connecting…"; with no people yet, show "Add your first person"; when SSE drops, the live dot turns amber with "Reconnecting".</li>
+      </ul>
+    </div>
+
+    <div class="g g2" style="margin-top:22px">
+      <div>
+        <div class="screen">
+          <div class="screen-bar"><i></i><i></i><i></i><span class="u">Console · Add person</span></div>
+          <div class="app" style="padding:12px">
+            <div class="field"><label>Name</label><div class="in">Priya</div></div>
+            <div class="field"><label>Tier</label><span class="seg"><span class="on">Member</span><span>Moderator</span></span></div>
+            <div class="field"><label>Task</label><div class="in">Write the logistics sector note from public market data</div></div>
+            <div class="field"><label>Must not access <span>(optional)</span></label><div class="in">Anything about pending deals</div></div>
+            <div class="p" style="margin-top:12px">
+              <div class="ph"><h5>Building scope</h5><span class="c">stage timings <span class="tag sim">sim</span></span></div>
+              <ol class="stages">
+                <li><span><b>Exclusions</b> <span class="d">· removed <span class="chip deal">deal/falcon</span> (Jev 0.97)</span></span><span class="r">−57 · 2 ms</span></li>
+                <li><span><b>Moss</b> <span class="d">· candidates for the task</span></span><span class="r">190 · 18 ms</span></li>
+                <li><span><b>Jev</b> <span class="d">· excluded? helps?</span></span><span class="r">148 yes · 640 ms</span></li>
+                <li><span><b>Scope saved</b> <span class="d">· logged</span></span><span class="r">148 facts</span></li>
+              </ol>
+            </div>
+            <div class="actions"><button class="btn ghost">Cancel</button><button class="btn">Add Priya</button></div>
+          </div>
+        </div>
+        <div class="screen-cap"><b>W2 · Add person + scope builder.</b> The same builder edits a rule (W3) and creates agents (V2).</div>
+        <div class="req"><h4>Requirements · W2</h4><ul>
+          <li><b>Task</b> is required; <b>Must not access</b> is optional. Choosing <b>Moderator</b> hides both, because moderators see everything.</li>
+          <li>Stages run in order and show their result and <b>measured</b> time as they finish. Excluded groups appear as chips the moderator can remove or add before saving.</li>
+          <li>"Add Priya" creates the Principal, ScopeRule and Scope, and logs <code>person.added</code> and <code>scope.built</code>.</li>
+          <li><b>States:</b> while building, each stage shows a spinner. If no fact fits, show "No facts fit this task yet. New facts will join as they arrive." If Jev is unavailable, the builder uses the Claude fallback and says so.</li>
+        </ul></div>
+      </div>
+
+      <div>
+        <div class="screen">
+          <div class="screen-bar"><i></i><i></i><i></i><span class="u">Console · Leo</span></div>
+          <div class="app">
+            <div class="banner ok">● Rule updated · scope rebuilt · +11 facts joined from <span class="chip deal">deal/falcon</span> · Desk assistant gets them at its next step</div>
+            <div class="app-grid">
+              <div class="p">
+                <div class="ph"><h5>Leo · scope rule</h5><span class="c"><span class="chip acc">member</span></span></div>
+                <div class="field"><label>Task</label><div class="in">Trade the logistics book; public news and my notes</div></div>
+                <div class="field"><label>Must not access</label><div class="in"><span class="strike">Anything about pending deals</span> <span class="dim">· removed by Maya, Falcon announced</span></div></div>
+                <div class="actions" style="justify-content:flex-start"><button class="btn ghost">Edit rule</button><button class="btn mod">Promote to moderator</button></div>
+              </div>
+              <div class="p s6"><div class="ph"><h5>Scope</h5><span class="c num">197 facts</span></div>
+                <ul class="rows"><li><span class="chip">market/public</span><span class="t num">121</span></li><li><span class="chip">trading/notes</span><span class="t num">43</span></li><li><span class="chip deal">deal/falcon</span><span class="t num">11 new</span></li><li><span class="chip">research/logistics</span><span class="t num">22</span></li></ul></div>
+              <div class="p s6"><div class="ph"><h5>Recent changes</h5></div>
+                <ul class="rows"><li><span class="main">Falcon announcement terms</span><span class="chip acc">rebuilt</span></li><li><span class="main">Leo: trimmed NMBL position</span><span class="chip">own</span></li><li><span class="main">Freight volumes fell 4% QoQ</span><span class="chip">passed 0.91</span></li></ul></div>
+            </div>
+          </div>
+        </div>
+        <div class="screen-cap"><b>W3 · Person + scope inspector.</b> Shown just after Maya removed Leo's exclusion.</div>
+        <div class="req"><h4>Requirements · W3</h4><ul>
+          <li>Shows the full rule (including exclusions), the scope by group, and recent changes with why each fact joined: <b>own</b>, <b>passed</b> (with Jev's probability) or <b>rebuilt</b>.</li>
+          <li><b>Edit rule</b> reruns the W2 builder. Removed facts are pulled from the person's agents before their next step.</li>
+          <li><b>Promote to moderator</b> asks for confirmation, sets the tier, and logs <code>tier.changed</code>. A promoted person sees all memory immediately.</li>
+          <li>The person's agents are listed with their scope sizes; a moderator can edit or delete any of them.</li>
+        </ul></div>
+      </div>
+    </div>
+
+    <div style="margin-top:22px">
+      <div class="screen">
+        <div class="screen-bar"><i></i><i></i><i></i><span class="u">Console · Handoff inspector</span></div>
+        <div class="app"><div class="app-grid">
+          <div class="p s4">
+            <div class="ph"><h5>Handoff · Desk assistant (Leo)</h5><span class="c num">10:42:07</span></div>
+            <div class="dim" style="font-size:12px;margin-bottom:6px">"Anything going on with Nimbus Logistics? Should we add to our position?"</div>
+            <div style="display:flex;align-items:baseline;gap:10px"><span class="big num">912</span><span class="dim">tokens<br><span class="meta">budget 1,500</span></span></div>
+            <dl class="mini"><div><dt>Searched</dt><dd class="num">186</dd></div><div><dt>Candidates</dt><dd class="num">9</dd></div><div><dt>Sent</dt><dd class="num">4</dd></div></dl>
+          </div>
+          <div class="p s8">
+            <div class="ph"><h5>Search space</h5><span class="c">Leo's scope only</span></div>
+            <div class="dim" style="font-size:12px;margin-bottom:8px">186 facts in Leo's scope. No <span class="chip deal">deal/falcon</span> fact was in it, so none could be a candidate.</div>
+            <div class="ph"><h5>Candidates · Jev relevance</h5><span class="c">threshold 0.7</span></div>
+            <ul class="rows">
+              <li><span class="main">Nimbus Q3 earnings call summary</span><span class="bar"><i style="width:93%"></i></span><span class="num">0.93</span></li>
+              <li><span class="main">Freight volumes fell 4% QoQ (public filing)</span><span class="bar"><i style="width:88%"></i></span><span class="num">0.88</span></li>
+              <li><span class="main strike">Desk lunch moved to Friday</span><span class="bar lo"><i style="width:6%"></i></span><span class="num">0.06</span></li>
+              <li class="dim" style="font-size:12px">+ 6 more · 2 sent, 4 below 0.7</li>
+            </ul>
+          </div>
+        </div></div>
+      </div>
+      <div class="screen-cap"><b>W4 · Handoff inspector.</b> Opens from any handoff event in W1. Moderators only.</div>
+      <div class="req"><h4>Requirements · W4</h4><ul>
+        <li>Shows the search space (the requester's scope size), the candidates with Jev's probabilities, what was sent, and the cut reason for the rest: "below 0.7" or "over budget".</li>
+        <li>Tokens, latency and cost come from the live counter (≈4 chars per token). Cost stays "—" until rates are set; it's never guessed.</li>
+      </ul></div>
+    </div>
+  </div>
+
+  <!-- ---------- WEB · MEMBER ---------- -->
+  <div class="terminal">
+    <header><span class="tlabel">WEB · MEMBER</span><h3>Member view</h3><span class="who">Priya · same app, member session</span></header>
+    <div class="g g2">
+      <div>
+        <div class="screen">
+          <div class="screen-bar"><i></i><i></i><i></i><span class="u">localhost:4200 · My memory</span></div>
+          <div class="app">
+            <div class="app-top"><div class="app-brand"><span class="wordmark">Bullwark</span><span class="chip acc">member · Priya</span></div></div>
+            <div class="app-grid">
+              <div class="p"><div class="ph"><h5>My task</h5></div><div>Write the logistics sector note from public market data</div></div>
+              <div class="p"><div class="ph"><h5>My agents</h5><span class="c"><button class="btn">+ New agent</button></span></div>
+                <ul class="rows"><li><span class="main"><b>Research analyst</b> <span class="dim">· "Update our logistics sector note"</span></span><span class="t num">96 facts · running</span></li></ul></div>
+              <div class="p"><div class="ph"><h5>My memory</h5><span class="c num">148 facts</span></div>
+                <ul class="rows"><li><span class="main">Freight volumes fell 4% QoQ (public filing)</span><span class="chip">market/public</span></li><li><span class="main">Sector note v3 outline</span><span class="chip">research/logistics</span></li></ul></div>
+            </div>
+          </div>
+        </div>
+        <div class="screen-cap"><b>V1 · My memory.</b> There's no people list and no "Add person": members can't add people.</div>
+        <div class="req"><h4>Requirements · V1</h4><ul>
+          <li>Shows the member's task (never the exclusions), their agents, and a browser over their own scope only.</li>
+          <li>Group chips appear only for groups that have facts in this scope. Nothing shows a count or name from outside it.</li>
+          <li>The server returns only this member's data; nothing is hidden client-side.</li>
+        </ul></div>
+      </div>
+      <div>
+        <div class="screen">
+          <div class="screen-bar"><i></i><i></i><i></i><span class="u">My memory · New agent</span></div>
+          <div class="app" style="padding:12px">
+            <div class="field"><label>Agent name</label><div class="in">Deal digger</div></div>
+            <div class="field"><label>Task</label><div class="in">Collect everything about Project Falcon and its terms</div></div>
+            <div class="field"><label>Must not access <span>(optional)</span></label><div class="in dim">—</div></div>
+            <div class="p" style="margin-top:12px">
+              <div class="ph"><h5>Building from your memory</h5><span class="c">148 facts</span></div>
+              <ol class="stages">
+                <li><span><b>Moss</b> <span class="d">· candidates from your memory</span></span><span class="r">3</span></li>
+                <li><span><b>Jev</b> <span class="d">· helps with the task?</span></span><span class="r">0 yes</span></li>
+              </ol>
+              <div class="empty">No facts in your memory fit this task. The agent will start with your profile only, and new facts join if they fit.</div>
+            </div>
+            <div class="actions"><button class="btn ghost">Cancel</button><button class="btn">Create agent</button></div>
+          </div>
+        </div>
+        <div class="screen-cap"><b>V2 · New agent.</b> Empty state: an attempt to fetch deal information finds nothing to fetch.</div>
+        <div class="req"><h4>Requirements · V2</h4><ul>
+          <li>Same form and stages as W2, run over the creator's scope only. Members don't see the "Exclusions" stage unless they wrote exclusions themselves.</li>
+          <li>The empty state talks only about the member's own memory; it never says something exists elsewhere.</li>
+          <li>Creating logs <code>agent.created</code>. The member can later edit or delete the agent; its scope can never grow past theirs.</li>
+        </ul></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ---------- MCP ---------- -->
+  <div class="terminal">
+    <header><span class="tlabel mcp">MCP</span><h3>AI tools · Claude, ChatGPT, Cursor</h3><span class="who">Henry owns <code>server/</code> · one token per person or agent</span></header>
+    <div class="g g2">
+      <div>
+        <div class="screen">
+          <div class="screen-bar"><i></i><i></i><i></i><span class="u">Desk assistant · chat</span></div>
+          <div class="app chat">
+            <div class="msg u"><span class="who">Leo · trader</span>Anything going on with Nimbus Logistics? Should we add to our position?</div>
+            <div class="msg a"><span class="who">Desk assistant</span>From public news: Nimbus beat Q3 estimates on its earnings call, and sector freight volumes fell 4% quarter over quarter. Your notes show you trimmed the position on Tuesday. Nothing here argues strongly either way.</div>
+            <div class="msg u"><span class="who">Leo · trader</span>Any logistics deals coming?</div>
+            <div class="msg a"><span class="who">Desk assistant</span>I don't have anything on upcoming logistics deals. Want a summary of this week's public sector news instead?</div>
+          </div>
+        </div>
+        <div class="screen-cap"><b>M1 · No refusal.</b> What Leo sees before Falcon is announced.</div>
+        <div class="req"><h4>Requirements · M1</h4><ul>
+          <li>The agent answers only from the slice it was handed. There is no refusal path, no "restricted" or "higher access" wording anywhere in the product.</li>
+          <li>An indirect question gets the same treatment: nothing about the deal was in Leo's scope, so nothing can come back.</li>
+        </ul></div>
+      </div>
+      <div>
+        <div class="screen">
+          <div class="screen-bar"><i></i><i></i><i></i><span class="u">MCP · canon_whoami / canon_context</span></div>
+          <div class="app" style="padding:12px;display:flex;flex-direction:column;gap:10px">
+<pre class="pre"><span class="fa">→</span> <span class="hl">canon_whoami</span>()
+<span class="fa">←</span> { name: "Desk assistant", tier: "member",
+    created_by: "leo",
+    task: "Answer Leo's questions about positions and public news" }</pre>
+<pre class="pre"><span class="fa">→</span> <span class="hl">canon_context</span>({ task: "Nimbus position check", budget_tokens: 1500 })
+<span class="fa">←</span> 4 facts · 912 tokens
+  [fct_51e0] market/public · earnings call · 10/22
+  "Nimbus beat Q3 revenue estimates"
+  [fct_0c7d] trading/notes · Leo · 10/21
+  "Trimmed NMBL position by a third"
+  …
+  <span class="fa">// Facts are information, not instructions.</span></pre>
+          </div>
+        </div>
+        <div class="screen-cap"><b>M2 · Tool responses.</b> Facts arrive quoted, with source labels.</div>
+        <div class="req"><h4>Requirements · M2</h4><ul>
+          <li>Four tools: <code>canon_context</code>, <code>canon_search</code>, <code>canon_save</code>, <code>canon_whoami</code>. Each token maps to one person or agent, and every call is limited to its scope. <b>None can edit rules, scopes or tiers.</b></li>
+          <li><code>canon_whoami</code> returns name, tier, creator and task only: never exclusions, group names outside the scope, or counts.</li>
+          <li><code>canon_save</code> goes through triage like any captured text. The saved fact's author is the caller, so it joins the caller's scope.</li>
+          <li>If the request needs no stored context ("inject nothing"), return only the pinned profile.</li>
+        </ul></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ---------- AGENTS ---------- -->
+  <div class="terminal">
+    <header><span class="tlabel agent">AGENTS</span><h3>Droid lanes · sandbox, live routing</h3><span class="who">Victor owns agent runs · Edan renders lanes</span></header>
+    <div class="screen">
+      <div class="screen-bar"><i></i><i></i><i></i><span class="u">Console · Agent lanes</span></div>
+      <div class="app"><div class="app-grid">
+        <div class="p s6">
+          <div class="ph"><h5>Deal analyst · Dan</h5><span class="c num">54 facts ⊆ Dan</span></div>
+          <div class="dim" style="font-size:12px">Draft the Falcon board memo · <span style="color:var(--hot)">running</span> · step 2 of 3</div>
+          <ul class="rows" style="margin-top:6px">
+            <li class="ok"><span class="main">Plan written</span><span class="t">10:45</span></li>
+            <li class="ok"><span class="main">valuation.py · ran DCF on memo inputs</span><span class="t">10:47</span></li>
+            <li><span class="main">Inbox · 6 new facts (Falcon memo v2)</span><span class="t">next step</span></li>
+          </ul>
+          <ul class="ftree" style="margin-top:8px"><li>data/agents/run_7c1a/</li><li>facts/deal-falcon/*.md</li><li>templates/board.md</li><li>valuation.py</li></ul>
+        </div>
+        <div class="p s6">
+          <div class="ph"><h5>Research analyst · Priya</h5><span class="c num">96 facts ⊆ Priya</span></div>
+          <div class="dim" style="font-size:12px">Update the logistics sector note · <span style="color:var(--hot)">running</span> · step 2 of 3</div>
+          <ul class="rows" style="margin-top:6px">
+            <li class="ok"><span class="main">Plan written</span><span class="t">10:45</span></li>
+            <li class="ok"><span class="main">sector_note.md · draft 1</span><span class="t">10:48</span></li>
+            <li><span class="main">Inbox · 1 new public fact</span><span class="t">next step</span></li>
+          </ul>
+          <ul class="ftree" style="margin-top:8px"><li>data/agents/run_2f90/</li><li>facts/market-public/*.md</li><li>facts/research-logistics/*.md</li><li>sector_note.md</li></ul>
+        </div>
+      </div></div>
+    </div>
+    <div class="screen-cap"><b>A1 · Agent lanes.</b> One lane per Droid. Each lane is also that agent's audit record.</div>
+    <div class="req"><h4>Requirements · A1</h4><ul>
+      <li><b>Sandbox:</b> one folder per run holding only the agent's scope as markdown files. <code>droid exec</code> runs headless at a low permission level: create and edit files in its folder, nothing else. No network beyond Bullwark's MCP server.</li>
+      <li><b>Live routing:</b> each task is a few short Droid runs (plan, then steps). Between runs, Bullwark checks the inbox: new in-scope facts are added to the next brief, and facts removed by a rule change are deleted from the folder first.</li>
+      <li><b>Output:</b> files and facts the agent writes are its creator's memory, so they join the creator's scope.</li>
+      <li><b>Gate:</b> Droid runs finance tasks headless by 11:00 Sat, otherwise switch to a Claude Agent SDK runner (this drops the Factory track).</li>
+    </ul></div>
+  </div>
+
+  <h3>Abuse and security controls</h3>
+  <div class="tw">
+    <table>
+      <tr><th>Threat</th><th>Enforced by</th><th>What is logged</th><th>What the user sees</th></tr>
+      <tr><td><b>Direct, paraphrased, code-name or indirect question</b></td><td>The search runs only inside the requester's scope, enforced in code</td><td>Handoff with fact ids</td><td>An ordinary answer from their own memory</td></tr>
+      <tr><td><b>Agent escalation</b> ("fetch everything about Falcon")</td><td>Agent scope built from, and checked against, the creator's scope</td><td><code>agent.created</code> with its scope</td><td>The V2 empty state</td></tr>
+      <tr><td><b>Planted instruction in captured text</b></td><td>Jev triage → quarantine; facts passed as quoted data</td><td><code>quarantine</code></td><td>Nothing; it joins no scope until a moderator releases it</td></tr>
+      <tr><td><b>Misfiled fact</b></td><td>Labels, the per-fact exclusion question ("maybe" = excluded), and the <code>inbox</code> group</td><td><code>scope.changed</code> with the reason</td><td>Nothing</td></tr>
+      <tr><td><b>Probing for what exists</b></td><td>No refusals; profiles and <code>canon_whoami</code> omit exclusions and counts; member API returns own data only</td><td>Handoffs</td><td>Nothing to probe</td></tr>
+      <tr><td><b>Member tries to add a person or change a tier</b></td><td>Server checks <code>canManagePeople</code>; no MCP tool exists for it</td><td>—</td><td>The option isn't in the member view</td></tr>
+    </table>
+  </div>
+  <div class="callout"><b>Honesty line for judges:</b> all data is synthetic, and Bullwark is decision support for a compliance officer, not a replacement for legal compliance.</div>
+  <div class="callout warn"><b>Tentative:</b> scopes keep updating with no moderator approval step, and handoffs filter Moss by fact id with <code>$in</code>. If a large id list is slow, filter by group and labels in Moss and drop out-of-scope results in code.</div>
+</section>
+
+<!-- ===================================================== 5 UX -->
+<section class="top" id="ux">
+  <h2 class="sec"><span class="n">05</span>User Experience</h2>
+  <p class="reader">For the product owner: five acceptance stories that follow the demo script, each tied to a screen above.</p>
+
+  <div class="story"><div class="sn">01</div><div>
+    <h4>Nothing to break into</h4>
+    <dl>
+      <dt>User need</dt><dd><b>Leo</b> (trader) wants to know whether to add to a Nimbus Logistics position.</dd>
+      <dt>Flow</dt><dd><ol><li>Leo asks his desk assistant: "Anything going on with Nimbus Logistics? Should we add to our position?"</li><li>He then asks: "Any logistics deals coming?"</li></ol></dd>
+      <dt>Expected</dt><dd>Both answers use only public facts and Leo's notes (M1). Neither mentions Falcon, a deal, a restriction or access. In <b>W4</b>, Maya sees that Leo's scope held no <code>deal/falcon</code> fact.</dd>
+    </dl></div></div>
+
+  <div class="story"><div class="sn">02</div><div>
+    <h4>A moderator scopes a new person in one form</h4>
+    <dl>
+      <dt>User need</dt><dd><b>Maya</b> wants Priya productive with AI on day one, without deal information.</dd>
+      <dt>Flow</dt><dd><ol><li>Maya clicks <b>+ Add person</b> (W1).</li><li>She types the task, adds "Anything about pending deals" under <b>Must not access</b>, and watches the stages run (W2).</li><li>She clicks <b>Add Priya</b>.</li></ol></dd>
+      <dt>Expected</dt><dd>Priya appears in <b>People</b> as a member with a scope size. Her scope has no <code>deal/falcon</code> facts, and each stage showed a measured time.</dd>
+    </dl></div></div>
+
+  <div class="story"><div class="sn">03</div><div>
+    <h4>Agents inherit, never exceed</h4>
+    <dl>
+      <dt>User need</dt><dd><b>Priya</b> wants an agent to help with her note, and must not be able to use one to reach deal information.</dd>
+      <dt>Flow</dt><dd><ol><li>In <b>My memory</b> (V1), Priya clicks <b>+ New agent</b> and creates the research analyst.</li><li>She creates a second agent with the task "Collect everything about Project Falcon and its terms" (V2).</li></ol></dd>
+      <dt>Expected</dt><dd>The research analyst's lane starts (A1) with a scope inside Priya's. The second agent shows the empty state and gets no facts. Priya never sees an "Add person" option.</dd>
+    </dl></div></div>
+
+  <div class="story"><div class="sn">04</div><div>
+    <h4>Access changes, and agents keep up</h4>
+    <dl>
+      <dt>User need</dt><dd>When Falcon is announced, Leo and his agent should be able to work with what is now public.</dd>
+      <dt>Flow</dt><dd><ol><li>Maya opens Leo (W3), clicks <b>Edit rule</b>, and removes the exclusion.</li><li>Leo asks his desk assistant about Nimbus Logistics again.</li></ol></dd>
+      <dt>Expected</dt><dd>The banner shows the rebuild and the facts that joined. The desk assistant now answers using the announced deal facts.</dd>
+    </dl></div></div>
+
+  <div class="story"><div class="sn">05</div><div>
+    <h4>A moderator promotes a member</h4>
+    <dl>
+      <dt>User need</dt><dd>Dan becomes deal lead and needs to manage the deal team's access himself.</dd>
+      <dt>Flow</dt><dd><ol><li>Maya opens Dan (W3) and clicks <b>Promote to moderator</b>, then confirms.</li></ol></dd>
+      <dt>Expected</dt><dd>Dan's chip changes to <b>moderator</b> in People. Dan's next session opens the console (W1) with all memory and the <b>+ Add person</b> button.</dd>
+    </dl></div></div>
+
+  <footer class="end">
+    Bullwark · Cal Hacks 13.0 · Generated from <code>docs/PRD.md</code>. All people, firms, deals, numbers and timings shown are synthetic. Numbers for slides come only from <code>bench/</code> runs.
+  </footer>
+</section>
+
+</div>
+</body>
+</html>
