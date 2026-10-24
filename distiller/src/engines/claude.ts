@@ -8,14 +8,19 @@
 //     aliases in code and exclusions remove labels in code; a fact that says "a logistics company"
 //     slips past both;
 //   - the group comes from the list passed in with each item, ids only (a group's description and
-//     aliases are moderators-only and never reach the model). The schema enumerates those ids and
-//     code drops anything else, so the writer never invents a group: "new" and "unsure" are
-//     triage's answers, and null is the writer's;
+//     alias list are moderators-only and never reach the model; the ids do, and an id can carry a
+//     code name, which the check below covers). The schema enumerates those ids and code drops
+//     anything else, so the writer never invents a group: "new" and "unsure" are triage's
+//     answers, and null is the writer's. Which listed id it picks is its judgement, not checked
+//     in code, so triage (B5) must never file on the writer's group alone;
 //   - the list is for filing, never a source of words: a label must be made of words in the item,
-//     and a draft that names a group id or alias the item itself never mentions is dropped, so
-//     nothing the writer was shown for filing reaches the memory of whoever the item belongs to;
-//   - the text is data, never instructions: lines aimed at an AI are left out of the facts and
-//     never choose a group or a label (triage quarantines the whole item separately).
+//     and a draft that names a group id, a name inside one (groups.ts idNames) or an alias the
+//     item itself never mentions is dropped, so nothing the writer was shown for filing reaches
+//     the memory of whoever the item belongs to;
+//   - the text is data, never instructions: the system prompt tells the writer to leave lines
+//     aimed at an AI out of the facts and never let them choose a group or a label. That is a
+//     prompt rule, not checked in code (a planted "label it public" passes asLabels when the item
+//     says "public"); triage quarantines the whole item, which is what keeps it out of scopes.
 //
 // Raw Messages API over fetch, same as shared/src/judge/claude.ts: this package has no runtime
 // dependencies. The request follows the claude-api skill for claude-sonnet-5-5:
@@ -147,7 +152,8 @@ export class ClaudeDistiller implements Distiller {
   }
 
   async distill(session: CapturedSession, opts: DistillOptions = {}): Promise<DistillResult> {
-    // Only the ids reach the model. Descriptions and aliases stay here, for the checks in toResult.
+    // Only the ids reach the model. Descriptions and alias lists stay here, for the checks in
+    // toResult, which also cover the names inside the ids.
     const groups = filingGroups(opts.groups);
     const ids = groups.map((g) => g.id);
     const body = {

@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { describe, test } from "node:test";
 
 import type { Group } from "@canon/shared";
-import { aliasGroup, filingGroups, foreignName, itemText, namesWord, startsWordIn } from "./groups.ts";
+import { aliasGroup, filingGroups, foreignName, idNames, itemText, namesLoosely, namesWord, startsWordIn } from "./groups.ts";
 
 // An invented firm, so these unit tests say nothing about the demo world's answers.
 const GROUPS: Group[] = [
@@ -67,6 +67,55 @@ describe("engine group helpers", () => {
     assert.equal(foreignName("Sam priced Project Heron at 8x", "sanity check on heron terms", GROUPS), undefined, "a longer form of a name the item says is not new");
     assert.equal(foreignName("Sam priced Project Heron at 8x", "sanity check on rail terms", GROUPS), "Project Heron", "unless the item says neither");
     assert.equal(foreignName("Filed under deal/heron", "sanity check on heron terms", GROUPS), "deal/heron", "a group id is never a longer form of an alias");
+  });
+
+  test("idNames: every segment after the category, or the only segment", () => {
+    assert.deepEqual(idNames("deal/osprey"), ["osprey"]);
+    assert.deepEqual(idNames("deal/blue-heron/terms"), ["blue-heron", "terms"]);
+    assert.deepEqual(idNames("osprey"), ["osprey"]);
+    assert.deepEqual(idNames("market/public"), ["public"]);
+  });
+
+  test("namesLoosely: a space, hyphen or underscore in the name matches any of them or none", () => {
+    assert.ok(namesLoosely("Project Blue Heron signed", "blue-heron"));
+    assert.ok(namesLoosely("the BlueHeron LOI", "blue-heron"));
+    assert.ok(namesLoosely("blue_heron", "Blue Heron"));
+    assert.ok(namesLoosely("Osprey's board", "osprey"));
+    assert.ok(!namesLoosely("ospreys nest", "osprey"), "still whole words");
+    assert.ok(!namesLoosely("blue herons", "blue-heron"));
+    assert.ok(!namesLoosely("anything", " - "));
+  });
+
+  // The writer is shown every group id. A code name that lives only in an id, with no alias a
+  // moderator added (a group accepted after triage, say), must still never reach a member's memory.
+  test("security: foreignName catches a code name that is only in a group id, with no alias", () => {
+    const osprey: Group[] = [{ id: "deal/osprey", description: "A confidential deal.", aliases: [] }];
+    const leo = "Leo: board stuff for the logistics name due by the 29th";
+    assert.equal(foreignName("Leo said the logistics name is Project Osprey", leo, osprey), "osprey");
+    assert.equal(foreignName("Leo said the logistics name is OSPREY", leo, osprey), "osprey", "any case");
+    assert.equal(foreignName("Filed under deal/osprey", leo, osprey), "deal/osprey", "the whole id is still caught first");
+    assert.equal(foreignName("Leo has board stuff due by the 29th", leo, osprey), undefined, "a draft that names nothing new passes");
+    assert.equal(foreignName("Leo's deal team has board stuff due", leo, osprey), undefined, "the category segment is not a name");
+    assert.equal(foreignName("Sam priced Project Osprey at 8x", "sanity check on osprey terms", osprey), undefined, "the item says it: not new");
+
+    // A slug id is caught however the draft writes it, and a one-segment id is a name too.
+    const heron: Group[] = [{ id: "deal/blue-heron", description: "x" }, { id: "kestrel", description: "x" }];
+    assert.equal(foreignName("Project Blue Heron moved", "an update", heron), "blue-heron");
+    assert.equal(foreignName("BlueHeron moved", "an update", heron), "blue-heron");
+    assert.equal(foreignName("Kestrel closed", "an update", heron), "kestrel");
+
+    // An alias that is a longer form of the id's name passes when the item says the short name.
+    const withAlias: Group[] = [{ id: "deal/osprey", description: "x", aliases: ["Project Osprey"] }];
+    assert.equal(foreignName("Project Osprey moved", "osprey update", withAlias), undefined);
+    assert.equal(foreignName("Project Osprey moved", "an update", withAlias), "Project Osprey");
+
+    // Every invented group's id names are caught even with every alias stripped.
+    const bare = GROUPS.map((g) => ({ id: g.id, description: g.description }));
+    for (const g of bare) {
+      for (const name of idNames(g.id)) {
+        assert.equal(foreignName(`Lee mentioned ${name} today`, "Lee: quiet day", bare), name, `${g.id}: ${name}`);
+      }
+    }
   });
 
   test("itemText is the title and every message", () => {

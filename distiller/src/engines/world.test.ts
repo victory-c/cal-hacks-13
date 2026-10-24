@@ -11,6 +11,7 @@ import { fileURLToPath } from "node:url";
 
 import { GROUP_RE, SESSION_ID_RE, SOURCE_KINDS } from "@canon/shared";
 import type { CapturedSession, Group, GroupsResponse } from "@canon/shared";
+import { foreignName } from "./groups.ts";
 
 const WORLD = fileURLToPath(new URL("../../fixtures/world/", import.meta.url));
 
@@ -140,9 +141,13 @@ describe("synthetic world fixtures", () => {
     }
   });
 
-  test("every deal group lists its code name as an alias, so the writer's name check can catch it", () => {
-    // claude.ts drops a draft that names an alias the item never mentions. A code name that is
-    // only in the group id ("falcon" in deal/falcon) would slip past that check.
+  test("every deal group lists its code name as an alias, so the alias hint can anchor on it", () => {
+    // aliasGroup (the heuristic's hint, and triage's in B5) matches aliases only, never id words,
+    // so an item that says "Falcon" is hinted to deal/falcon only because the alias is listed.
+    // The writer's guard does not depend on this: foreignName also checks the names inside every
+    // id (groups.test.ts covers an alias-less group), since live groups need not list them.
+    const bare = load<GroupsResponse>("groups.json").groups.map((g) => ({ id: g.id, description: g.description }));
+    assert.equal(foreignName("The Falcon LOI is due", "Dan: board stuff due by the 29th", bare), "falcon", "the guard catches it without the alias");
     const deals = load<GroupsResponse>("groups.json").groups.filter((g) => g.id.startsWith("deal/"));
     assert.ok(deals.length > 0);
     for (const g of deals) {

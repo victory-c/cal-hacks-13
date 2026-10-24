@@ -26,6 +26,12 @@ export interface DistillOptions {
    * The groups a draft may be filed into (GroupsResponse.groups from GET /api/groups; offline,
    * fixtures/world/groups.json). Passed per call, never baked into a prompt. Missing or empty:
    * no draft carries a group, and triage decides. See groups.ts.
+   *
+   * Do not pass it from the worker until triage (B5) offers the whole group list plus "new" and
+   * "unsure". Today decide.ts asks "which folder?" with only the draft's suggestion and the old
+   * top folders, so a confident judge would file on the suggestion: Priya's public Nimbus note,
+   * hinted to deal/falcon, would land there. If the worker is wired first, clear draft.folder
+   * before decideFacts.
    */
   groups?: readonly Group[];
 }

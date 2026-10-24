@@ -393,7 +393,7 @@ describe("ClaudeDistiller", () => {
     }
   });
 
-  test("security: the group list arrives with each item as ids only; descriptions and aliases never reach the writer", async () => {
+  test("security: the group list arrives with each item as ids only; descriptions and alias lists never reach the writer", async () => {
     const groups = worldGroups();
     const fake = await fakeWriter({ plan: "none", facts: [] });
     try {
@@ -441,6 +441,35 @@ describe("ClaudeDistiller", () => {
         );
         assert.ok(lines.includes("[distiller] claude: left out 4 drafts naming a group or alias the item never mentions"), lines.join("\n"));
         assert.ok(lines.every((l) => !/falcon|LKSP/i.test(l)), "the log says how many, never which name");
+      });
+    } finally {
+      await fake.close();
+    }
+  });
+
+  test("security: a code name that is only in a group id (no alias) never reaches the item's memory", async () => {
+    // A group a moderator accepted after triage, with no alias list: the writer is still shown its
+    // id, so "osprey" reaches the model with every item. Priya's note never says it.
+    const groups: Group[] = [...worldGroups(), { id: "deal/osprey", description: "A second confidential deal.", aliases: [] }];
+    const fake = await fakeWriter({
+      plan: "Kept the Q3 print.",
+      facts: [
+        { statement: "Nimbus Logistics reported Q3 2026 revenue of $1.21bn", group: "market/public", labels: ["nimbus"], happened: "2026-10-22", detail: null },
+        { statement: "Nimbus Logistics may be a target of Project Osprey", group: "deal/osprey", labels: [], happened: null, detail: null },
+        { statement: "One analyst cut NMBL to Hold", group: "market/public", labels: [], happened: null, detail: "Possibly tied to OSPREY." },
+        { statement: "Priya's note sits under deal/osprey", group: null, labels: [], happened: null, detail: null },
+      ],
+    });
+    try {
+      await withEnv({ ANTHROPIC_BASE_URL: fake.url }, async () => {
+        const { result, lines } = await quiet(() => new ClaudeDistiller({ apiKey: "test-key" }).distill(world("nimbus-public-news.json"), { groups }));
+        assert.ok(fake.seen.raw.includes("- deal/osprey"), "the id does reach the writer, which is why the guard covers it");
+        assert.deepEqual(
+          result.drafts.map((d) => d.statement),
+          ["Nimbus Logistics reported Q3 2026 revenue of $1.21bn"],
+        );
+        assert.ok(lines.includes("[distiller] claude: left out 3 drafts naming a group or alias the item never mentions"), lines.join("\n"));
+        assert.ok(lines.every((l) => !/osprey/i.test(l)), "the log says how many, never which name");
       });
     } finally {
       await fake.close();

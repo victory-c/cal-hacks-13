@@ -36,19 +36,31 @@ files there, and only moderators see it.
 | `desk/trading` | The trading desk's positions, trade ideas and notes | `Larkspur Cold Chain`, `LKSP` |
 | `firm/ops` | Tools, scheduling, office and admin | none |
 
-A group's description and aliases are moderators-only. How the engines use them:
+A group's description and alias list are moderators-only. How the engines use them:
 
-- **Triage** (Jev, `decide.ts`) reads the descriptions and matches the aliases in code as a filing
-  hint next to Jev's pick.
+- **Triage** (Jev, `decide.ts`) will read the descriptions and match the aliases in code as a
+  filing hint next to Jev's pick (B5). Not built yet: `decide.ts` reads no group list and still
+  asks the scaffold's folder question, offering only the draft's suggestion and the old top
+  folders. Until B5 offers every group plus "new" and "unsure", the worker must not pass the group
+  list into `distill()`, or a confident judge files on the hint (see the `nimbus-public-news.json`
+  row). `decide.ts` also does not yet copy a draft's `labels` or `happened` onto the stored fact,
+  or set its `author` from the item's principal.
 - **The Claude writer** (`src/engines/claude.ts`) gets the list with each item, as **ids only**,
   above the item and as the `group` enum of its `emit_facts` tool. It never sees a description or
-  an alias. It suggests a group from that list or null, never a new one, and up to four labels
-  made only of the item's own words. Code drops a draft that names a group id or alias the item
-  itself never mentions, so nothing the writer was shown for filing reaches anyone's memory. For
-  that check to catch a code name, every deal group lists its code name as an alias
-  (`src/engines/world.test.ts` checks).
+  an alias list, but an id can carry a code name (`falcon` in `deal/falcon`). It suggests a group
+  from that list or null, never a new one, and up to four labels made only of the item's own
+  words. Code drops a draft that names a group id, a name inside one (every segment after the
+  first: `falcon`, `logistics`, `public`) or an alias that the item itself never mentions, so
+  nothing the writer was shown for filing reaches anyone's memory. That check needs no alias
+  list, so a new group a moderator accepts after triage is covered too; dropping a fact that uses
+  a generic id word (`public`, `trading`) the item never says is the safe failure. Which listed
+  id the writer picks, and whether it leaves hints and planted lines ungrouped, is a system-prompt
+  rule that code does not check: code accepts any listed id and any label made of the item's
+  words. Triage must never file on the writer's group alone.
 - **The heuristic engine** (offline, simulated) suggests a group when a sentence names the
   aliases of exactly one group. No alias, or two groups' aliases: no suggestion. It adds no labels.
+  For this hint to anchor on a code name, every deal group lists its code name as an alias
+  (`src/engines/world.test.ts` checks).
 
 ## Files
 
@@ -57,8 +69,8 @@ A group's description and aliases are moderators-only. How the engines use them:
 | `groups.json` | `GroupsResponse` | The five groups above | alias matching in code (`Falcon`, `Nimbus`, `Nimbus Logistics`, `NMBL`; `LKSP` for the desk); no two groups share an alias |
 | `dan-chatgpt-falcon-terms.json` | `CapturedSession` (`ai_session`, `chatgpt`, principal `dan`) | Dan works out Falcon's price per share, premium, exclusivity and break fee with ChatGPT | `deal/falcon`, in Dan's memory. The writer keeps code names and tickers verbatim (the item writes "falcon" and "NMBL"), attributes decisions to Dan, not to ChatGPT, and reads `happened` off stated dates and firm-local stamps |
 | `falcon-process-memo.json` | `CapturedSession` (`memo`, `ingest`, principal `dan`) | Dan's draft v3 process update to the deal team | `deal/falcon`. A dense, dated memo with bracketed notes to self; many one-claim facts, and many lines that name no alias, so triage places them, not the alias match. Its section 5 still says "wall list" and "restricted list": that is the firm's own wording in the memo, and those lines are `deal/falcon` facts like the rest |
-| `hl-floor-chat-week.json` | `CapturedSession` (`chat`, `ingest`, no principal) | A week of the firm-wide `#hl-floor` channel | Mixed: attestations, SSO and the AI-tools reminder are `firm/ops`; Leo's LKSP and basket lines are `desk/trading`; Priya's sector-note lines are `research/logistics`. Dan's "the logistics thing is eating my whole week, board stuff due by the 29th" names no alias: the **indirect case only Jev can place**, into `deal/falcon` or, when unsure, the moderators-only `inbox`. Never `research/logistics` or `firm/ops`, which would tell Priya and Leo there is a logistics matter with a board date. The writer and the heuristic leave it ungrouped |
-| `outside-counsel-email.json` | `CapturedSession` (`email`, `ingest`, principal `dan`, `external: true`) | Nimbus's lawyers reply about data-room access and the NDA amendment | The planted instruction aimed at an AI (in the original HTML it was white-on-white text) gets the whole item quarantined: it joins no scope, not even Dan's, until Maya releases it. The writer and the heuristic leave the planted paragraph out of the facts, and it never chooses a group or a label |
+| `hl-floor-chat-week.json` | `CapturedSession` (`chat`, `ingest`, no principal) | A week of the firm-wide `#hl-floor` channel | Mixed: attestations, SSO and the AI-tools reminder are `firm/ops`; Leo's LKSP and basket lines are `desk/trading`; Priya's sector-note lines are `research/logistics`. Dan's "the logistics thing is eating my whole week, board stuff due by the 29th" names no alias: the **indirect case only Jev can place**, into `deal/falcon` or, when unsure, the moderators-only `inbox`. Never `research/logistics` or `firm/ops`, which would tell Priya and Leo there is a logistics matter with a board date. The heuristic leaves it ungrouped (no alias, checked in code). The writer is only told to leave hints ungrouped: it is shown `research/logistics`, which matches these words, and code accepts that pick, so triage must not file on the writer's group alone. The engine tests use a fake model and cannot check this; it needs a live writer check in the bench task set |
+| `outside-counsel-email.json` | `CapturedSession` (`email`, `ingest`, principal `dan`, `external: true`) | Nimbus's lawyers reply about data-room access and the NDA amendment | The planted instruction aimed at an AI (in the original HTML it was white-on-white text) gets the whole item quarantined: it joins no scope, not even Dan's, until Maya releases it. The heuristic leaves the planted paragraph out of the facts (in code). The writer is told to leave it out and never let it choose a group or a label, a prompt rule that code does not enforce: the item says "public", so a `market/public` pick and a `public` label would pass the code checks. Quarantine is what keeps this item out of every scope. Like the chat hint, it needs a live writer check in the bench task set |
 | `nimbus-public-news.json` | `CapturedSession` (`note`, `ingest`, principal `priya`) | Priya's roundup of Nimbus's public Q3 results and news, from public sources only | **`market/public` content that names Nimbus: the case that tests grouping and exclusions.** The alias match in code points at `deal/falcon`, but nothing in it is inside information, so it belongs in `market/public` (labels such as `nimbus`, `nmbl`). That is what lets Leo's desk assistant answer "anything going on with Nimbus?" from public news while his scope excludes `deal/falcon`; a cautious moderator can still exclude the `nimbus` label. Filed in `deal/falcon` instead, it would be kept from Leo, and because an author's own facts always join her scope, it would sit in Priya's memory under the deal's group. Offline, the heuristic's alias hint says `deal/falcon` for its Nimbus and NMBL lines (simulated): triage must weigh the hint, never file on it alone. Use this item to measure the missing-context rate |
 
 ## Conventions
