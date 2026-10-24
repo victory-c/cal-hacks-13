@@ -34,7 +34,7 @@ a 10 s watchdog ends the process no matter what. Missing transcript or 0 message
 
 **Already installed for this repo.** `.claude/settings.json` (committed) wires `Stop` and
 `SessionEnd` to `node "$CLAUDE_PROJECT_DIR/hooks/claude-code/canon-capture.mjs"`, so every
-Claude Code session in any clone or worktree of Canon posts to your local server. Nothing outside
+Claude Code session in any clone or worktree of Bullwark posts to your local server. Nothing outside
 the repo is touched. With no server running the hook exits silently in milliseconds. Set
 `CANON_CAPTURE=0` in your environment to opt out. Start a **new** session after pulling: Claude
 Code reads hooks at session start.
@@ -48,8 +48,8 @@ node hooks/claude-code/install.mjs --project    # rewrite the repo's .claude/set
 ```
 
 `claude-code/settings.snippet.json` is the same snippet with a placeholder path, for pasting by
-hand. Re-running replaces the old Canon entry. Don't install both user and project scope, or a
-Canon-repo session posts twice (harmless upsert, wasted work).
+hand. Re-running replaces the old Bullwark entry. Don't install both user and project scope, or a
+Bullwark-repo session posts twice (harmless upsert, wasted work).
 
 Config resolution, per key: process env → `.env` at `CANON_REPO_ROOT` → `.env` in this
 checkout (`../../.env` from the script). `CANON_URL` defaults to `http://localhost:4100`.

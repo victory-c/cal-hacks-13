@@ -1,4 +1,4 @@
-# Canon
+# Bullwark
 
 The control room for a small finance team's AI. Each person and agent gets only the context
 they are cleared to see and need, and information barriers stay enforced as deals change.
