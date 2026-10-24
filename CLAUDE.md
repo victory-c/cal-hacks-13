@@ -94,6 +94,10 @@ Ports: server **4100** (`/health`, `/events` SSE, `/mcp`, `/api/*`), dashboard *
 status board **4173**. Everything runs without API keys on local stubs that label themselves
 simulated. The fact store is `data/` at the repo root (gitignored; open it in Obsidian).
 
+We dogfood: the committed `.claude/settings.json` runs the capture hook on `Stop` and
+`SessionEnd`, so every Claude Code session in this repo posts to your local server when it is
+running (silent no-op when it isn't). `CANON_CAPTURE=0` in your shell opts out. See `hooks/README.md`.
+
 Data flow: hooks / extension / `canon_save` → `POST /api/sessions` → cold archive → SSE
 `session.captured` → distiller worker → Jev decides → `POST /api/facts` → hot facts →
 retriever → `canon_context` (Jev filters, cut to budget) → the client. The dashboard renders

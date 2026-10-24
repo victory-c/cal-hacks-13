@@ -11,19 +11,54 @@ import { readFileSync } from "node:fs";
 
 export const CLIENT = "claude-code";
 export const TITLE_MAX = 80;
+/** Per-message cap. A pasted log or a huge answer should not dominate the distiller's input. */
+export const MESSAGE_MAX = 8000;
+
+// Tags the Claude Code harness injects into user turns (worktree notes, slash-command echoes,
+// local command output, background-task notices). They are not what the user said.
+const HARNESS_TAGS = [
+  "system-reminder",
+  "local-command-caveat",
+  "local-command-stdout",
+  "local-command-stderr",
+  "command-name",
+  "command-message",
+  "command-args",
+  "task-notification",
+  "user-prompt-submit-hook",
+];
+const HARNESS_RE = new RegExp(`<(${HARNESS_TAGS.join("|")})>[\\s\\S]*?</\\1>`, "g");
 
 /**
  * Transcript JSONL → SessionMessage[]. Claude Code writes one JSON object per line to
- * ~/.claude/projects/<project>/<session_id>.jsonl. We keep only real conversation turns:
- *   - type "user" | "assistant" (not "summary", "system", "progress", "file-history-snapshot"…)
- *   - not isMeta (local-command caveats, injected context) and not isSidechain (subagents)
- * Content is a string or an array of blocks: "text" blocks are joined, "tool_use" becomes
- * "[tool: <name>]", everything else (tool_result, thinking, image…) is dropped. A line whose
- * content ends up empty (a tool_result-only turn) is dropped too; it carries nothing to distill.
- * Malformed lines are skipped rather than failing the whole capture.
+ * ~/.claude/projects/<project>/<session_id>.jsonl, and a single assistant turn is spread over
+ * many lines (one per thinking / text / tool_use block, with tool_result user lines between).
+ * We keep only real conversation:
+ *   - type "user" | "assistant" (not "summary", "system", "attachment", "file-history-*"…)
+ *   - not isMeta (skill bodies, injected context) and not isSidechain (subagents)
+ *   - harness tags (<system-reminder>, <command-name>…) stripped from text
+ *   - "text" blocks kept; tool_use names collected; tool_result, thinking, image… dropped
+ * Consecutive lines of the same role merge into one message (one per turn), with the turn's
+ * tools summarised on a last line: "[tools: Bash ×3, Edit]". Malformed lines are skipped rather
+ * than failing the whole capture.
  */
 export function parseTranscript(jsonlText) {
   const messages = [];
+  let current = null;
+  let turnStart; // timestamp of a skipped thinking-only line that opens the next assistant turn
+  const flush = () => {
+    if (!current) return;
+    const lines = [...current.text];
+    if (current.tools.size) lines.push(`[tools: ${formatTools(current.tools)}]`);
+    const content = truncate(lines.join("\n\n"));
+    if (content) {
+      const msg = { role: current.role, content };
+      if (current.at) msg.at = current.at;
+      messages.push(msg);
+    }
+    current = null;
+  };
+
   for (const raw of String(jsonlText).split("\n")) {
     const line = raw.trim();
     if (!line) continue;
@@ -37,31 +72,54 @@ export function parseTranscript(jsonlText) {
     if (entry.type !== "user" && entry.type !== "assistant") continue;
     if (entry.isMeta === true || entry.isSidechain === true) continue;
 
-    const content = renderContent(entry.message?.content);
-    if (!content) continue;
+    const ts = typeof entry.timestamp === "string" && entry.timestamp ? entry.timestamp : undefined;
+    const { text, tools } = readBlocks(entry.message?.content);
+    if (!text.length && !tools.length) {
+      // A thinking-only line is where an assistant turn really starts; keep its time.
+      if (entry.type === "assistant" && current?.role !== "assistant") turnStart ??= ts;
+      continue; // tool_result-only, thinking-only or pure harness noise
+    }
 
-    const msg = { role: entry.type, content };
-    if (typeof entry.timestamp === "string" && entry.timestamp) msg.at = entry.timestamp;
-    messages.push(msg);
+    if (current && current.role !== entry.type) flush();
+    if (!current) {
+      current = { role: entry.type, text: [], tools: new Map(), at: (entry.type === "assistant" && turnStart) || ts };
+      turnStart = undefined;
+    }
+    current.text.push(...text);
+    for (const name of tools) current.tools.set(name, (current.tools.get(name) ?? 0) + 1);
   }
+  flush();
   return messages;
 }
 
-function renderContent(content) {
-  if (typeof content === "string") return content.trim();
-  if (!Array.isArray(content)) return "";
-  const parts = [];
-  for (const block of content) {
+function readBlocks(content) {
+  const text = [];
+  const tools = [];
+  const blocks = typeof content === "string" ? [{ type: "text", text: content }] : Array.isArray(content) ? content : [];
+  for (const block of blocks) {
     if (!block || typeof block !== "object") continue;
     if (block.type === "text" && typeof block.text === "string") {
-      const t = block.text.trim();
-      if (t) parts.push(t);
+      const t = stripHarness(block.text);
+      if (t) text.push(t);
     } else if (block.type === "tool_use") {
-      parts.push(`[tool: ${typeof block.name === "string" ? block.name : "unknown"}]`);
+      tools.push(typeof block.name === "string" && block.name ? block.name : "unknown");
     }
     // tool_result, thinking, image, document…: not conversation text, skipped.
   }
-  return parts.join("\n");
+  return { text, tools };
+}
+
+/** Removes harness-injected tag blocks and the blank lines they leave behind. */
+export function stripHarness(text) {
+  return String(text).replace(HARNESS_RE, "").replace(/\n{3,}/g, "\n\n").trim();
+}
+
+function formatTools(tools) {
+  return [...tools].map(([name, n]) => (n > 1 ? `${name} ×${n}` : name)).join(", ");
+}
+
+function truncate(text) {
+  return text.length > MESSAGE_MAX ? `${text.slice(0, MESSAGE_MAX).trimEnd()} …[truncated]` : text;
 }
 
 /**

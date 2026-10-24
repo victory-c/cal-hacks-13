@@ -1,6 +1,6 @@
 {
   "project": "Canon",
-  "updated": "2026-10-24T00:53:06-07:00",
+  "updated": "2026-10-24T01:05:45-07:00",
   "team": [
     {
       "id": "A",
@@ -179,9 +179,9 @@
       "owner": "B",
       "milestone": "M2",
       "priority": "must",
-      "state": "todo",
+      "state": "done",
       "title": "Claude Code capture hook",
-      "note": ""
+      "note": "Committed project hook (.claude/settings.json, $CLAUDE_PROJECT_DIR). Parser fixed for real transcripts (turn merge, harness tags). Verified: claude -p → SessionEnd → server → distiller → fact → dashboard."
     },
     {
       "id": "B2",
