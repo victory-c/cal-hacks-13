@@ -546,7 +546,8 @@ function nameKey(name) {
  * Whoever an item names as its principal (front-matter `principal` / `author`, a firm sender,
  * --principal) → their id, or undefined. Never guessed, because the principal decides access:
  *   - an id is taken as written (`dan`, `AGT_Deal-Analyst` → `agt_deal-analyst`, `Maya (Compliance)`
- *     → `maya`), and must be in the directory when there is one
+ *     → `maya`). With a directory it must be one of its ids; else it is read as a name, so a
+ *     one-word alias such as "Danny" still resolves to the principal that lists it
  *   - a name or an address maps to an id only through the directory: "Leo Chen
  *     <leo.chen@harborlane.com>" is not Leo Brandt because both start with "leo". An address must be
  *     the value's one mailbox (see senderOf), so a display name cannot smuggle one in.
@@ -560,8 +561,11 @@ export function resolvePrincipal(value, directory) {
   const bare = withoutComments(value).replace(/\s+/g, " ").trim();
   if (!bare || /[()]/.test(bare)) return undefined;
   const id = normalizePrincipal(bare);
-  if (id) return !directory || directory.ids.has(id) ? id : undefined;
-  return directory?.names.get(nameKey(bare)) ?? undefined;
+  if (!directory) return id;
+  if (id && directory.ids.has(id)) return id;
+  // Not an id in the directory: a name or alias, which only the directory maps (a name two
+  // principals share is null there, so it resolves to none).
+  return directory.names.get(nameKey(bare)) ?? undefined;
 }
 
 // --------------------------------------------------------------------------------- items
@@ -581,7 +585,7 @@ export function sessionIdFor(key) {
 /**
  * One item → a CapturedSession for POST /api/sessions, { skip: reason } when it holds nothing to
  * ingest (no text, a JSON file with no messages), or { error: reason } when it cannot be parsed
- * (bad JSON, or JSON rows none of which could be read). The CLI goes on after either, but only an
+ * (bad JSON, a JSON shape we cannot read, or JSON rows none of which could be read). The CLI goes on after either, but only an
  * error makes the run exit 1. A JSONL or JSON file with some rows that could not be read (not
  * JSON, not an object, or a message whose text is not a string or text blocks) still becomes a
  * session from the good rows, and meta.unparsed_lines (JSONL line numbers) or meta.unparsed_rows
@@ -785,8 +789,9 @@ function readRows(list) {
  * act as front-matter (kind, principal, title, date, from, …). An entry that could not be read
  * (see readRows; for JSONL also a line that is not valid JSON) is left out and its JSONL line
  * number goes in `unparsed`, its 1-based position in a JSON list in `unparsedRows`; the CLI
- * reports either and exits 1, since the import is incomplete. Unparseable JSON, or JSONL with no
- * valid line → { error }; valid JSON that holds no item → { skip }.
+ * reports either and exits 1, since the import is incomplete. Unparseable JSON, JSONL with no
+ * valid line, a `messages` that is not a list, or a bare JSON string or number → { error }; valid
+ * JSON that holds nothing (`null`, `{}`, an object with no messages or body) → { skip }.
  */
 function readJsonItem(text, ext) {
   let data = {};
@@ -819,6 +824,8 @@ function readJsonItem(text, ext) {
     else if (isRecord(value)) {
       data = Object.fromEntries(Object.entries(value).filter(([, v]) => typeof v !== "object" || Array.isArray(v)).map(([k, v]) => [k.toLowerCase(), v]));
       if (Array.isArray(value.messages)) list = value.messages;
+      // Messages in a shape we cannot read (a map of ids, a string): content we would drop.
+      else if (value.messages !== undefined && value.messages !== null) return { error: "JSON whose `messages` is not a list" };
       else {
         const reads = TEXT_KEYS.filter((k) => value[k] !== undefined && value[k] !== null).map((k) => readText(value[k]));
         const hit = reads.find((r) => r.text);
@@ -826,7 +833,9 @@ function readJsonItem(text, ext) {
         if (reads.some((r) => r.unreadable)) return { error: "JSON object whose text is not a string or text blocks" };
         return { skip: "JSON object with no messages or body" };
       }
-    } else return { skip: "JSON is not an object or array" };
+    } else if (value === null) return { skip: "JSON is null" };
+    // A bare string, number or boolean is not a shape we read; a string may be a whole memo.
+    else return { error: "JSON is not an object or array" };
   }
   const { rows, bad } = readRows(list);
   const unparsed = lineOf ? [...badLines, ...bad.map((i) => lineOf[i])].sort((a, b) => a - b) : [];

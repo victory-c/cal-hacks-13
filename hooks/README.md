@@ -195,8 +195,10 @@ principal, never the next source: a memo with `author: Nadia Haddad` is nobody's
 
 A value resolves to an id like this: an id (`dan`, `agt_deal-analyst`, `Maya (Compliance)` with
 its comment dropped) is taken as written, and must be in `--principals` when one is given; a name
-(`Dan Okafor`, or an alias such as `Okafor, Dan`) or an address resolves **only** through
-`--principals`. An address must be the value's one mailbox, so a display name cannot smuggle one in.
+(`Dan Okafor`, or an alias such as `Okafor, Dan` or a one-word `Danny`) or an address resolves
+**only** through `--principals`. With `--principals`, a one-word value is an id when it is one of
+the file's ids, else it is looked up as a name. An address must be the value's one mailbox, so a
+display name cannot smuggle one in.
 
 **The principal directory** (`--principals FILE`) is a JSON list, or `GET /api/principals`'
 `{ "principals": [...] }` saved to a file, with two optional ingest-only fields per entry:
@@ -251,7 +253,8 @@ that is not a string or text blocks (an image-only message, a number), or a row 
 speaker and no text at all. An object with neither (export metadata) is skipped.
 
 **Failures.** A file that cannot be read or parsed (unreadable, bad JSON, a JSONL file with no
-valid line, a JSON or JSONL file none of whose rows can be read) prints `fail <path>: <reason>`;
+valid line, a JSON `messages` that is not a list, a JSON file that is a bare string or number, a
+JSON or JSONL file none of whose rows can be read) prints `fail <path>: <reason>`;
 the run goes on and exits 1. A JSON or JSONL file with only some unreadable rows is still sent
 from its good rows, prints `fail <path>: line N could not be read … and left out; the rest is in
 the session` (or `row N` for a JSON list), records them in `meta.unparsed_lines` (JSONL line

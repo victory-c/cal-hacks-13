@@ -2,8 +2,10 @@
 // Built as a factory over an injected client/distiller/judge so worker.test.ts drives it with
 // fakes and no network. One bad session is logged and skipped; the loop never dies.
 
+import { createHash } from "node:crypto";
+
 import { timed } from "@canon/shared";
-import type { CanonEvent, Judge } from "@canon/shared";
+import type { CanonEvent, CapturedSession, Judge } from "@canon/shared";
 import type { CanonClient } from "./client.ts";
 import { decideFacts } from "./decide.ts";
 import type { Distiller } from "./engines/index.ts";
@@ -39,7 +41,7 @@ export function createHandler(opts: HandlerOptions): Handler {
   const debounceMs = opts.debounceMs ?? 3000;
   const startedAt = Date.now();
   const replayCutoff = startedAt - (opts.replayGraceMs ?? 5000);
-  const processed = new Set<string>(); // "<id>:<messages>" keys; a re-sent session is a no-op
+  const processed = new Set<string>(); // "<id>:<revision>" keys; an unchanged re-send is a no-op
   const pending = new Map<string, Pending>(); // live-mode debounce, one per session id
   const inflight = new Set<Promise<void>>();
 
@@ -96,17 +98,30 @@ export function createHandler(opts: HandlerOptions): Handler {
   return handler;
 }
 
+/**
+ * What the distiller reads from a session, hashed: every message (role, text, time) plus the
+ * principal, kind and external flag. Not the times or meta, which a re-send may restamp.
+ */
+export function sessionRevision(session: CapturedSession): string {
+  const content = [session.messages.map((m) => [m.role, m.content, m.at ?? null]), session.principal ?? null, session.kind ?? null, session.external ?? null];
+  return createHash("sha1").update(JSON.stringify(content)).digest("hex").slice(0, 12);
+}
+
 async function processSession(event: Captured, opts: HandlerOptions, processed: Set<string>): Promise<void> {
-  const { id, messages } = event.session;
-  const key = `${id}:${messages}`;
-  if (processed.has(key)) {
-    log(`session ${id}: already processed at ${messages} messages, skipping`);
-    return;
-  }
-  processed.add(key);
+  const { id } = event.session;
+  // Keyed by the fetched content, not the event's message count: a re-imported memo keeps its id
+  // and usually its one message, so a corrected file must still be distilled again. The check and
+  // the add run with no await between them, so two copies of one event distill once.
+  let key: string | undefined;
   try {
     const fetched = await timed(() => opts.client.getSession(id));
     const session = fetched.result;
+    key = `${id}:${sessionRevision(session)}`;
+    if (processed.has(key)) {
+      log(`session ${id}: unchanged since it was distilled (${session.messages.length} messages), skipping`);
+      return;
+    }
+    processed.add(key);
     log(`session ${id}: fetched ${session.messages.length} messages in ${fetched.ms} ms`);
 
     const distilled = await timed(() => opts.distiller.distill(session));
@@ -127,7 +142,7 @@ async function processSession(event: Captured, opts: HandlerOptions, processed: 
     log(`session ${id}: saved ${posted.result.saved.length}, retired ${posted.result.retired.length} in ${posted.ms} ms`);
   } catch (err) {
     // Let a later re-post of the same session retry; do not take the loop down.
-    processed.delete(key);
+    if (key) processed.delete(key);
     warn(`session ${id}: failed, skipping: ${errorMessage(err)}`);
   }
 }

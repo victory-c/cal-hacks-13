@@ -345,6 +345,30 @@ test("JSON rows that cannot be read are recorded, not silently dropped; none rea
   assert.match(item("chat/x.jsonl", '"a"\n"b"').error, /no readable message \(lines 1, 2 could not be read\)/, "valid JSON that is not a message is not a skip");
   assert.match(item("x.json", JSON.stringify({ title: "t", body: 7 })).error, /text is not a string or text blocks/);
   assert.deepEqual(item("x.json", JSON.stringify([{ role: "user", content: "   " }])), { skip: "no text" }, "a blank message is nothing lost");
+
+  // Greptile on 5cfeb87 ("Incomplete imports report success"): a JSON shape we cannot read is a
+  // parse failure, not a skip, or a run of them would exit 0 with content left behind.
+  assert.match(item("x.json", JSON.stringify({ messages: { m1: { role: "user", content: "LOI out" } } })).error, /`messages` is not a list/);
+  assert.match(item("x.json", JSON.stringify({ messages: "LOI out", body: "memo" })).error, /`messages` is not a list/, "never silently swapped for the body");
+  assert.match(item("x.json", JSON.stringify("Falcon memo as one JSON string")).error, /not an object or array/);
+  assert.match(item("x.json", "42").error, /not an object or array/);
+  assert.deepEqual(item("x.json", "null"), { skip: "JSON is null" }, "null holds nothing");
+  assert.equal(item("x.json", JSON.stringify({ messages: null, body: "memo" })).messages[0].content, "memo", "a null messages is absent");
+});
+
+test("CLI: a JSON file in a shape we cannot read fails the run (exit 1); valid JSON that holds nothing does not", async () => {
+  const dir = mkdtempSync(join(tmpdir(), "canon-shape-"));
+  writeFileSync(join(dir, "map.json"), JSON.stringify({ title: "Falcon", messages: { m1: { role: "user", content: "LOI out" } } }));
+  writeFileSync(join(dir, "string.json"), JSON.stringify("Falcon memo"));
+  writeFileSync(join(dir, "empty.json"), "{}");
+  const bad = await runCli([join(dir, "map.json"), join(dir, "string.json"), "--dry-run"]);
+  assert.equal(bad.code, 1, bad.stderr);
+  assert.match(bad.stderr, /fail {2}map\.json: JSON whose `messages` is not a list/);
+  assert.match(bad.stderr, /fail {2}string\.json: JSON is not an object or array/);
+  assert.match(bad.stderr, /2 files could not be read or parsed in full/);
+  const empty = await runCli([join(dir, "empty.json"), "--dry-run"]);
+  assert.equal(empty.code, 0, empty.stderr);
+  assert.match(empty.stderr, /skip {2}empty\.json: JSON object with no messages or body/);
 });
 
 test("AI session from text: speakers map to roles, 'You' never becomes the principal", () => {
@@ -618,6 +642,53 @@ test("principal: names and addresses resolve only through the directory; ids are
   ]) {
     assert.throws(() => principalDirectory(bad), why, JSON.stringify(bad));
   }
+});
+
+// Security rule (author attribution): a one-word alias is a name, so it resolves through the
+// directory like "Dan Okafor" does (Greptile on 5cfeb87: "Listed aliases fail to resolve"). An id
+// still means that principal, a one-word name two principals share still resolves to none, and a
+// word the directory does not list is still nobody.
+test("principal: a one-word alias in the directory resolves to its principal; ids still win; shared or unlisted words give none", () => {
+  const dir = principalDirectory([
+    { id: "dan", name: "Dan Okafor", aliases: ["Danny", "DO"] },
+    { id: "leo", name: "Leo Brandt" },
+    { id: "leo_c", name: "Leo Chen", aliases: ["Leo", "Chen"] },
+    { id: "priya", name: "Priya Raman", aliases: ["PR"] },
+    { id: "maya", name: "Maya Lindqvist", aliases: ["PR"] },
+  ]);
+  for (const [value, want] of [
+    ["Danny", "dan"],
+    [" danny ", "dan"],
+    ["DO", "dan"],
+    ["Danny (MD)", "dan"],
+    ["dan", "dan"],
+    ["Chen", "leo_c"],
+    ["Leo", "leo", "an id is an id, even when another principal lists it as an alias"],
+    ["PR", undefined, "a one-word alias two principals share resolves to none"],
+    ["danielle", undefined, "a word the directory does not list is nobody"],
+    ["nadia", undefined],
+  ]) {
+    assert.equal(resolvePrincipal(value, dir), want, `${JSON.stringify(value)}`);
+  }
+  assert.equal(resolvePrincipal("Danny", undefined), "danny", "no directory: an id-shaped word is taken as written, as before");
+
+  assert.equal(item("memos/x.md", "---\nauthor: Danny\n---\nb", { directory: dir }).principal, "dan", "front-matter alias keeps its author");
+  assert.equal("principal" in item("memos/x.md", "---\nauthor: PR\n---\nb", { directory: dir }), false, "a shared alias is nobody's, not the next source's");
+  assert.equal("principal" in item("memos/x.md", "---\nauthor: PR\n---\nb", { directory: dir, principal: "leo" }), false, "an unresolved author never falls through to --principal");
+  assert.equal(item("memos/x.md", "a note", { directory: dir, principal: "Danny" }).principal, "dan", "--principal takes an alias too");
+});
+
+test("CLI --principal takes a one-word alias from --principals; a shared one still exits 2", async () => {
+  const dir = mkdtempSync(join(tmpdir(), "canon-alias-"));
+  const file = join(dir, "principals.json");
+  writeFileSync(file, JSON.stringify([{ id: "dan", name: "Dan Okafor", aliases: ["Danny", "PR"] }, { id: "priya", name: "Priya Raman", aliases: ["PR"] }]));
+  writeFileSync(join(dir, "note.md"), "a note");
+  const ok = await runCli([join(dir, "note.md"), "--dry-run", "--principal", "Danny", "--principals", file]);
+  assert.equal(ok.code, 0, ok.stderr);
+  assert.equal(JSON.parse(ok.stdout)[0].principal, "dan");
+  const shared = await runCli([join(dir, "note.md"), "--dry-run", "--principal", "PR", "--principals", file]);
+  assert.equal(shared.code, 2);
+  assert.match(shared.stderr, /--principal "PR" is not in /);
 });
 
 // Security rule (scopes PRD): the principal is the author of every fact from the item, and a

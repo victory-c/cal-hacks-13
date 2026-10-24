@@ -6,7 +6,7 @@ import type { CanonEvent, CapturedSession, Fact, PostFactsBody } from "@canon/sh
 import type { CanonClient } from "./client.ts";
 import { DroidDistiller, HeuristicDistiller } from "./engines/index.ts";
 import { fakeFact, loadFixture, quiet } from "./test-helpers.ts";
-import { createHandler } from "./worker.ts";
+import { createHandler, sessionRevision } from "./worker.ts";
 
 function fakeClient(sessions: Record<string, CapturedSession>, hot: Fact[] = []) {
   const calls = { getSession: [] as string[], listFacts: 0, posts: [] as PostFactsBody[] };
@@ -44,11 +44,11 @@ describe("worker handler", () => {
 
     const { lines } = await quiet(async () => {
       await handler(captured(fixture.id, 8, true));
-      await handler(captured(fixture.id, 8, true)); // same "<id>:<messages>" key → no-op
+      await handler(captured(fixture.id, 8, true)); // same content → fetched, then a no-op
       await handler.settle();
     });
 
-    assert.deepEqual(calls.getSession, [fixture.id]);
+    assert.deepEqual(calls.getSession, [fixture.id, fixture.id], "the repeat is fetched to compare its content");
     assert.equal(calls.listFacts, 1);
     assert.equal(calls.posts.length, 1);
     assert.ok(calls.posts[0].facts.length >= 2);
@@ -56,7 +56,39 @@ describe("worker handler", () => {
     assert.ok(lines.some((l) => /heuristic distilled \d+ drafts in \d+ ms \(simulated\)/.test(l)), lines.join("\n"));
     assert.ok(lines.some((l) => /fake judged \d+ drafts against 1 hot facts in \d+ ms/.test(l)));
     assert.ok(lines.some((l) => /saved \d+, retired \d+ in \d+ ms/.test(l)));
-    assert.ok(lines.some((l) => l.includes("already processed at 8 messages")));
+    assert.ok(lines.some((l) => l.includes(`session ${fixture.id}: unchanged since it was distilled (${fixture.messages.length} messages), skipping`)), lines.join("\n"));
+  });
+
+  // Greptile on PR #12 ("Edited memos keep old facts"): a re-imported memo keeps its session id and
+  // its one message, so a key of id + message count skipped the corrected text for good.
+  test("a re-sent session with the same id and message count but new content is distilled again", async () => {
+    const memo: CapturedSession = {
+      id: "ses_0000me00",
+      client: "ingest",
+      started_at: "2026-10-22T13:00:00.000Z",
+      ended_at: "2026-10-22T13:00:00.000Z",
+      kind: "memo",
+      messages: [{ role: "user", content: "We decided to use Postgres for the fact store because it handles concurrent writes." }],
+    };
+    const sessions: Record<string, CapturedSession> = { [memo.id]: memo };
+    const { client, calls } = fakeClient(sessions);
+    const handler = createHandler({ client, distiller: new HeuristicDistiller(), judge: await judge(), live: false });
+    await quiet(async () => {
+      await handler(captured(memo.id, 1, true));
+      sessions[memo.id] = { ...memo, messages: [{ role: "user", content: "We decided to use SQLite for the fact store because the demo runs on one laptop." }] };
+      await handler(captured(memo.id, 1, true)); // corrected file, same id, same count
+      sessions[memo.id] = { ...sessions[memo.id], started_at: "2026-10-24T05:00:00.000Z", ended_at: "2026-10-24T05:00:00.000Z" };
+      await handler(captured(memo.id, 1, true)); // re-imported unchanged (only the times moved)
+      await handler.settle();
+    });
+    assert.equal(calls.getSession.length, 3);
+    assert.equal(calls.posts.length, 2, "the corrected text is distilled; the unchanged re-import is not");
+    assert.match(calls.posts[1].facts.map((f) => f.fact.statement).join("\n"), /SQLite/);
+
+    const base = sessionRevision(memo);
+    assert.equal(sessionRevision({ ...memo, title: "renamed", meta: { path: "x" }, started_at: "2027-01-01T00:00:00.000Z" }), base, "times, title and meta are not content");
+    assert.notEqual(sessionRevision({ ...memo, principal: "dan" }), base, "a new author is distilled again");
+    assert.notEqual(sessionRevision({ ...memo, external: true }), base);
   });
 
   test("a session.captured replayed from before the worker started is skipped, not re-distilled", async () => {
@@ -94,7 +126,9 @@ describe("worker handler", () => {
   });
 
   test("live mode debounces a burst of captures into one distill, and a final capture flushes immediately", async () => {
-    const { client, calls } = fakeClient({ [fixture.id]: fixture });
+    // The archive holds what the client sent last: four messages during the burst, all eight at the end.
+    const sessions: Record<string, CapturedSession> = { [fixture.id]: { ...fixture, messages: fixture.messages.slice(0, 4) } };
+    const { client, calls } = fakeClient(sessions);
     const handler = createHandler({ client, distiller: new HeuristicDistiller(), judge: await judge(), live: true, debounceMs: 5 });
     await quiet(async () => {
       await handler(captured(fixture.id, 2, false));
@@ -105,6 +139,7 @@ describe("worker handler", () => {
     assert.deepEqual(calls.getSession, [fixture.id], "three quick captures → one fetch");
     assert.equal(calls.posts.length, 1);
 
+    sessions[fixture.id] = fixture;
     await quiet(async () => {
       await handler(captured(fixture.id, 6, false)); // pending debounce…
       await handler(captured(fixture.id, 8, true)); // …cancelled by the final capture
