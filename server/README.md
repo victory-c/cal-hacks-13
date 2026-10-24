@@ -34,7 +34,7 @@ use, bad `JUDGE_PROVIDER`, broken `CANON_GRANTS_FILE`) are one `[server] ...` li
 | `POST\|GET\|DELETE /mcp` | bearer | MCP Streamable HTTP, stateless: fresh `McpServer` per request, scoped to the token's grant |
 | `GET /api/groups` | moderator, internal | `GroupsResponse` (triage reads it to file facts) |
 | `GET\|POST /api/principals`, `POST /api/principals/:id/tier` | moderator | People, tiers and agents. Adding a member takes a `rule` and builds their scope (exclusions applied in code) |
-| `GET\|PUT /api/scope-rules/:principal` | moderator; the creator for their own agents | A member never reads their own rule (the exclusions are never shown). `PUT` rebuilds the scope — **stub: removal only** until the Moss + Jev builder lands |
+| `GET\|PUT /api/scope-rules/:principal` | moderator; the creator for their own agents | A member never reads their own rule (the exclusions are never shown). `PUT` rebuilds the scope through the full pipeline and cascades to the member's agents |
 | `GET /api/scopes/:principal`, `GET /api/scopes/:principal/facts` | moderator, internal | The fixed fact-id list, and the facts themselves (an agent's sandbox) |
 | `POST /api/agents`, `DELETE /api/agents/:id` | any person for themselves; delete also moderator | The agent's scope is built from its creator's scope only and checked in code to be a subset |
 | `GET\|POST /api/quarantine`, `POST /api/quarantine/:id/release` | GET + release moderator; POST internal | Held captures; release is 409 when already released |
@@ -48,9 +48,22 @@ or the client id itself (`maya=dev-maya` → `maya`). Moderator routes answer ev
 one constant `403 { "error": "moderators only" }` **before anything is looked up**, so the same bytes
 come back whether the target exists or not — no refusals that reveal, no existence signals. World
 state (people, rules, scopes, quarantine, audit) loads from `../distiller/fixtures/world/` into
-memory per server; facts come from the regular store. Scope membership is fixture-seeded and a
-rebuild only removes facts; the real scope builder (exclusions → Moss → Jev) is a later task, so
-**do not claim measured barrier performance from these stubs**.
+memory per server; facts come from the regular store.
+
+**Scope builder and living scopes (A4+A6, `src/scopes.ts` + `src/scope-judge.ts`).** A build is:
+excluded groups (prefix) and labels removed **in code** → one retriever query for the task, result
+re-filtered against the post-exclusion pool in code → one batched `judge.ask()` per Jev decision
+(group-under-exclusion, then per candidate fact-under-exclusion + helps-with-task), thresholds from
+`TRIAGE_THRESHOLDS` applied in code, a "maybe" on an exclusion counts as excluded → a fixed list of
+fact ids. Every stage is a `scope.stage` event with its **measured** time; every build writes a
+`scope.built` audit row. A member's own facts join unless an exclusion removes them; an agent's base
+is its creator's scope only and the subset is re-checked right before the write (violation = loud
+500). On `fact.saved`, the fact joins each scope that clears the same checks (inbox facts join
+none); on `fact.retired` it leaves every scope — both audited (`fact.joined_scope` /
+`fact.left_scope`). Without credentials the keyword retriever stands in for Moss and the fake judge
+answers the scope questions from keyword overlap (`simulatedScopeAnswers`); both are labelled
+simulated in the audit detail. **Benchmark numbers still require the real providers before any
+measured barrier-performance claim.**
 
 Auth is `Authorization: Bearer <token>`; tokens map to clients via `CANON_CLIENT_TOKENS`. A missing or
 unknown token is `401 { error }` (on the two "optional" routes a *missing* token gives the public view
@@ -93,8 +106,11 @@ for the distiller. `src/seed.ts` copies `fixtures/` (sample data, see `fixtures/
 
 ## Stub vs real, in one list
 
-- **Simulated:** the `fake` judge (no keys), the `keyword` retriever (no Moss creds). Both are named
-  in `GET /health` and in the start-up log so the dashboard can label them.
+- **Simulated:** the `fake` judge (no keys; for scope builds it answers from keyword overlap, see
+  `src/scope-judge.ts`), the `keyword` retriever (no Moss creds). Both are named in `GET /health`,
+  in the start-up log and in the `scope.built` audit detail so the dashboard can label them.
+- **Stub:** handoff relevance (`POST /api/handoff`) is keyword overlap inside the fixed scope, not
+  Moss + Jev yet (task A7).
 - **Real:** everything else above. Latency numbers in `context.served` (`latency_ms`, `retrieval_ms`,
   `judge_ms`) are wall-clock measurements; `tokens` is `estimateTokens()` and must be shown as "est.".
 

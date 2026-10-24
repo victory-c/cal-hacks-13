@@ -19,7 +19,9 @@ export interface Grant {
 /** Internal workers that run on your own machine, not AI clients. Only these may write `private/`. */
 export const INTERNAL_CLIENTS = ["distiller", "dispatcher"] as const;
 
-const ALL_FOLDERS: Folder[] = ["career", "projects", "team", "private", "inbox"];
+// The scaffold's folders plus the synthetic finance world's top groups: triage files facts into
+// deal/falcon, market/public, … so the distiller's grant must cover them.
+const ALL_FOLDERS: Folder[] = ["career", "projects", "team", "private", "inbox", "deal", "market", "desk", "firm", "research"];
 
 /** Demo defaults. The server loads these unless CANON_GRANTS_FILE points at a JSON override. */
 export const DEMO_GRANTS: readonly Grant[] = [
