@@ -1,6 +1,6 @@
 {
   "project": "Bullwark",
-  "updated": "2026-10-24T15:52:47Z",
+  "updated": "2026-10-24T16:10:31Z",
   "team": [
     {
       "id": "A",
@@ -100,7 +100,7 @@
       "priority": "must",
       "state": "done",
       "title": "Fixture-backed REST and MCP stubs for the finance control room",
-      "note": "server/src/scopes.ts: all scopes routes live with real tier gates (neutral 403 before any lookup), code-level exclusion filtering, agent-subset check, audit + events. World state in distiller/fixtures/world/, 12 world facts in server/fixtures/. Stubs: fixture-seeded scopes, removal-only rebuilds, keyword handoff relevance — Moss/Jev builder still open (A4/A7)."
+      "note": "server/src/scopes.ts: all scopes routes live with real tier gates (neutral 403 before any lookup), code-level exclusion filtering, agent-subset check, audit + events. World state in distiller/fixtures/world/, 12 world facts in server/fixtures/. Stubs: fixture-seeded scopes, removal-only rebuilds, keyword handoff relevance — Moss/Jev builder still open (A4/A7). Follow-up on b/integration-v2 (found running lane B end to end): tokenless and member views of GET /api/facts and /events no longer show scope groups or deal text (full events for internal clients and moderators only); the distiller writes and reads the server's listed groups; the dispatcher may GET a scope rule (as the contract says)."
     },
     {
       "id": "A3",
@@ -235,7 +235,7 @@
       "priority": "must",
       "state": "doing",
       "title": "Droid agent runs inside the creator's scope: sandbox of scope facts, steps and files",
-      "note": "Reworked on b/dispatch (PR #9) for scopes: runs an agent profile from its rule's task and its server-built scope (one fact file per scope fact), brief via handoff, outputs saved as the creator's memory; sides, entitlements and exit check removed. Greptile review addressed: a cancel or narrowing heard while the outputs are posted aborts the post and is honoured (cancelled, or restart); a deletion during the rule read never starts the run. Offline --demo built from fixtures/world by group (simulated). Remaining: lane A's scope-rule, scope-facts and sessions routes for the dispatcher token (and a server-side refusal of a save whose facts left the scope); one real droid exec run (Q1 gate 11:00)."
+      "note": "Integrated on b/integration-v2 with triage, ingest and lane A's A2 stubs, and verified end to end (fake runtime, simulated): Leo dispatches agt_leodesk → scope rule, scope facts, handoff, 2 steps, outputs saved as Leo's memory and triaged; Dan dispatching Leo's agent gets 403. npm run dev now starts the dispatcher. Windows: POSIX-only tests skip with a reason; LOCKED folder modes do not hold there, so run real Droid on macOS. Remaining: one real droid exec run (no FACTORY_API_KEY on Henry's machine); a server-side refusal of a save whose facts left the scope (lane A)."
     },
     {
       "id": "B4",
@@ -253,7 +253,7 @@
       "priority": "must",
       "state": "doing",
       "title": "Jev triage: keep, group and labels, instructions (quarantine) and relation to existing facts",
-      "note": "Reworked on b/triage (PR #10) for the scopes PRD, merged with the group-suggesting writer (#17, #18), and tested offline: the worker reads GET /api/groups once per item and passes the same list to the writer (a hint) and to triage; one batched Jev ask per item (inject, keep, group over the server's groups + new + unsure, labels, relation); facts carry group, labels, author, happened; unsure, new, alias/Jev disagreement and cross-group relations go to inbox; exact duplicates of hot or cold facts keep the stored group, labels, content and source; injections (sends to an outside address included, even in a long item's cut middle) go to POST /api/quarantine. Without /api/groups every fact goes to inbox. Remaining: lane A's /api/groups, /api/quarantine and /api/events routes, a distiller grant that writes every group, parseSession keeping principal/kind/external, then a run with a real Jev/Claude judge."
+      "note": "Merged into b/integration-v2 with the ingest revision ledger (#19) and verified end to end against A2 (simulated judge): the world's chat, memo, transcript and news filed into groups, the lawyers' email quarantined (moderators only). Fixed there: a draft sent to inbox no longer retires a fact in another group (an agent's restatement had pushed a market/public fact cold). Note: the Nimbus alias of deal/falcon keeps public Nimbus news from auto-filing to market/public (inbox or deal/falcon); the demo's public facts are seeded. Remaining: a run with a real Jev/Claude judge (no keys on Henry's machine)."
     },
     {
       "id": "B6",
@@ -325,7 +325,7 @@
       "priority": "must",
       "state": "doing",
       "title": "Claude fact writer with source, author, dates and history",
-      "note": "Scopes follow-up on b/writer-scopes: the writer suggests a group from the list passed with each item (ids only, schema enum, never invented) and labels made of the item's own words; drafts naming an alias or group id the item never mentions are dropped; the heuristic guesses a group from aliases (simulated); world README rewritten. Remaining: the worker and CLI must pass GET /api/groups (fixtures/world/groups.json offline) into distill(); triage must weigh the alias hint."
+      "note": "Group-suggesting writer merged (#17, #18); the worker and CLI pass GET /api/groups (fixtures/world/groups.json offline) into distill() and triage weighs the alias hits (b/integration-v2). Remaining: one live run of the Claude writer (no ANTHROPIC_API_KEY on Henry's machine)."
     },
     {
       "id": "B18",
@@ -334,16 +334,16 @@
       "priority": "must",
       "state": "doing",
       "title": "Route newly in-scope facts and scope narrowing to agent inboxes",
-      "note": "On b/dispatch (PR #9): facts that join an agent's scope reach it at its next step after one batched Jev ask, including facts missed during an event-stream gap (found on scope reads; declines are remembered). A narrowed scope restarts the run in a fresh folder. Waiting on lane A's scope routes."
+      "note": "Integrated on b/integration-v2 against A2's scope routes; unit-tested (routing.test.ts, dispatcher.test.ts). Remaining: exercise a live scope.updated (rule edit) during a run end to end."
     },
     {
       "id": "B19",
       "owner": "B",
       "milestone": "M1",
       "priority": "must",
-      "state": "doing",
+      "state": "done",
       "title": "Ingest client for synthetic memos, chat and meeting notes",
-      "note": "Ingest merged into b/contract-v2 (#12). Follow-up on b/ingest-followup: 24-hex session ids so separate imports never collide, and per-session ordering in the worker so an older revision never saves over a correction. Remaining: a run on Henry's official world."
+      "note": "Ingest client merged (#12, #19); last follow-up (skip replaced revisions) on b/integration-v2. Verified there: the five world items post to the A2 server and are distilled and triaged. ingest now has a no-folder demo grant and its token is in .env.example; paths print with forward slashes and the CLI exits cleanly on Windows."
     },
     {
       "id": "B20",
