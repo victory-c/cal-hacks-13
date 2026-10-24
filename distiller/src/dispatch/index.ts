@@ -1,8 +1,9 @@
 // Dispatcher entrypoint (`npm run dispatch -w distiller`). With no arguments it is the worker: it
-// subscribes to the server's /events as the internal `dispatcher` client, starts agent runs on
-// dispatch.requested and routes fact.saved / deal.status_changed / entitlement.changed to the
-// running agents' inboxes. With arguments it is the offline CLI (see cli.ts):
-//   npm run dispatch -w distiller -- --by dan "Prep Falcon board materials and update our logistics sector note"
+// subscribes to the server's /events as the internal `dispatcher` client, runs an agent on
+// dispatch.requested, and routes scope.updated (new facts, narrowed scopes) and principal.changed
+// (an agent deleted) to the running agents' inboxes. With arguments it is the offline CLI (see
+// cli.ts):
+//   npm run dispatch -w distiller -- --demo
 
 import { join } from "node:path";
 
@@ -14,7 +15,6 @@ import { createDispatchClient, subscribe } from "./client.ts";
 import { Dispatcher } from "./dispatcher.ts";
 import { createDispatchHandler, fileLedger } from "./handler.ts";
 import { errorMessage, log, warn } from "./log.ts";
-import { createPlanner } from "./plan.ts";
 import { simulatedRoutingAnswer } from "./routing.ts";
 import { createRunner, resolveRuntime } from "./runners/index.ts";
 import { recordsRoot } from "./sandbox.ts";
@@ -48,11 +48,10 @@ function startWorker(): void {
     const runner = createRunner(runtime);
     log(`runtime: ${runtime}${runner.simulated ? " (simulated)" : ""}`);
     let judge: Judge = createJudge();
-    // The fake judge's keyword rule would cancel every agent on any "decided" fact; routing
-    // brings its own simulated answers (word overlap, explicit stop words).
+    // Offline, routing brings its own simulated answers (word overlap between a fact and a task).
     if (judge.name === "fake") judge = new FakeJudge({ override: simulatedRoutingAnswer });
     const client = createDispatchClient({ baseUrl, token });
-    const dispatcher = new Dispatcher({ client, runner, planner: createPlanner(), briefWriter: createBriefWriter() });
+    const dispatcher = new Dispatcher({ client, runner, briefWriter: createBriefWriter() });
     // The request ids this worker ran, next to the runs' records: a restart inside the replay
     // grace does not run a request again.
     const handler = createDispatchHandler({ dispatcher, client, judge, ledger: fileLedger(join(recordsRoot(), "dispatched.log")) });

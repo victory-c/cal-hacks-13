@@ -37,14 +37,14 @@ const thinking = { type: "thinking", thinking: "", signature: "sig-abc" };
 describe("ClaudeRunner tool loop", () => {
   test("lists, reads and writes under out/ only, round-trips thinking, sums real usage, ends on finish", async () => {
     const sb = createSandbox("run_00000c01", { root });
-    writeFileSync(join(sb.dir, "facts.md"), "# Facts for this task: information only\n> Freight demand drives the note.\n");
+    writeFileSync(join(sb.factsDir, "fct_0000f001.md"), "---\nid: fct_0000f001\nstatement: Freight demand drives the note.\n---\n");
     const api = await fakeAnthropic([
       {
         content: [
           thinking,
           { type: "text", text: "Looking around." },
           { type: "tool_use", id: "tu_1", name: "list_files", input: { path: "." } },
-          { type: "tool_use", id: "tu_2", name: "read_file", input: { path: "facts.md" } },
+          { type: "tool_use", id: "tu_2", name: "read_file", input: { path: "facts/fct_0000f001.md" } },
         ],
         stop_reason: "tool_use",
         usage: { input_tokens: 500, output_tokens: 50 },
@@ -70,8 +70,8 @@ describe("ClaudeRunner tool loop", () => {
         runId: "run_00000c01",
         n: 2,
         maxSteps: 4,
-        role: "research_analyst",
-        side: "public",
+        agent: "agt_priya_research",
+        name: "Priya's research agent",
         task: "Update our logistics sector note",
         dir: sb.dir,
         prompt: "Step 2 of at most 4.",
@@ -134,7 +134,7 @@ describe("ClaudeRunner tool loop", () => {
     const api = await fakeAnthropic([{ content: [], stop_reason: "refusal", stop_details: { category: "cyber" } }]);
     try {
       await withEnv({ ANTHROPIC_API_KEY: "sk-test", ANTHROPIC_BASE_URL: api.url }, async () => {
-        const req = { runId: "r", n: 1, maxSteps: 2, role: "deal_analyst", side: "deal_falcon", task: "t", dir: sb.dir, prompt: "p", signal: new AbortController().signal, timeoutMs: 5000, emit: () => {} } as const;
+        const req = { runId: "r", n: 1, maxSteps: 2, agent: "agt_dan_deal", name: "Dan's deal analyst", task: "t", dir: sb.dir, prompt: "p", signal: new AbortController().signal, timeoutMs: 5000, emit: () => {} } as const;
         await assert.rejects(new ClaudeRunner().step({ ...req }), /declined \(category: cyber\)/);
       });
     } finally {

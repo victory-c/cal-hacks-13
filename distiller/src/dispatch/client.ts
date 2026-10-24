@@ -1,27 +1,26 @@
-// The dispatcher's own client for the Canon server, separate from the distiller's (../client.ts)
-// because it speaks the v2 routes and authenticates as the internal `dispatcher` client
-// (CANON_TOKEN_DISPATCHER). The dispatcher never imports server code: slices, exit checks,
-// agent principals, deals and entitlements all come over the REST contract in
-// shared/src/types/api.ts, and every run change goes out through POST /api/events.
+// The dispatcher's own client for the Bullwark server, separate from the distiller's (../client.ts)
+// because it speaks the scopes routes and authenticates as the internal `dispatcher` client
+// (CANON_TOKEN_DISPATCHER). The dispatcher never imports server code: an agent's scope rule, its
+// scope facts and its handoff come over the REST contract in shared/src/types/api.ts, every run
+// change goes out through POST /api/events, and an agent's outputs go back in as its creator's
+// memory through POST /api/sessions.
 //
-// Henry's v2 routes may not exist yet (today's server is v1). A v2 route that answers 404, or a
-// 401 because the server does not know the dispatcher token, is logged ONCE per route and the
-// call degrades to a safe default (see each method), so the worker keeps running. Anything
-// else (500, network) throws and the caller decides.
+// Henry's scope routes may not exist yet. A route that answers 404, or a 401 because the server
+// does not know the dispatcher token, is logged ONCE per route and the call degrades to the safe
+// default named on each method (never a wider view: no scope means no facts), so the worker keeps
+// running. Anything else (500, network) throws and the caller decides.
 
 import { ROUTES, subscribeEvents } from "@canon/shared";
 import type {
   CanonEvent,
-  Deal,
-  DealsResponse,
-  Entitlement,
-  EntitlementsResponse,
-  ExitCheckBody,
-  ExitCheckResult,
+  CapturedSession,
+  Fact,
   HandoffBody,
   HandoffResult,
-  Principal,
+  PostSessionResponse,
   PublishEventBody,
+  ScopeFactsResponse,
+  ScopeRule,
 } from "@canon/shared";
 import { errorMessage, warn } from "./log.ts";
 
@@ -30,22 +29,20 @@ const TIMEOUT_MS = 15_000;
 /** One RELAYED_EVENTS event, as POST /api/events takes it. */
 export type RelayedEvent = PublishEventBody["event"];
 
-/** What the dispatcher, the planner and the worker need from the server. Tests fake this. */
+/** What the dispatcher and the worker need from the server. Tests and the offline world fake this. */
 export interface DispatchClient {
-  /** True for the offline world (offline.ts). Logged as simulated. */
+  /** True for the offline world (offline.ts). Logged and labelled as simulated. */
   readonly simulated: boolean;
-  /** POST /api/handoff as the agent's principal. null when the route is missing: an empty slice. */
+  /** GET /api/scope-rules/:principal. null when there is none (or no route): the agent cannot run. */
+  getScopeRule(principal: string): Promise<ScopeRule | null>;
+  /** GET /api/scopes/:principal/facts: every fact in the principal's scope. null when the route is missing: no facts. */
+  getScopeFacts(principal: string): Promise<Fact[] | null>;
+  /** POST /api/handoff as the agent's principal (the brief's facts). null when the route is missing. */
   handoff(body: HandoffBody): Promise<HandoffResult | null>;
-  /** POST /api/exit-check. null when the route is missing: the caller fails closed. */
-  exitCheck(body: ExitCheckBody): Promise<ExitCheckResult | null>;
   /** POST /api/events. A missing route drops the event (the dispatcher logs it locally). */
   publishEvent(event: RelayedEvent): Promise<void>;
-  /** POST /api/principals for an agent (acts_for + side). A missing route is skipped. */
-  registerPrincipal(principal: Principal): Promise<void>;
-  /** GET /api/entitlements. A missing route is [] (deny by default: every run goes public). */
-  getEntitlements(): Promise<Entitlement[]>;
-  /** GET /api/deals. A missing route is []. */
-  getDeals(): Promise<Deal[]>;
+  /** POST /api/sessions: an agent's outputs, as its creator's memory. null when the route refuses us. */
+  postSession(session: CapturedSession): Promise<PostSessionResponse | null>;
 }
 
 export class DispatchApiError extends Error {
@@ -68,19 +65,20 @@ export function createDispatchClient(opts: { baseUrl: string; token: string }): 
   const headers = { authorization: `Bearer ${opts.token}`, accept: "application/json" };
   const warned = new Set<string>();
 
-  const unavailable = (method: string, path: string, status: number) => {
-    const key = `${method} ${path}`;
+  /** Logged once per route; `route` is the route's pattern, never a principal id. */
+  const unavailable = (method: string, route: string, status: number) => {
+    const key = `${method} ${route}`;
     if (warned.has(key)) return;
     warned.add(key);
     // Never the token's value: worker logs are read by people who should not hold it.
     const why =
       status === 401
         ? "the server does not know the dispatcher token (the server's CANON_CLIENT_TOKENS needs a dispatcher=<token> pair matching CANON_TOKEN_DISPATCHER)"
-        : "the server has no such route yet (v1 server?)";
-    warn(`${key}: HTTP ${status}, ${why}; degrading and carrying on (logged once)`);
+        : "the server has no such route yet, or nothing there";
+    warn(`${key}: HTTP ${status}, ${why}; degrading safely and carrying on (logged once)`);
   };
 
-  async function call<T>(method: "GET" | "POST", path: string, body?: unknown): Promise<T | typeof UNAVAILABLE> {
+  async function call<T>(method: "GET" | "POST", path: string, route: string, body?: unknown): Promise<T | typeof UNAVAILABLE> {
     const url = base + path;
     let res: Response;
     try {
@@ -95,7 +93,7 @@ export function createDispatchClient(opts: { baseUrl: string; token: string }): 
     }
     const text = await res.text();
     if (res.status === 404 || res.status === 401) {
-      unavailable(method, path, res.status);
+      unavailable(method, route, res.status);
       return UNAVAILABLE;
     }
     if (!res.ok) throw new DispatchApiError(method, url, res.status, text);
@@ -107,30 +105,30 @@ export function createDispatchClient(opts: { baseUrl: string; token: string }): 
     }
   }
 
+  const id = (principal: string) => encodeURIComponent(principal);
+
   return {
     simulated: false,
-    async handoff(body) {
-      const r = await call<HandoffResult>("POST", ROUTES.handoff, body);
-      return r === UNAVAILABLE ? null : r;
+    async getScopeRule(principal) {
+      const r = await call<ScopeRule>("GET", `${ROUTES.scopeRules}/${id(principal)}`, `${ROUTES.scopeRules}/:principal`);
+      return r === UNAVAILABLE || !r ? null : r;
     },
-    async exitCheck(body) {
-      const r = await call<ExitCheckResult>("POST", ROUTES.exitCheck, body);
-      return r === UNAVAILABLE ? null : r;
+    async getScopeFacts(principal) {
+      const r = await call<ScopeFactsResponse>("GET", `${ROUTES.scopes}/${id(principal)}/facts`, `${ROUTES.scopes}/:principal/facts`);
+      if (r === UNAVAILABLE) return null;
+      return Array.isArray(r?.facts) ? r.facts : [];
+    },
+    async handoff(body) {
+      const r = await call<HandoffResult>("POST", ROUTES.handoff, ROUTES.handoff, body);
+      return r === UNAVAILABLE || !r ? null : r;
     },
     async publishEvent(event) {
       const payload: PublishEventBody = { event };
-      await call("POST", ROUTES.publish, payload);
+      await call("POST", ROUTES.publish, ROUTES.publish, payload);
     },
-    async registerPrincipal(principal) {
-      await call("POST", ROUTES.principals, principal);
-    },
-    async getEntitlements() {
-      const r = await call<EntitlementsResponse>("GET", ROUTES.entitlements);
-      return r === UNAVAILABLE ? [] : (r?.entitlements ?? []);
-    },
-    async getDeals() {
-      const r = await call<DealsResponse>("GET", ROUTES.deals);
-      return r === UNAVAILABLE ? [] : (r?.deals ?? []);
+    async postSession(session) {
+      const r = await call<PostSessionResponse>("POST", ROUTES.sessions, ROUTES.sessions, session);
+      return r === UNAVAILABLE ? null : (r ?? { id: session.id, updated: false });
     },
   };
 }
@@ -138,7 +136,7 @@ export function createDispatchClient(opts: { baseUrl: string; token: string }): 
 /**
  * GET /events through the shared SSE client (reconnects with backoff, never throws). Returns
  * unsubscribe(). The server replays its last events to every new subscriber; the worker skips
- * those by time (see index.ts).
+ * those by time (see handler.ts).
  */
 export function subscribe(
   opts: { baseUrl: string; token: string },

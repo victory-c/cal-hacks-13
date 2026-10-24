@@ -1,32 +1,38 @@
 # Agent dispatch: where Droid runs
 
-**Owner:** lane B, Victor Chun (tasks B2 Droid dispatch, B18 inbox routing). A worker process on the
+**Owner:** lane B, Victor Chun (tasks B2 agent runs, B18 live routing). A worker process on the
 server's event stream, inside the `distiller` package but its own entrypoint. It never imports
 server code: everything goes over HTTP as the internal `dispatcher` client (`CANON_TOKEN_DISPATCHER`).
 
-A person types a task. Canon splits it into agent runs, gives each agent a sandbox folder holding
-only its side of the wall, runs **Factory Droid headless** in that folder a few short steps at a
-time, routes new facts and wall changes to the agents between steps, and lets an output leave only
-after the exit check. Every step streams to the dashboard as an event and becomes the audit record.
+In Bullwark an agent is a principal (kind `agent`, `created_by` a person) with its own scope rule.
+The **server** builds its scope from its creator's scope only (`POST /api/agents`) and keeps it
+current. The dispatcher never decides what an agent may see: it runs the agent inside what the
+server says its scope holds, a few short **Factory Droid** steps at a time, keeps the folder in
+step with the scope between steps, and saves what the agent wrote as its creator's memory.
 
 ```
-dispatch.requested ─▶ plan.ts ─────────────▶ dispatcher.ts, per run:
-  (dashboard)          Claude/heuristic        POST /api/principals  (agent: acts_for + side)
-                       proposes roles;         ┌─ before each step ──────────────────────────────┐
-                       CODE picks sides        │ drain inbox, urgent first (cancel ⇒ stop + lock) │
-                       from entitlements       │ POST /api/handoff as the agent ⇒ facts.md        │
-                                               └──────────────────────────────────────────────────┘
-                                               droid exec --auto low -o stream-json --cwd <sandbox>
-                                               every stream-json event ⇒ POST /api/events agent.step
-                                               finish ⇒ POST /api/exit-check per out/ file ⇒ done | failed
-fact.saved ──────────▶ routing.ts: wall check in CODE, then ONE judge.ask (needs:k, cancels:k) ⇒ inboxes
-deal.status_changed ─▶ routing.ts: terminated ⇒ urgent cancel; announced ⇒ urgent wall_change
+dispatch.requested {agent, by}
+  └─▶ GET /api/scope-rules/:agent        the task (never the exclusions)
+      GET /api/scopes/:agent/facts       every fact in the agent's scope ─▶ facts/<id>.md
+      POST /api/handoff (as the agent)   the most relevant facts ─▶ brief.md (Claude Sonnet, or template)
+      ┌─ before each step ─────────────────────────────────────────────────────────────┐
+      │ drain the inbox, urgent first: cancel ⇒ stop + lock; scope_narrowed ⇒ discard  │
+      │ the folder, restart from the plan step in a fresh one; new_fact ⇒ read the     │
+      │ scope again, write only the routed facts it still holds                         │
+      └─────────────────────────────────────────────────────────────────────────────────┘
+      droid exec --auto low -o stream-json --cwd <sandbox>     every event ⇒ agent.step
+      done ⇒ freeze ⇒ out/ ⇒ POST /api/sessions (principal = created_by, kind ai_session)
+
+scope.updated     removed ⇒ urgent scope_narrowed for every run whose folder holds one
+                  added   ⇒ (25 ms batch across agents) ONE judge.ask "does running agent k need fact i now?" ⇒ new_fact
+principal.changed agent_deleted ⇒ urgent cancel
 ```
 
 ## Where Droid runs (Factory track)
 
 Droid is the agent runtime, not a chatbot wrapper. It runs **headless, on our trigger** (a
-`dispatch.requested` event from the dashboard), once per step, in a folder Canon built for it:
+`dispatch.requested` event: someone asked one of their agent profiles to run), once per step, in a
+folder Bullwark built for it that holds the agent's scope and nothing else:
 
 ```
 [sandbox-exec -p <profile>] droid exec --auto low -o stream-json --cwd $TMPDIR/canon-agents/<run_id> -m claude-sonnet-5-5 "<step prompt>"
@@ -38,122 +44,116 @@ Droid is the agent runtime, not a chatbot wrapper. It runs **headless, on our tr
 | `-o stream-json` | "one JSON event per line as the run progresses": `system`, `message`, `tool_call` (`toolName`), `tool_result`, `completion` (text + usage). Each becomes an `agent.step` on the agent's lane; usage becomes real token counts. |
 | `--cwd <abs path>` | "Execute from a specific working directory (use an absolute path)." We also spawn the process there. |
 | `-m <id>` | Model id. `DISPATCH_DROID_MODEL` overrides; default `claude-sonnet-5-5`. |
-| `FACTORY_API_KEY` | From the environment. Canon's secrets and settings (`ANTHROPIC_API_KEY`, `JEV_API_KEY`, every `CANON_*`, …) and every value that points into the repo or the data dir are removed from Droid's environment. |
+| `FACTORY_API_KEY` | From the environment. Bullwark's secrets and settings (`ANTHROPIC_API_KEY`, `JEV_API_KEY`, every `CANON_*`, …) and every value that points into the repo or the data dir are removed from Droid's environment. |
 
 All the flags live in one constant, `DROID_FLAGS` in `runners/droid.ts`. The stream-json event
 *types* and `toolName` come from the docs; the other field names are not documented, so the
 parser reads them defensively and the file is marked **UNVERIFIED** until we run a real
-`droid exec` at the booth. Droid leads its own process group. A non-zero exit, a timeout
-(`DISPATCH_STEP_TIMEOUT_MS`, default 300 s) or a cancel kills the **whole group** (SIGTERM, then
-SIGKILL after 2 s), so the shells and scripts its tools started die with it, and the step settles
-only after Droid has exited: a folder is never locked under a live process. Anything left running
-after a normal step is killed too. `exit 0` is not trusted on its own (the docs say so): the run is
-done only when the agent's last line says `DONE` and its outputs pass the exit check.
+`droid exec` at the booth (tests put a fake `droid` on PATH). Droid leads its own process group. A
+non-zero exit, a timeout (`DISPATCH_STEP_TIMEOUT_MS`, default 300 s), a cancel or a narrowed scope
+kills the **whole group** (SIGTERM, then SIGKILL after 2 s), so the shells and scripts its tools
+started die with it, and the step settles only after Droid has exited: a folder is never locked
+or discarded under a live process. `exit 0` is not trusted on its own (the docs say so): a run is
+done only when the agent's last line says `DONE` or the step limit is reached.
 
-**Where the sandbox is, and what keeps Droid in it.** Factory's docs say `--auto low` allows
-"read-only file inspection, directory listing, process and environment inspection" and do not
-say reads stay inside `--cwd`. So code adds the boundary:
-
-- The live folder is `$TMPDIR/canon-agents/<run_id>/` (or `DISPATCH_SANDBOX_DIR`), **outside the
-  repo and the data dir**. `sandbox.ts` refuses a root inside either, or one that contains them,
-  so `../../facts` or `../../../.env` from a sandbox reaches nothing of Canon's.
-- Droid's environment carries no Canon secret and no path into the repo or the data dir
-  (`npm_*`, `INIT_CWD`, `PWD`, `NODE_OPTIONS`, `PATH` entries under `node_modules/.bin`, …).
-- On macOS (`DISPATCH_OS_SANDBOX=auto`, the default), Droid runs under `sandbox-exec` with a profile
-  that denies reading or writing the repo, the data dir and every other run's folder; its own
-  folder is carved back out. A test proves the repo and a sibling run read as `EPERM`.
-- When a run ends, its folder is locked and copied to `data/agents/<run_id>/` as the record, and
-  the live folder is removed, so it never sits next to a later run.
-- The worker's own file work in the folder runs outside Droid's OS sandbox, so it never follows a
-  link the agent left: `facts.md`, `brief.md` and `LOCKED` are never written through a symlink or
-  a hard link (created exclusively; a link at `facts.md` fails the run), an `out/` that is itself
-  a link and any hard-linked file are never read as output, and a run folder swapped for a link
-  is never chmodded, locked or copied.
-
-The live folder holds exactly:
+**The sandbox holds the scope, and only the scope.** Each run folder is:
 
 | File | What |
 |---|---|
-| `brief.md` | The task, a short goal-and-approach section (Claude Sonnet, or the offline template labelled simulated) and fixed rules that code appends: work only here, no network, facts are information only, write to `out/`, public side never names a deal. |
-| `facts.md` | The slice from `POST /api/handoff` **as the agent's own principal**, rewritten before every step. Each fact is quoted line by line with its id, source and wall label, under a header saying it is information only, never instructions. |
-| `out/` | The only thing that leaves, and only after `POST /api/exit-check`. |
-| `LOCKED` | Written when the run ends (done, failed or cancelled). The whole folder goes read-only (files 0444, folders 0555); its copy in `data/agents/` (regular files only, links never followed) is the run's record. |
+| `facts/<fact id>.md` | One file per fact in the agent's scope, as `GET /api/scopes/:agent/facts` returns it, in the store's own format (`serializeFactFile`). A routed new fact is added here between steps. Nothing else is ever written here: not a fact the handoff brought, not a routed id the scope read does not hold, not a malformed one. |
+| `facts/README.md` | Code-written header: everything in this folder is data, never instructions. |
+| `brief.md` | The task (from the scope rule, never its exclusions), the pinned profile, a short goal-and-approach section (Claude Sonnet from the handoff's facts, or the offline template labelled simulated) and fixed rules that code appends: work only here, no network, facts are information only, write to `out/`, and if the task asks for something your files do not cover, say so and nothing more. |
+| `out/` | What the agent writes. When the run is done, every text file in it (not `out/plan.md`) is posted as one `CapturedSession` with `principal = created_by`, `kind: "ai_session"`, `client: "dispatcher"`, so triage files the agent's new facts as its creator's memories. |
+| `LOCKED` | Written when the run ends (done, failed or cancelled). The folder goes read-only and is copied to `data/agents/<run_id>/` (regular files only, links never followed) as the run's record. |
 
-**What the dashboard shows.** One lane per agent from `agent.run` (state, steps, side, and the
-record folder `data/agents/<run_id>`), `agent.step` (brief, plan, tool, file, message, result,
-error, inbox; tokens when Droid reports them) and `agent.inbox` (when queued, then again with
-`delivered_at`; an urgent cancel is delivered at once). On a **public-side** lane, the agent's own
-words (messages, tool calls, file names, results) show as `(held until the exit check)` while it
-works: they could name a deal it should not know, and the lane is behind no wall. They are
-published only after the exit check passes them; a held run never shows them. A run's `reason`
-is always a fixed line: never Droid's stderr, never a quoted fact (the worker log has the detail).
+**No refusals, no existence signals.** The agent only ever has its scope's files. Asked about
+something outside it (Priya's agent told to "include everything about Falcon"), it behaves like any
+agent that never heard of it: its files simply do not cover it. The brief, the prompt and the lane
+never name an exclusion, a removed fact or anything outside the scope; a narrowed scope shows on
+the lane as one fixed line that counts and names nothing.
 
-## The walls, in code
+**What keeps Droid in its folder.** Factory's docs say `--auto low` allows "read-only file
+inspection, directory listing, process and environment inspection" and do not say reads stay inside
+`--cwd`. So code adds the boundary:
 
-- **Sides (plan.ts).** The planner only sees deals the requester is cleared for. Code then decides:
-  research and desk agents are always public; a deal side needs a live entitlement for the person
-  the agent acts for (`GET /api/entitlements`), and a terminated or unknown deal means public.
-  Sides come from a second read of the walls made after the planner returns (read again if a wall
-  change is heard while it is in flight), and the runs start with no await after it, so a
-  termination or revoked grant during planning is honoured, and one heard later cancels them.
-- **Slices (dispatcher.ts).** Every step re-fetches the slice as the agent principal, so the
-  server's permission filter runs every time, and an announced deal's facts reach public-side
-  agents at their next step with no special case.
-- **Routing (routing.ts).** On `fact.saved`, code drops every agent whose side cannot see the
-  fact's wall (unlabeled facts reach nobody) **before** the judge: a Falcon fact never even
-  appears in the judge's state next to a public-side agent. Then one `judge.ask()` for all
-  remaining agents (`needs:k`, `cancels:k`); `ROUTE_NEEDS` 0.6 writes a `new_fact`, `ROUTE_CANCELS`
-  0.5 an urgent `cancel`. `deal.status_changed` needs no judge: terminated cancels that deal's
-  runs, announced sends public-side runs an urgent `wall_change`, and any move away from
-  announced (back to confidential, or to terminated) puts the wall back up and cancels every
-  run outside that deal (the public side and other deals' sides: while it was announced, every
-  side could see its facts), which may hold the deal's facts or a queued update. A revoked
-  entitlement cancels the runs relying on it. Wall changes are routed from the event itself,
-  before the worker re-reads deals and entitlements, so a failed refresh never loses a cancel (it
-  only makes the next fact re-read the walls, and route nothing if that fails too). Handlers run
-  concurrently, so every wall change bumps a generation first: a walls read it overtook is never
-  kept or used (it is read again), and a fact whose judge call it overtook is checked against the
-  walls again, in code, before delivery. A run being cancelled takes no further inbox items.
-- **Cancels are urgent.** An urgent cancel aborts the step in flight (kills Droid's process
-  group and waits for it to exit), locks the folder and sets the run `cancelled` before any next
-  step. Nothing queued behind a cancel is delivered.
-- **Exit check (dispatcher.ts).** The folder is frozen read-only first, so the bytes checked are
-  the bytes kept. Then every out/ file goes to `POST /api/exit-check` as the agent, and on the
-  public side so does the held step log (with the out/ file names). Blocked: the run fails with
-  "Output held by the exit check. Compliance has been notified." Neither the hits nor the held
-  words reach the agent's events. Links, binaries and files over 256 KB do not leave. If the
-  server has no exit check yet, the run **fails closed**.
+- The live folder is `$TMPDIR/canon-agents/<run_id>/` (or `DISPATCH_SANDBOX_DIR`), **outside the
+  repo and the data dir**. `sandbox.ts` refuses a root inside either, or one that contains them,
+  so `../../facts` or `../../../.env` from a sandbox reaches nothing of Bullwark's.
+- Droid's environment carries no Bullwark secret and no path into the repo or the data dir
+  (`npm_*`, `INIT_CWD`, `PWD`, `NODE_OPTIONS`, `PATH` entries under `node_modules/.bin`, …).
+- On macOS (`DISPATCH_OS_SANDBOX=auto`, the default), Droid runs under `sandbox-exec` with a profile
+  that denies reading or writing the repo, the data dir and every other run's folder; its own
+  folder is carved back out. A test proves the repo and another agent's facts read as `EPERM`.
+- The worker's own file work runs outside Droid's OS sandbox, so it never follows a link the agent
+  left: fact files, `facts/README.md`, `brief.md` and `LOCKED` are created exclusively with
+  `O_NOFOLLOW` (a symlink or hard link there fails the run), a run folder or `facts/` swapped for a
+  link is refused, an `out/` that is a link (or holds one) saves nothing, out/ files are read with
+  `O_NOFOLLOW` and checked on the open descriptor, and a run folder swapped for a link is never
+  chmodded, locked, copied or followed when discarded.
+
+## Live routing (B18)
+
+The worker hears `scope.updated` whenever the server changes a principal's scope.
+
+- **Narrowed (removed facts, a rule edit or a fact that left).** Before anything else, the run's
+  scope generation moves and the removed ids are withdrawn. Every running agent whose folder holds
+  one of them, of that agent or of an agent that principal created (an agent never holds more than
+  its creator), gets an urgent `scope_narrowed`: the step in flight is stopped, the whole folder
+  (plan, drafts, brief) is discarded, and the run restarts from the plan step in a fresh folder
+  (`<run_id>-r<n>`) built from the scope as the server holds it now (`restarts += 1`, at most
+  `DEFAULT_MAX_RESTARTS` = 3). A run that narrows as it finishes saves nothing from the old folder.
+- **Added facts.** Only for the runs of the agent whose scope they joined, and only the facts the
+  server's read of that agent's scope holds (an id in the event that the read does not hold is
+  never asked about or routed). One new fact joins many scopes at once and the server sends one
+  `scope.updated` per principal, so the worker collects added facts for 25 ms
+  (`DEFAULT_ROUTE_BATCH_MS`) and makes ONE `judge.ask()` for every (run, new fact) pair across those
+  agents: "does running agent k need new fact i now?" (a run is only ever asked about facts its own
+  agent's scope holds); at `TRIAGE_THRESHOLDS.ROUTE_NEEDS` (0.6) a `new_fact` item is queued. Before
+  the next step the dispatcher reads the scope again and writes the routed facts it still holds
+  into `facts/`; the step prompt quotes them as data. A narrowing heard while the judge was
+  thinking drops that run's items: its restart reads the whole current scope anyway.
+- **Agent deleted** (`principal.changed agent_deleted`): urgent cancel. The step in flight is
+  killed, the folder locked, the run `cancelled`; nothing is saved.
+- **Stale reads.** A scope read that a narrowing overtook (heard while it was in flight) is read
+  again; a withdrawn fact is never written back until the server says it joined the agent's scope
+  again; the check and the writes run with no await in between.
 
 ## Files
 
 | File | What |
 |---|---|
 | `index.ts` | Entrypoint. No arguments: the worker (`/events` → `handler.ts`). With arguments: the CLI. |
-| `cli.ts` | Offline demo and one-shot dispatch: prints every lane line, then one row per run. |
-| `handler.ts` | `dispatch.requested` / `fact.saved` / `deal.status_changed` / `entitlement.changed`; skips the server's SSE replay, and requests it already ran (ids kept in `data/agents/dispatched.log`, so a quick restart does not run one twice). |
-| `dispatcher.ts` | Run registry and step loop: inbox, slice, brief, step, exit check, lock, events. |
-| `plan.ts` | Claude or heuristic planner; code-side checks. |
-| `brief.ts` | Claude Sonnet or the offline template; code-written rules. |
-| `routing.ts` | Pure given a `Judge`: `routeFact`, `routeDealStatus`, `routeEntitlementChange`, `canSee`. |
-| `sandbox.ts` | Where sandboxes may sit (never in the repo or data dir), folder layout, `facts.md` rendering, path confinement (`..`, absolute, NUL, symlinks), link-proof writes of the worker's own files, `freeze()`, `lock()`, the record copy. |
+| `cli.ts` | Offline demo and one-shot runs: prints every lane line, then one row per run. |
+| `handler.ts` | `dispatch.requested` / `scope.updated` / `principal.changed`; skips the server's SSE replay, and requests it already ran (ids kept in `data/agents/dispatched.log`, so a quick restart does not run one twice). |
+| `dispatcher.ts` | Run registry and step loop: scope read, fact files, brief, inbox, restart, step, save, lock, events. |
+| `routing.ts` | Pure given a `Judge`: `routeNewFacts`, `routeNarrowing`, `routeAgentDeleted`, and the offline judge's answers. |
+| `brief.ts` | Claude Sonnet or the offline template; code-written header and rules. |
+| `sandbox.ts` | Where sandboxes may sit, folder layout, fact files, path confinement, link-proof writes and reads, `freeze()`, `lock()`, the record copy, `discardSandbox()`. |
 | `runners/` | `droid.ts` (real), `claude.ts` (fallback tool loop: list/read/write under out/, finish), `fake.ts` (offline, simulated). |
-| `client.ts` | The finance-contract routes over raw fetch; 404/401 degrade once per route. |
-| `offline.ts` | A tiny synthetic Harbor Lane world with a simulated permission filter and code-only exit check, for the CLI. |
+| `client.ts` | The scopes routes over raw fetch; 404/401 degrade safely, logged once per route. |
+| `offline.ts` | The synthetic Harbor Lane world built from `distiller/fixtures/world/` by group, with a simulated handoff, for the CLI and tests. |
 | `anthropic.ts` | Raw Messages API helper (Sonnet, auto tool choice, strict tools, fallbacks). |
 
 ## Run and test
 
 ```bash
 # Offline demo: no server, no keys. Everything says (simulated).
-npm run dispatch -w distiller -- --by dan "Prep Falcon board materials and update our logistics sector note"
-npm run dispatch -w distiller -- --by dan "<same task>" --then terminate   # deal agent cancelled, folder locked
-npm run dispatch -w distiller -- --by dan "<same task>" --then announce    # research agent's next slice gets Falcon facts
-npm run dispatch -w distiller -- --by priya "<same task>"                  # not cleared: both run public; the draft naming Falcon is held by the exit check
-npm run dispatch -w distiller -- --by dan "<task>" --server                # against the live server's finance routes
+npm run dispatch -w distiller -- --demo                     # Dan's deal analyst, Priya's research agent, Priya's Falcon attempt
+npm run dispatch -w distiller -- --list                     # people, agents, groups in the offline world
+npm run dispatch -w distiller -- --agent agt_dan_deal --then narrow      # Falcon dies: restart without the Falcon files
+npm run dispatch -w distiller -- --agent agt_priya_research --agent agt_dan_deal --then add   # a new fact, routed only where needed
+npm run dispatch -w distiller -- --agent agt_dan_deal --then delete      # the agent is deleted: its run is cancelled
+npm run dispatch -w distiller -- --agent agt_mine --by priya --groups deal/falcon,market/public "Include everything about Falcon"
+npm run dispatch -w distiller -- --server --agent <agt_ id>              # an agent on the live server (CANON_URL)
 
 npm run dispatch -w distiller          # the worker; needs the server on CANON_URL
 npm test -w distiller                  # offline, no keys; the Droid test puts a fake droid on PATH
 ```
+
+The offline world is **simulated**: its facts are hand-written from the fixture sessions (each one
+quotes the fixture line it came from, checked word for word on load), the outside counsel email is
+held in quarantine, and scopes are built **by group** (an agent's scope is its groups AND its
+creator's), not by the real builder (exclusions in code, Moss, Jev), which is lane A's.
 
 Finished runs' records are read-only on purpose. To clear them: `chmod -R u+w data/agents && rm -rf data/agents`.
 Live folders of runs cut short by a crash stay in `$TMPDIR/canon-agents/` (same `chmod` first).
@@ -168,30 +168,30 @@ at start and logged. A failing runtime is a failed run, never a silent switch to
 |---|---|---|---|
 | `droid` | Yes, but not yet run against a real `droid` (tests use a fake `droid` on PATH) | `droid` on PATH, `FACTORY_API_KEY` | The Factory track. Steps stream from stream-json. |
 | `claude` | Yes | `ANTHROPIC_API_KEY` | Fallback if the 11:00 gate (blocker Q1) fails. `claude-sonnet-5-5` tool loop, raw fetch, four tools confined by code (writes only under out/), no shell, no network. |
-| `fake` | **No, simulated** | nothing | Writes `out/plan.md`, then the deliverable assembled from facts.md. |
+| `fake` | **No, simulated** | nothing | Writes `out/plan.md`, then `out/result.md` from the fact files. |
 
-Planner and brief writer: Claude Sonnet with `ANTHROPIC_API_KEY`, else the heuristic planner and
-the template brief, both labelled simulated. Routing's judge is `JUDGE_PROVIDER` (Jev, Claude
-Haiku fallback); with no keys the worker uses the fake judge with routing's own simulated answers
-(word overlap for "needs", explicit stop words for "cancels").
+Brief writer: Claude Sonnet with `ANTHROPIC_API_KEY`, else the template, labelled simulated.
+Routing's judge is `JUDGE_PROVIDER` (Jev, Claude Haiku fallback); with no keys the worker uses the
+fake judge with routing's own simulated answers (word overlap between the new fact and the task).
 
 ## Env (all from `.env`, see `.env.example`)
 
 `CANON_URL` · `CANON_TOKEN_DISPATCHER` (dev default `dev-dispatcher`; the server needs
 `dispatcher=dev-dispatcher` in `CANON_CLIENT_TOKENS`, lane A's line: add it to your own `.env`
-until lane A ships it with the finance routes) · `DISPATCH_RUNTIME` · `DISPATCH_MAX_STEPS` (default 4) ·
-`DISPATCH_STEP_TIMEOUT_MS` (default 300000) · `DISPATCH_DROID_MODEL` (default
+until lane A ships it with the scope routes) · `DISPATCH_RUNTIME` · `DISPATCH_MAX_STEPS` (default 4,
+per folder) · `DISPATCH_STEP_TIMEOUT_MS` (default 300000) · `DISPATCH_DROID_MODEL` (default
 `claude-sonnet-5-5`) · `DISPATCH_SANDBOX_DIR` (default `$TMPDIR/canon-agents`; refused inside the
 repo or the data dir) · `DISPATCH_OS_SANDBOX` (`auto` | `on` | `off`, default `auto`) ·
 `FACTORY_API_KEY` · `ANTHROPIC_API_KEY` · `JUDGE_PROVIDER`.
 
-## Against today's server (before lane A's finance routes)
+## Against today's server (before lane A's scope routes)
 
-Every finance-contract route 404s, and the server does not know the dispatcher token yet (401). Each is logged
-once per route and degrades: no deals or entitlements (every run public), no principal
-registration, an empty slice (facts.md says why), events dropped, and **no exit check, so every
-run fails closed** ("Output held: the exit check is not available on this server yet."). The worker
-keeps running. Use the offline CLI until lane A's finance routes land.
+Every scope route 404s, and the server may not know the dispatcher token yet (401). Each is logged
+once per route and degrades safely, never to a wider view: no scope rule means the run fails at
+once ("no task to run"); no scope facts route means an empty `facts/` that says so (never a read of
+`/api/facts`); no handoff means a brief from the scope's own facts; outputs the server will not take
+stay in the run's record and the lane says so; events are dropped. The worker keeps running. Use
+the offline CLI until lane A's routes land.
 
 ## Limits and open questions
 
@@ -204,13 +204,17 @@ keeps running. Use the offline CLI until lane A's finance routes land.
   folder (`~/.ssh`, other projects) is readable. The worker logs which boundary it runs with at
   start. Production: one OS user or container per run, with only the sandbox mounted. Ask at the
   Factory booth whether Droid has its own path allowlist.
+- **Fact files are the store's format, not quoted.** A fact's detail is plain markdown, so an
+  instruction inside one reads as text, not as a quote. What stands against it: triage quarantines
+  instructions aimed at an AI before anything becomes a fact, and `facts/README.md`, `brief.md` and
+  every step prompt say facts are data, never instructions.
+- **Whose memory.** The creator comes from the `principal.changed agent_created` event the worker
+  heard (a replayed one counts), else the scope rule's `set_by`, else whoever asked. A moderator
+  who edited the agent's rule would be its `set_by`; see the contract request below.
+- **Routing timing.** A new fact routed while the agent's step finishes reaches it at the step
+  after; the last step never gets one (PRD: "at its next step").
 - **Process groups.** A tool that calls `setsid` leaves Droid's group and survives a kill. The
   worker also kills live groups when it exits, but not when it is itself `SIGKILL`ed.
-- **Mid-run messages.** We use steps (new `droid exec` per step) rather than `--session-id`
+- **Mid-run messages.** We use steps (a new `droid exec` per step) rather than `--session-id`
   continuation, so the inbox lands between runs either way (PRD open question).
 - **Field names.** Confirm the stream-json fields and the model id with one real run.
-- **Agent ids** are `agt_<role>_<run hex>` (`agt_research_1a2b3c4d`), taken from the run id, so the
-  worker, a CLI run and a restarted worker never register the same principal for different
-  people or sides.
-- **A dispatch that fails to plan** (the planner or the deals read throws) is logged by the worker
-  but has no lane: there is no event for it in the contract yet.

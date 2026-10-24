@@ -1,15 +1,19 @@
 // FakeRunner: deterministic, offline, labelled simulated. What runs with no FACTORY_API_KEY and
-// no ANTHROPIC_API_KEY, and what tests use. Step 1 writes out/plan.md; the step that finishes
-// (step 2 by default) writes the role's deliverable from brief.md + facts.md + the step's
-// updates. No model runs, so nothing in out/ is analysis: it says so at the top.
+// no ANTHROPIC_API_KEY, and what tests use. Step 1 (the plan step) writes out/plan.md; the step
+// that finishes (step 2 by default) writes out/result.md from brief.md, the fact files in facts/
+// and the step's updates. No model runs, so nothing in out/ is analysis: it says so at the top.
+// Like a real agent, it knows only what is in its folder.
 
-import { readFileSync, writeFileSync } from "node:fs";
+import { lstatSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 
-import { DELIVERABLES, ROLE_LABELS } from "../brief.ts";
+import { FACT_ID_RE, parseFactFile } from "@canon/shared";
 import { SANDBOX_FILES } from "../sandbox.ts";
 import { CancelledError } from "./types.ts";
 import type { Runner, StepRequest, StepResult } from "./types.ts";
+
+/** Where the fake runtime writes its deliverable. */
+export const FAKE_DELIVERABLE = "out/result.md";
 
 export interface FakeRunnerOptions {
   /** The step that writes the deliverable and says DONE. Default 2 (plan, then deliverable). */
@@ -33,14 +37,14 @@ export class FakeRunner implements Runner {
     if (this.delayMs > 0) await sleep(this.delayMs, req.signal);
     if (req.signal.aborted) throw new CancelledError();
     const finishAt = Math.min(this.finishAt, req.maxSteps);
-    const facts = readFactStatements(join(req.dir, SANDBOX_FILES.facts));
+    const facts = readFactFiles(req.dir);
 
     if (req.n < finishAt) {
       const plan = [
         "# Plan (simulated)",
         "",
-        `1. Read brief.md and facts.md (${facts.length} fact${facts.length === 1 ? "" : "s"}).`,
-        `2. Write the deliverable to ${DELIVERABLES[req.role].file}.`,
+        `1. Read brief.md and the ${facts.length} fact file${facts.length === 1 ? "" : "s"} in facts/.`,
+        `2. Write the deliverable to ${FAKE_DELIVERABLE}.`,
         "3. Check that every line traces to a fact id or to the task.",
         "",
       ].join("\n");
@@ -55,39 +59,42 @@ export class FakeRunner implements Runner {
       .filter((l) => l.startsWith("- [update]"))
       .map((l) => l.replace(/^- \[update\]\s*/, ""));
     const body = [
-      `# ${ROLE_LABELS[req.role]}: ${req.task}`,
+      `# ${req.name}: ${req.task}`,
       "",
-      "_Simulated: the fake runtime assembled this from brief.md and facts.md. No model ran._",
+      "_Simulated: the fake runtime assembled this from brief.md and facts/. No model ran._",
       "",
-      "## What the facts say",
+      "## What my files say",
       "",
-      ...(facts.length ? facts.map((f) => `- ${f.statement} (${f.id})`) : ["- No facts were handed over for this task."]),
+      ...(facts.length ? facts.map((f) => `- ${f.statement} (${f.id})`) : ["- My files hold no facts for this task."]),
       ...(updates.length ? ["", "## Updates received between steps", "", ...updates.map((u) => `- ${u}`)] : []),
       "",
     ].join("\n");
-    const file = DELIVERABLES[req.role].file;
-    writeFileSync(join(req.dir, file), body, "utf8");
-    req.emit({ kind: "file", text: `wrote ${file}`, file });
-    req.emit({ kind: "message", text: `Deliverable written from ${facts.length} facts (simulated)` });
-    return { done: true, summary: `Wrote ${file} (simulated). DONE` };
+    writeFileSync(join(req.dir, FAKE_DELIVERABLE), body, "utf8");
+    req.emit({ kind: "file", text: `wrote ${FAKE_DELIVERABLE}`, file: FAKE_DELIVERABLE });
+    req.emit({ kind: "message", text: `Deliverable written from ${facts.length} fact file(s) (simulated)` });
+    return { done: true, summary: `Wrote ${FAKE_DELIVERABLE} (simulated). DONE` };
   }
 }
 
-/** Reads back the first quoted line of each fact in facts.md (see sandbox.renderFacts). */
-export function readFactStatements(path: string): Array<{ id: string; statement: string }> {
-  let text: string;
+/** The fact files in <dir>/facts/, parsed, sorted by id. Unreadable or malformed files are skipped. */
+export function readFactFiles(dir: string): Array<{ id: string; statement: string }> {
+  const factsDir = join(dir, SANDBOX_FILES.facts);
+  let names: string[];
   try {
-    text = readFileSync(path, "utf8");
+    names = readdirSync(factsDir).filter((n) => n.endsWith(".md") && FACT_ID_RE.test(n.slice(0, -3)));
   } catch {
     return [];
   }
   const out: Array<{ id: string; statement: string }> = [];
-  const lines = text.split("\n");
-  for (let i = 0; i < lines.length; i++) {
-    const m = /^### \d+\. (\S+)$/.exec(lines[i]);
-    if (!m) continue;
-    const quoted = lines.slice(i + 1).find((l) => l.startsWith("> "));
-    if (quoted) out.push({ id: m[1], statement: quoted.slice(2).trim() });
+  for (const name of names.sort()) {
+    const p = join(factsDir, name);
+    try {
+      if (!lstatSync(p).isFile()) continue;
+      const f = parseFactFile(readFileSync(p, "utf8"));
+      out.push({ id: f.id, statement: f.statement });
+    } catch {
+      // not a fact file this runtime can read
+    }
   }
   return out;
 }

@@ -1,6 +1,6 @@
 {
   "project": "Bullwark",
-  "updated": "2026-10-24T13:21:32Z",
+  "updated": "2026-10-24T13:57:17Z",
   "team": [
     {
       "id": "A",
@@ -233,9 +233,9 @@
       "owner": "B",
       "milestone": "M3",
       "priority": "must",
-      "state": "todo",
+      "state": "doing",
       "title": "Droid agent runs inside the creator's scope: sandbox of scope facts, steps and files",
-      "note": "Reworking b/dispatch (PR #9) for the scopes PRD: agent profiles, no sides or exit check. Gate Sat 11:00 (Q1); fallback drops the Factory track."
+      "note": "Reworked on b/dispatch (PR #9) for scopes: runs an agent profile from its rule's task and its server-built scope (one fact file per scope fact), brief via handoff, outputs saved as the creator's memory; sides, entitlements and exit check removed. Offline --demo built from fixtures/world by group (simulated). Remaining: lane A's scope-rule, scope-facts and sessions routes for the dispatcher token; one real droid exec run (Q1 gate 11:00)."
     },
     {
       "id": "B4",
@@ -332,9 +332,9 @@
       "owner": "B",
       "milestone": "M3",
       "priority": "must",
-      "state": "todo",
+      "state": "doing",
       "title": "Route newly in-scope facts and scope narrowing to agent inboxes",
-      "note": "Reworking with b/dispatch (PR #9): new facts that join an agent's scope reach it at its next step; a narrowed scope restarts the run in a fresh folder."
+      "note": "Built on b/dispatch (PR #9): scope.updated added facts get one batched Jev ask (ROUTE_NEEDS) and only facts the server's scope read holds are written before the next step; removed facts restart the run from the plan step in a fresh folder; agent_deleted cancels; stale scope reads are re-read. Remaining: end-to-end on the live server once it emits scope.updated and principal.changed."
     },
     {
       "id": "B19",

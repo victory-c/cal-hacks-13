@@ -1,6 +1,6 @@
 // DroidRunner: one step = one headless `droid exec` (Factory Droid CLI) in the run's sandbox
-// folder. This is where Droid does the work in Canon (Factory track): on our trigger, in a folder
-// holding only its side of the wall, at the lowest autonomy that can write files.
+// folder. This is where Droid does the work in Bullwark (Factory track): on our trigger, in a
+// folder holding only the agent's scope, at the lowest autonomy that can write files.
 //
 // Flags, from Factory's docs (docs.factory.ai/cli/droid-exec/overview, which redirects to
 // docs.factory.com, and the CLI reference; read 2026-10-24):
@@ -17,7 +17,7 @@
 //   prompt              a positional argument (also -f <file> or stdin).
 //   FACTORY_API_KEY     the API key, from the environment.
 //   Exit codes          0 when the run completes, non-zero when it stops early. 0 does not mean
-//                       the task succeeded, so we check out/ ourselves (exit check, DONE line).
+//                       the task succeeded, so we check out/ ourselves (the DONE line, files in out/).
 // UNVERIFIED: the docs name the stream-json event types and `toolName` but not the other field
 // names. mapDroidEvent() reads them defensively (text / content / message, parameters / input,
 // usage.input_tokens / inputTokens). Run one real `droid exec -o stream-json` at the booth and
@@ -26,7 +26,7 @@
 // Confinement. Nothing in Factory's docs says Droid's reads stay inside --cwd (`--auto low` allows
 // read-only inspection of files, folders and the environment), so code does what it can:
 //   - the sandbox lives outside the repo and the data dir (sandbox.ts agentsRoot());
-//   - agentEnv() drops Canon's secrets and every env value that points into the repo or the data
+//   - agentEnv() drops Bullwark's secrets and every env value that points into the repo or the data
 //     dir (npm_*, INIT_CWD, PWD, NODE_OPTIONS, ...), and PATH entries inside them;
 //   - on macOS, droid runs under sandbox-exec with a profile that denies reads and writes of the
 //     repo, the data dir and every other run's folder (DISPATCH_OS_SANDBOX=auto|on|off, default auto);
@@ -60,7 +60,7 @@ const KILL_GRACE_MS = 2000;
 const CLOSE_WAIT_MS = 3000;
 const SANDBOX_EXEC = "/usr/bin/sandbox-exec";
 
-/** Canon secrets and settings the agent never needs. Droid gets FACTORY_API_KEY and the plain environment. */
+/** Bullwark's secrets and settings (CANON_*) the agent never needs. Droid gets FACTORY_API_KEY and the plain environment. */
 const SCRUBBED_ENV = /^(ANTHROPIC_API_KEY|JEV_API_KEY|CANON_\w+|MOSS_PROJECT_KEY|MOSS_PROJECT_ID)$/;
 
 /** Process groups of droid steps still running, killed if the worker exits underneath them. */
@@ -77,7 +77,7 @@ function killGroup(pid: number | undefined, signal: NodeJS.Signals): void {
 }
 
 /**
- * The environment droid runs with: no Canon secrets, no value that points into the repo or the
+ * The environment droid runs with: no Bullwark secrets, no value that points into the repo or the
  * data dir (the sandbox is outside both, and an env var must not hand the way back), PATH without
  * entries inside them, and PWD set to the sandbox.
  */

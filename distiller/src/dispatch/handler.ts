@@ -1,27 +1,32 @@
-// The dispatcher worker's event handler, apart from index.ts so tests drive it with fakes:
-//   dispatch.requested   -> plan + start runs (once per request id)
-//   fact.saved           -> routing.routeFact (wall check in code, then ONE judge ask) -> inboxes
-//   deal.status_changed  -> routing.routeDealStatus (urgent) -> inboxes, then refresh the walls
-//   entitlement.changed  -> a revoked grant cancels the runs that relied on it, then refresh the walls
+// The dispatcher worker's event handler, apart from index.ts so tests and the offline CLI drive it
+// with fakes:
+//   dispatch.requested   -> run the agent (once per request id)
+//   scope.updated        -> noteScopeChange first (synchronous), then removed facts -> urgent
+//                           scope_narrowed (routing.routeNarrowing), then added facts -> collected
+//                           for routeBatchMs across agents -> ONE judge ask for all their runs
+//                           (routing.routeNewFacts) -> new_fact items
+//   principal.changed    -> agent_created: remember the agent (its name and created_by);
+//                           agent_deleted: urgent cancel for its runs
 // Events stamped more than the grace before the worker started (the server's SSE replay on
-// connect) are skipped. A request inside the grace that this worker already ran is skipped by its
-// id: the worker keeps those ids on disk (fileLedger), so a quick restart does not run it twice.
-// One bad event is logged; the loop never dies.
+// connect) are not acted on; a replayed principal.changed still teaches the worker who created an
+// agent. A request this worker already ran is skipped by its id: the ids are kept on disk
+// (fileLedger), so a quick restart does not run it twice. One bad event is logged; the loop never
+// dies.
 //
-// Handlers run concurrently, so a walls read can be overtaken by a wall change that arrives while
-// it is in flight. Every wall change bumps a generation first; a read it overtook is never kept or
-// used (it is read again), and a fact whose judge call it overtook is checked against the walls
-// again, in code, before anything is delivered.
+// Added facts are routed only from the server's own read of the agent's scope: an id in the event
+// that the scope read does not hold is never asked about or delivered. A narrowing heard while the
+// judge was thinking drops that run's items: its restart rebuilds the folder from the whole current
+// scope, so nothing that still belongs is lost.
 
 import { appendFileSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname } from "node:path";
 
-import type { CanonEvent, Deal, Entitlement, Judge } from "@canon/shared";
+import type { CanonEvent, Judge, Principal } from "@canon/shared";
 import type { DispatchClient } from "./client.ts";
 import type { Dispatcher } from "./dispatcher.ts";
 import { errorMessage, log, warn } from "./log.ts";
-import { MAX_WALL_READS, canSee, isActive, routeDealStatus, routeEntitlementChange, routeFact } from "./routing.ts";
-import type { WallView } from "./routing.ts";
+import { isActive, routeAgentDeleted, routeNarrowing, routeNewFacts } from "./routing.ts";
+import type { ScopedNewFacts } from "./routing.ts";
 
 /** dispatch.requested ids already handled. */
 export interface RequestLedger {
@@ -30,16 +35,19 @@ export interface RequestLedger {
 }
 
 export interface HandlerOptions {
-  dispatcher: Pick<Dispatcher, "dispatch" | "deliver" | "routable" | "noteWallChange">;
-  client: Pick<DispatchClient, "getDeals" | "getEntitlements">;
+  dispatcher: Pick<Dispatcher, "dispatch" | "deliver" | "routable" | "noteScopeChange">;
+  client: Pick<DispatchClient, "getScopeFacts">;
   judge: Judge;
   /** Skip events stamped more than this before the handler was created. Default 5000. */
   replayGraceMs?: number;
-  /** Re-read deals and entitlements when the cache is older than this. Default 30 000. */
-  wallsMaxAgeMs?: number;
   /** Request ids already run. Default: in memory only. The worker passes fileLedger(). */
   ledger?: RequestLedger;
+  /** Added facts heard within this window are routed in one judge call. Default DEFAULT_ROUTE_BATCH_MS. */
+  routeBatchMs?: number;
 }
+
+/** How long the handler collects scope.updated added facts before the one routing call. */
+export const DEFAULT_ROUTE_BATCH_MS = 25;
 
 export interface DispatchHandler {
   (event: CanonEvent): Promise<void>;
@@ -47,105 +55,119 @@ export interface DispatchHandler {
   settle(): Promise<void>;
 }
 
+/** Agent principals the worker has heard about, newest last; bounded like the ledger. */
+const MAX_KNOWN_AGENTS = 1000;
+
 export function createDispatchHandler(opts: HandlerOptions): DispatchHandler {
   const cutoff = Date.now() - (opts.replayGraceMs ?? 5000);
-  const maxAge = opts.wallsMaxAgeMs ?? 30_000;
+  const batchMs = Math.max(0, opts.routeBatchMs ?? DEFAULT_ROUTE_BATCH_MS);
   const ledger = opts.ledger ?? memoryLedger();
   const inflight = new Set<Promise<void>>();
-  let walls: { deals: Deal[]; entitlements: Entitlement[]; at: number } | undefined;
-  /** Bumped by every wall change, before anything else is done with it. */
-  let wallsGen = 0;
+  const agents = new Map<string, Principal>();
+  const deleted = new Set<string>();
+  let noScopeRoute = false;
 
-  /** The walls from the cache, or a fresh read that no wall change overtook. */
-  const view = async (fresh = false): Promise<WallView> => {
-    if (!fresh && walls && Date.now() - walls.at <= maxAge) return { deals: walls.deals, entitlements: walls.entitlements };
-    for (let attempt = 1; ; attempt++) {
-      const gen = wallsGen;
-      const [deals, entitlements] = await Promise.all([opts.client.getDeals(), opts.client.getEntitlements()]);
-      if (gen === wallsGen) {
-        walls = { deals, entitlements, at: Date.now() };
-        return { deals, entitlements };
+  const remember = (p: Principal) => {
+    agents.delete(p.id);
+    agents.set(p.id, p);
+    if (agents.size > MAX_KNOWN_AGENTS) agents.delete(agents.keys().next().value as string);
+  };
+
+  /** One routing pass for every agent in the batch: their own scope reads, then ONE judge call. */
+  const routeBatch = async (byAgent: ReadonlyMap<string, ReadonlySet<string>>): Promise<void> => {
+    const runs = opts.dispatcher.routable().filter((r) => isActive(r) && byAgent.has(r.agent));
+    if (runs.length === 0) return;
+    const gens = new Map(runs.map((r) => [r.run_id, r.scope_gen]));
+    const agentsWithRuns = [...new Set(runs.map((r) => r.agent))];
+    const reads = await Promise.all(agentsWithRuns.map(async (agent) => ({ agent, scope: await opts.client.getScopeFacts(agent) })));
+    const scoped: ScopedNewFacts[] = [];
+    for (const { agent, scope } of reads) {
+      if (scope === null) {
+        if (!noScopeRoute) log(`scope.updated: the server has no scope facts route yet; new facts are not routed (logged once)`);
+        noScopeRoute = true;
+        continue;
       }
-      // A wall change arrived while this read was in flight: it may hold the state from before.
-      if (attempt >= MAX_WALL_READS) throw new Error(`the walls changed during ${MAX_WALL_READS} reads in a row`);
+      const wanted = byAgent.get(agent)!;
+      // Never route a fact the agent's scope does not hold, whatever the event said.
+      const facts = scope.filter((f) => wanted.has(f.id));
+      if (facts.length) scoped.push({ agent, facts });
     }
+    if (scoped.length === 0) return;
+    const route = await routeNewFacts(scoped, runs, opts.judge);
+    // A narrowing heard meanwhile: that run restarts from its whole current scope instead.
+    const now = new Map(opts.dispatcher.routable().map((r) => [r.run_id, r.scope_gen]));
+    const items = route.items.filter((i) => now.get(i.run_id) === gens.get(i.run_id));
+    const n = opts.dispatcher.deliver(items);
+    log(
+      `new facts for ${scoped.map((s) => `${s.agent} (${s.facts.length})`).join(", ")}: ` +
+        `${route.asked ? `one ${opts.judge.name} call (${route.questions} question(s))` : "no judge call"}, ${n} new_fact item(s) for ${runs.length} run(s)`,
+    );
   };
 
   /**
-   * After a wall change has been routed: re-read the walls. A failed refresh drops the cache, so
-   * the next fact.saved re-reads them and, if that fails too, routes nothing (fails closed).
+   * One new fact joins many scopes at once, and the server sends one scope.updated per principal.
+   * Added facts heard within routeBatchMs of each other are routed together, in one judge call.
+   * Resolves when the batch this call joined has been routed (never rejects).
    */
-  const refresh = async (what: string): Promise<void> => {
-    try {
-      await view(true);
-    } catch (err) {
-      walls = undefined;
-      warn(`${what}: routed from the event, but the walls could not be refreshed (${errorMessage(err)}); the next fact re-reads them`);
+  let pending: { byAgent: Map<string, Set<string>>; done: Promise<void> } | undefined;
+  const routeAdded = (principal: string, added: readonly string[]): Promise<void> => {
+    if (!opts.dispatcher.routable().some((r) => isActive(r) && r.agent === principal)) return Promise.resolve();
+    if (!pending) {
+      const batch = { byAgent: new Map<string, Set<string>>(), done: Promise.resolve() };
+      batch.done = new Promise<void>((resolve) => setTimeout(resolve, batchMs))
+        .then(() => {
+          if (pending === batch) pending = undefined;
+          return routeBatch(batch.byAgent);
+        })
+        .catch((err) => warn(`routing new facts failed, nothing routed: ${errorMessage(err)}`));
+      pending = batch;
     }
+    const ids = pending.byAgent.get(principal) ?? new Set<string>();
+    for (const id of added) ids.add(id);
+    pending.byAgent.set(principal, ids);
+    return pending.done;
   };
 
-  /** Synchronous, first thing on every wall change: reads and judge calls in flight now are stale. */
-  const wallChanged = () => {
-    wallsGen++;
-    opts.dispatcher.noteWallChange();
-  };
-
-  const handle = async (event: CanonEvent): Promise<void> => {
+  const handle = async (event: CanonEvent, replayed: boolean): Promise<void> => {
     switch (event.type) {
+      case "principal.changed": {
+        const p = event.principal;
+        if (p.kind !== "agent") return;
+        if (event.change === "agent_deleted") {
+          agents.delete(p.id);
+          deleted.add(p.id);
+          if (replayed) return;
+          const n = opts.dispatcher.deliver(routeAgentDeleted(p.id, opts.dispatcher.routable()));
+          log(`agent ${p.id} deleted by ${event.by}: ${n} run(s) cancelled`);
+          return;
+        }
+        deleted.delete(p.id);
+        remember(p);
+        return;
+      }
       case "dispatch.requested": {
-        if (ledger.has(event.id)) return;
+        if (replayed || ledger.has(event.id)) return;
         ledger.add(event.id);
-        const runs = await opts.dispatcher.dispatch(event.request);
-        log(`dispatch ${event.id}: started ${runs.map((r) => `${r.id} ${r.agent}@${r.side}`).join(", ") || "nothing"}`);
-        return;
-      }
-      case "fact.saved": {
-        const fact = event.fact;
-        if (fact.tier !== "hot") return; // only hot facts are handed over, so only they are routed
-        const runs = opts.dispatcher.routable();
-        if (!runs.some(isActive)) return;
-        let gen = wallsGen;
-        const route = await routeFact(fact, runs, opts.judge, await view());
-        // The judge's answers do not depend on the walls, but who may see the fact does: if a wall
-        // changed while we read or asked, check every item again against the walls as they are now.
-        let items = route.items;
-        for (let attempt = 1; gen !== wallsGen; attempt++) {
-          if (attempt > MAX_WALL_READS) throw new Error(`the walls changed during ${MAX_WALL_READS} checks in a row; fact ${fact.id} routed nowhere`);
-          gen = wallsGen;
-          const now = await view();
-          items = items.filter((i) => {
-            const run = runs.find((r) => r.run_id === i.run_id);
-            return run !== undefined && canSee(run, fact.wall, now);
-          });
+        const { agent } = event.request;
+        if (deleted.has(agent)) {
+          log(`dispatch ${event.id}: ${agent} was deleted; not run`);
+          return;
         }
-        const n = opts.dispatcher.deliver(items);
-        log(
-          `fact ${fact.id} (${fact.wall ?? "unlabeled"}): ${route.walled.length} run(s) walled off in code, ` +
-            `${route.eligible.length} asked in ${route.asked ? "one" : "no"} ${opts.judge.name} call, ${n} inbox item(s)`,
-        );
+        const run = await opts.dispatcher.dispatch(event.request, agents.get(agent));
+        log(`dispatch ${event.id}: started ${run.id} for ${run.agent} (created by ${run.created_by})`);
         return;
       }
-      // Wall changes route from the event itself, before any I/O: a cancel never waits on, or is
-      // lost to, a refresh of the walls. The cache is patched from the event at once, so a fact
-      // routed meanwhile already sees the new wall.
-      case "deal.status_changed": {
-        wallChanged();
-        if (walls) walls.deals = walls.deals.map((d) => (d.id === event.deal ? { ...d, status: event.to } : d));
-        const n = opts.dispatcher.deliver(routeDealStatus(event, opts.dispatcher.routable(), { deals: walls?.deals ?? [] }));
-        log(`deal ${event.deal}: ${event.from} -> ${event.to}; ${n} urgent inbox item(s)`);
-        await refresh(`deal ${event.deal}`);
-        return;
-      }
-      case "entitlement.changed": {
-        wallChanged();
-        const { principal, deal } = event.entitlement;
-        if (walls) {
-          const others = walls.entitlements.filter((e) => !(e.principal === principal && e.deal === deal));
-          walls.entitlements = event.granted ? [...others, event.entitlement] : others;
+      case "scope.updated": {
+        if (replayed) return;
+        const removed = Array.isArray(event.removed) ? event.removed : [];
+        const added = Array.isArray(event.added) ? event.added : [];
+        // First, before any I/O: reads in flight for these runs are stale now.
+        opts.dispatcher.noteScopeChange(event.principal, removed, added);
+        if (removed.length) {
+          const n = opts.dispatcher.deliver(routeNarrowing({ principal: event.principal, removed }, opts.dispatcher.routable()));
+          if (n) log(`${event.principal}: scope narrowed (${event.reason}); ${n} run(s) restart in a fresh folder`);
         }
-        const n = opts.dispatcher.deliver(routeEntitlementChange(event, opts.dispatcher.routable()));
-        if (n) log(`entitlement ${principal}/${deal} revoked: ${n} run(s) cancelled`);
-        await refresh(`entitlement ${principal}/${deal}`);
+        if (added.length) await routeAdded(event.principal, added);
         return;
       }
       default:
@@ -154,9 +176,9 @@ export function createDispatchHandler(opts: HandlerOptions): DispatchHandler {
   };
 
   const handler = (async (event: CanonEvent) => {
-    // An unparseable `at` is NaN, which never compares true: fail open and handle it.
-    if (Date.parse(event.at) < cutoff) return;
-    const p = handle(event).catch((err) => warn(`${event.type}: failed, skipping: ${errorMessage(err)}`));
+    // An unparseable `at` is NaN, which never compares true: treat it as live.
+    const replayed = Date.parse(event.at) < cutoff;
+    const p = handle(event, replayed).catch((err) => warn(`${event.type}: failed, skipping: ${errorMessage(err)}`));
     inflight.add(p);
     void p.finally(() => inflight.delete(p));
     await p;

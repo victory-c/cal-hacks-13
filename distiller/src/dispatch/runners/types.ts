@@ -7,7 +7,7 @@
 import { accessSync, constants, statSync } from "node:fs";
 import { delimiter, join } from "node:path";
 
-import type { AgentRole, AgentRuntime, StepKind, Wall } from "@canon/shared";
+import type { AgentRuntime, StepKind } from "@canon/shared";
 
 export interface StepEvent {
   kind: StepKind;
@@ -20,11 +20,13 @@ export interface StepEvent {
 
 export interface StepRequest {
   runId: string;
-  /** 1-based invocation number. */
+  /** 1-based step within the current folder: 1 is the plan step (again after a restart). */
   n: number;
   maxSteps: number;
-  role: AgentRole;
-  side: Wall;
+  /** The agent's principal id and display name. */
+  agent: string;
+  name: string;
+  /** The task from the agent's scope rule. Never its exclusions. */
   task: string;
   /** Absolute path of the sandbox folder: the runtime's working directory. */
   dir: string;

@@ -41,8 +41,8 @@ if (mode === "tree" || mode === "leave") {
 console.log("droid v0.0.0-fake starting");
 out({ type: "system", cwd, model: args[args.indexOf("-m") + 1], tools: ["Read", "Create", "Edit", "LS"] });
 out({ type: "message", role: "user", text: "the prompt" });
-out({ type: "message", role: "assistant", text: "Reading brief.md and facts.md." });
-out({ type: "tool_call", toolName: "Read", parameters: { file_path: path.join(cwd, "facts.md") } });
+out({ type: "message", role: "assistant", text: "Reading brief.md and facts/." });
+out({ type: "tool_call", toolName: "Read", parameters: { file_path: path.join(cwd, "facts", "fct_0000f001.md") } });
 out({ type: "tool_result", toolName: "Read", isError: false, value: "..." });
 if (mode === "hang" || mode === "tree") { setTimeout(() => {}, 60000); return; }
 fs.writeFileSync(path.join(cwd, "out", "note.md"), "# Sector note\\n");
@@ -113,11 +113,11 @@ function request(dir: string, events: StepEvent[], over: Partial<StepRequest> = 
     runId: "run_00000001",
     n: 1,
     maxSteps: 4,
-    role: "research_analyst",
-    side: "public",
+    agent: "agt_priya_research",
+    name: "Priya's research agent",
     task: "Update our logistics sector note",
     dir,
-    prompt: "You are Canon's research analyst agent. Step 1 of at most 4.",
+    prompt: "You are Priya's research agent, an agent in Bullwark. Step 1 of at most 4.",
     signal: new AbortController().signal,
     timeoutMs: 10_000,
     emit: (e) => events.push(e),
@@ -134,16 +134,16 @@ describe("DroidRunner against a fake droid on PATH", () => {
     const call = JSON.parse(readFileSync(join(sb.dir, "droid-call.json"), "utf8"));
     assert.deepEqual(call.args.slice(0, 8), ["exec", "--auto", "low", "-o", "stream-json", "--cwd", sb.dir, "-m"]);
     assert.equal(call.args[8], "claude-sonnet-5-5");
-    assert.match(call.args[9], /^You are Canon's research analyst agent/);
+    assert.match(call.args[9], /^You are Priya's research agent, an agent in Bullwark/);
     assert.equal(call.pwd.endsWith("run_00000d01"), true, "spawned in the sandbox");
     assert.equal(call.env.FACTORY_API_KEY, "fk-test");
-    assert.equal(call.env.ANTHROPIC_API_KEY, undefined, "Canon's other secrets never reach the agent");
+    assert.equal(call.env.ANTHROPIC_API_KEY, undefined, "Bullwark's other secrets never reach the agent");
 
     assert.deepEqual(
       events.map((e) => [e.kind, e.text, e.file]),
       [
-        ["message", "Reading brief.md and facts.md.", undefined],
-        ["tool", `Read ${join(sb.dir, "facts.md")}`, undefined],
+        ["message", "Reading brief.md and facts/.", undefined],
+        ["tool", `Read ${join(sb.dir, "facts", "fct_0000f001.md")}`, undefined],
         ["tool", `Create ${join(sb.dir, "out", "note.md")}`, undefined],
         ["file", "Create out/note.md", "out/note.md"],
         ["error", "tool error: permission check: blocked a network call", undefined],
@@ -168,7 +168,7 @@ describe("DroidRunner against a fake droid on PATH", () => {
     assert.ok(env.PATH.split(delimiter).includes(bin), "PATH still finds the tools outside the repo");
   });
 
-  test("agentEnv drops Canon's secrets and settings, values under hidden roots, and PATH entries inside them", () => {
+  test("agentEnv drops Bullwark's secrets and settings, values under hidden roots, and PATH entries inside them", () => {
     const e = agentEnv("/sb/run_1", { PATH: `/usr/bin${delimiter}/repo/node_modules/.bin${delimiter}/repo`, HOME: "/home/x", CANON_URL: "http://x", JEV_API_KEY: "k", NODE_OPTIONS: "--import /repo/x.js", FACTORY_API_KEY: "f" }, ["/repo"]);
     assert.deepEqual(e, { PATH: "/usr/bin", HOME: "/home/x", FACTORY_API_KEY: "f", PWD: "/sb/run_1" });
   });
@@ -228,9 +228,9 @@ describe("DroidRunner against a fake droid on PATH", () => {
   test("macOS: under sandbox-exec droid cannot read the repo or another run's folder, only its own", { skip: seatbelt ? false : "sandbox-exec is not usable here" }, async () => {
     const sb = createSandbox("run_00000d09", { root });
     const sibling = createSandbox("run_00000d0a", { root });
-    writeFileSync(join(sb.dir, "facts.md"), "mine");
-    writeFileSync(join(sibling.dir, "facts.md"), "Falcon terms: another run's slice");
-    const targets = [join(REPO_ROOT, "package.json"), join(sibling.dir, "facts.md"), join(sb.dir, "facts.md")];
+    writeFileSync(join(sb.factsDir, "fct_00000001.md"), "mine");
+    writeFileSync(join(sibling.factsDir, "fct_00000002.md"), "Falcon terms: another agent's scope");
+    const targets = [join(REPO_ROOT, "package.json"), join(sibling.factsDir, "fct_00000002.md"), join(sb.factsDir, "fct_00000001.md")];
     await withDroid({ FAKE_DROID_MODE: "probe", DISPATCH_OS_SANDBOX: "on" }, async () => (await newRunner()).step(request(sb.dir, [], { prompt: JSON.stringify(targets) })));
     const seen = JSON.parse(readFileSync(join(sb.dir, "probe.json"), "utf8")) as Record<string, string>;
     assert.deepEqual(

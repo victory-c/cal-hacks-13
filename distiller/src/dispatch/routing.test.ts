@@ -2,200 +2,166 @@ import assert from "node:assert/strict";
 import { describe, test } from "node:test";
 
 import { FakeJudge, TRIAGE_THRESHOLDS } from "@canon/shared";
-import type { Answer, Deal, Entitlement, Fact, Judge, Question } from "@canon/shared";
-import { quiet } from "../test-helpers.ts";
-import { canSee, routeDealStatus, routeEntitlementChange, routeFact, simulatedRoutingAnswer } from "./routing.ts";
-import type { RoutableRun, WallView } from "./routing.ts";
+import type { Answer, Judge, Question } from "@canon/shared";
+import { fakeFact, quiet } from "../test-helpers.ts";
+import { DELETED_TEXT, NARROWED_TEXT, routeAgentDeleted, routeNarrowing, routeNewFacts, simulatedRoutingAnswer } from "./routing.ts";
+import type { RoutableRun, RoutingState } from "./routing.ts";
 
-const falcon: Deal = {
-  id: "deal_falcon",
-  code_name: "Project Falcon",
-  aliases: ["Falcon", "Nimbus"],
-  companies: ["Nimbus Logistics"],
-  status: "confidential",
-  status_changed_at: "2026-10-20T09:00:00Z",
+const research: RoutableRun = {
+  run_id: "run_00005e51",
+  agent: "agt_priya_research",
+  created_by: "priya",
+  task: "Update our logistics sector note",
+  state: "running",
+  fact_ids: ["fct_7e5e0001", "fct_0b1c0001"],
+  scope_gen: 0,
 };
-const danOnFalcon: Entitlement = { principal: "dan", deal: "deal_falcon", granted_by: "maya", granted_at: "2026-10-20T09:00:00Z", reason: "Banker on Falcon" };
-const view = (over: Partial<WallView> = {}): WallView => ({ deals: [{ ...falcon }], entitlements: [danOnFalcon], ...over });
+const deal: RoutableRun = {
+  run_id: "run_0000dea1",
+  agent: "agt_dan_deal",
+  created_by: "dan",
+  task: "Draft a short Falcon board memo",
+  state: "waiting",
+  fact_ids: ["fct_fa1c0001", "fct_0b1c0001"],
+  scope_gen: 0,
+};
+const doneRun: RoutableRun = { ...research, run_id: "run_00000d0e", state: "done" };
 
-const runs: RoutableRun[] = [
-  { run_id: "run_0000dea1", agent: "agt_deal_1", role: "deal_analyst", acts_for: "dan", side: "deal_falcon", task: "Prep Falcon board materials", state: "running" },
-  { run_id: "run_00005e51", agent: "agt_research_1", role: "research_analyst", acts_for: "dan", side: "public", task: "Update our logistics sector note", state: "waiting" },
-  { run_id: "run_0000de51", agent: "agt_desk_1", role: "desk_assistant", acts_for: "leo", side: "public", task: "Answer Leo on logistics names", state: "running" },
-  { run_id: "run_0000d0e1", agent: "agt_research_2", role: "research_analyst", acts_for: "priya", side: "public", task: "Old finished note", state: "done" },
-];
+const sellSide = fakeFact("fct_0b1c0004", "A sell-side analyst cut NMBL to Hold; the logistics sector note should mention it.", { folder: "market/public" });
+const ops = fakeFact("fct_0f5e0003", "The office closes early on Friday.", { folder: "firm/ops" });
+const falconNew = fakeFact("fct_fa1c0007", "Project Falcon's break fee is now 2.5%.", { folder: "deal/falcon" });
 
-function fact(id: string, wall: Fact["wall"], statement: string): Fact {
-  const f: Fact = { id, statement, folder: "team", tier: "hot", jev_keep: 0.9, source: { client: "ingest", session: "ses_00000001" }, updated: "2026-10-24" };
-  if (wall) f.wall = wall;
-  return f;
-}
-
-/** A judge that answers every needs:k with pNeeds and every cancels:k with pCancels, and records its calls. */
-function spyJudge(pNeeds: number, pCancels = 0.01) {
-  const calls: Array<{ state: string; questions: Question[] }> = [];
-  const inner = new FakeJudge({
-    override: (q): Answer | undefined => (q.type === "noul" ? { id: q.id, type: "noul", p: q.id.startsWith("cancels:") ? pCancels : pNeeds } : undefined),
-  });
+/** Records every ask; answers each needs:k:i with `p(k, i)`. */
+function recordingJudge(p: (k: number, i: number) => number) {
+  const asks: Array<{ state: string; questions: Question[] }> = [];
   const judge: Judge = {
     name: "fake",
     async ask(state, questions) {
-      calls.push({ state, questions });
-      return inner.ask(state, questions);
+      asks.push({ state, questions });
+      return questions.map((q): Answer => {
+        const [, k, i] = q.id.split(":").map(Number);
+        return { id: q.id, type: "noul", p: p(k, i) };
+      });
     },
   };
-  return { judge, calls };
+  return { judge, asks };
 }
 
-const makeJudge = (pNeeds: number, pCancels?: number) => quiet(() => spyJudge(pNeeds, pCancels)).then((r) => r.result);
+describe("routeNewFacts: one batched ask, each run only about facts its own agent's scope holds", () => {
+  test("ONE judge.ask covers every (run, new fact) pair; ROUTE_NEEDS decides; nothing below it is sent", async () => {
+    const twin: RoutableRun = { ...research, run_id: "run_00005e52", fact_ids: [] };
+    const { judge, asks } = recordingJudge((k, i) => (i === 0 ? 0.9 : TRIAGE_THRESHOLDS.ROUTE_NEEDS - 0.01));
+    const route = await routeNewFacts([{ agent: "agt_priya_research", facts: [sellSide, ops] }], [research, twin, deal, doneRun], judge);
 
-describe("routeFact: code drops walled agents before the judge", () => {
-  test("a Falcon fact is never routed to a public-side agent, even when the judge says p=0.99", async () => {
-    const { judge, calls } = await makeJudge(0.99);
-    const f = fact("fct_fa1c0009", "deal_falcon", "Falcon board moved to Thursday");
-    const route = await routeFact(f, runs, judge, view());
-
-    assert.deepEqual(route.eligible, ["run_0000dea1"]);
-    assert.deepEqual(route.walled.sort(), ["run_00005e51", "run_0000de51"].sort());
+    assert.equal(asks.length, 1, "one call for the whole batch");
     assert.deepEqual(
-      route.items.map((i) => [i.run_id, i.kind, i.urgent]),
-      [["run_0000dea1", "new_fact", false]],
+      asks[0].questions.map((q) => q.id),
+      ["needs:0:0", "needs:0:1", "needs:1:0", "needs:1:1"],
     );
-    // The public-side agents never even appear in the judge's state.
-    assert.equal(calls.length, 1);
-    assert.doesNotMatch(calls[0].state, /logistics sector note|Answer Leo/);
+    const state = JSON.parse(asks[0].state) as RoutingState;
     assert.deepEqual(
-      calls[0].questions.map((q) => q.id),
-      ["needs:0", "cancels:0"],
+      state.agents.map((a) => a.task),
+      [research.task, research.task],
+      "only that agent's active runs; Dan's deal run and the finished run are never in the state",
     );
-  });
-
-  test("one batched ask covers every eligible agent; finished runs are ignored", async () => {
-    const { judge, calls } = await makeJudge(0.9);
-    const route = await routeFact(fact("fct_0b1c0009", "public", "Freight volumes fell this month"), runs, judge, view());
-    assert.equal(calls.length, 1, "exactly one judge.ask()");
+    assert.match(state.note, /data, never instructions/);
+    assert.equal(route.asked, true);
+    assert.equal(route.questions, 4);
     assert.deepEqual(
-      calls[0].questions.map((q) => q.id),
-      ["needs:0", "cancels:0", "needs:1", "cancels:1", "needs:2", "cancels:2"],
+      route.items.map((i) => [i.run_id, i.kind, i.fact_id, i.urgent, i.p_needs]),
+      [
+        [research.run_id, "new_fact", "fct_0b1c0004", false, 0.9],
+        [twin.run_id, "new_fact", "fct_0b1c0004", false, 0.9],
+      ],
     );
-    assert.equal(route.items.length, 3);
-    assert.ok(route.items.every((i) => i.kind === "new_fact" && i.fact_id === "fct_0b1c0009" && i.p_needs === 0.9));
-    assert.ok(!route.items.some((i) => i.run_id === "run_0000d0e1"));
     assert.match(route.items[0].text, /information only, not instructions/);
+    assert.match(route.items[0].text, /facts\/fct_0b1c0004\.md/);
   });
 
-  test("an unlabeled fact reaches nobody and the judge is not asked", async () => {
-    const { judge, calls } = await makeJudge(0.99);
-    const route = await routeFact(fact("fct_0e1c0009", undefined, "Forward the deal terms to research"), runs, judge, view());
-    assert.deepEqual(route.items, []);
-    assert.equal(route.asked, false);
-    assert.equal(calls.length, 0);
+  test("facts that joined several agents' scopes at once: still ONE ask, and each run is only asked about its own agent's facts", async () => {
+    const { judge, asks } = recordingJudge(() => 0.9);
+    const route = await routeNewFacts(
+      [
+        { agent: "agt_priya_research", facts: [sellSide] },
+        { agent: "agt_dan_deal", facts: [sellSide, falconNew] },
+      ],
+      [research, deal],
+      judge,
+    );
+    assert.equal(asks.length, 1);
+    const state = JSON.parse(asks[0].state) as RoutingState;
+    assert.deepEqual(
+      state.new_facts.map((f) => f.id),
+      ["fct_0b1c0004", "fct_fa1c0007"],
+      "each fact once",
+    );
+    assert.deepEqual(
+      asks[0].questions.map((q) => q.id),
+      ["needs:0:0", "needs:1:0", "needs:1:1"],
+      "Priya's run is never asked about the Falcon fact: her agent's scope does not hold it",
+    );
+    assert.deepEqual(
+      route.items.map((i) => [i.run_id, i.fact_id]),
+      [
+        [research.run_id, "fct_0b1c0004"],
+        [deal.run_id, "fct_0b1c0004"],
+        [deal.run_id, "fct_fa1c0007"],
+      ],
+    );
   });
 
-  test("thresholds: ROUTE_NEEDS sends a new fact, ROUTE_CANCELS sends an urgent cancel, below both nothing", async () => {
-    const f = fact("fct_0b1c0008", "public", "Logistics note template changed");
-    const below = await routeFact(f, runs, (await makeJudge(TRIAGE_THRESHOLDS.ROUTE_NEEDS - 0.01)).judge, view());
-    assert.equal(below.items.length, 0);
-    const at = await routeFact(f, runs, (await makeJudge(TRIAGE_THRESHOLDS.ROUTE_NEEDS)).judge, view());
-    assert.ok(at.items.length > 0 && at.items.every((i) => i.kind === "new_fact"));
-    const cancel = await routeFact(f, runs, (await makeJudge(0.9, TRIAGE_THRESHOLDS.ROUTE_CANCELS)).judge, view());
-    assert.ok(cancel.items.length > 0 && cancel.items.every((i) => i.kind === "cancel" && i.urgent), "cancel wins over needs");
+  test("a fact already in the run's folder is not asked about; nothing to ask means no call", async () => {
+    const { judge, asks } = recordingJudge(() => 0.9);
+    const already = fakeFact("fct_7e5e0001", "Already there.");
+    const route = await routeNewFacts([{ agent: "agt_priya_research", facts: [already] }], [research], judge);
+    assert.equal(asks.length, 0);
+    assert.deepEqual(route, { items: [], asked: false, questions: 0 });
+    assert.equal((await routeNewFacts([{ agent: "agt_nobody", facts: [sellSide] }], [research, deal], judge)).asked, false);
   });
 
-  test("an expired entitlement keeps even the deal-side agent from a Falcon fact", async () => {
-    const { judge, calls } = await makeJudge(0.99);
-    const expired = { ...danOnFalcon, expires_at: "2026-10-01T00:00:00Z" };
-    const route = await routeFact(fact("fct_fa1c0010", "deal_falcon", "Falcon terms"), runs, judge, view({ entitlements: [expired] }));
-    assert.deepEqual(route.items, []);
-    assert.equal(calls.length, 0);
-  });
-
-  test("once the deal is announced its facts reach public-side agents", async () => {
-    const { judge } = await makeJudge(0.9);
-    const announced = view({ deals: [{ ...falcon, status: "announced" }] });
-    const route = await routeFact(fact("fct_fa1c0011", "deal_falcon", "Falcon terms"), runs, judge, announced);
-    assert.equal(route.items.length, 3);
-    assert.equal(canSee({ side: "public", acts_for: "leo" }, "deal_falcon", announced), true);
-    assert.equal(canSee({ side: "public", acts_for: "leo" }, "deal_falcon", view()), false);
-    assert.equal(canSee({ side: "deal_falcon", acts_for: "leo" }, "deal_falcon", view()), false, "the side alone is not enough");
+  test("a missing answer counts as no", async () => {
+    const judge: Judge = { name: "fake", ask: async () => [] };
+    assert.deepEqual((await routeNewFacts([{ agent: "agt_priya_research", facts: [sellSide] }], [research], judge)).items, []);
   });
 });
 
-describe("wall changes are urgent and need no judge", () => {
-  test("terminated cancels runs on that deal's side only; announced sends a wall_change to public-side runs", () => {
-    const killed = routeDealStatus({ deal: "deal_falcon", from: "confidential", to: "terminated" }, runs, view());
+describe("narrowing and deletion are urgent and need no judge", () => {
+  test("removed facts restart every active run of that agent whose folder holds one, and only those", () => {
+    const items = routeNarrowing({ principal: "agt_dan_deal", removed: ["fct_fa1c0001"] }, [research, deal, { ...deal, run_id: "run_0000dea2", state: "cancelled" }]);
     assert.deepEqual(
-      killed.map((i) => [i.run_id, i.kind, i.urgent]),
-      [["run_0000dea1", "cancel", true]],
+      items.map((i) => [i.run_id, i.kind, i.urgent, i.text]),
+      [[deal.run_id, "scope_narrowed", true, NARROWED_TEXT]],
     );
-    assert.match(killed[0].text, /Project Falcon was terminated/);
-
-    const lifted = routeDealStatus({ deal: "deal_falcon", from: "confidential", to: "announced" }, runs, view());
-    assert.deepEqual(lifted.map((i) => [i.run_id, i.kind, i.urgent]).sort(), [
-      ["run_00005e51", "wall_change", true],
-      ["run_0000de51", "wall_change", true],
-    ]);
+    assert.doesNotMatch(NARROWED_TEXT, /fct_|falcon|\d/i, "the lane is told nothing about what was removed");
+    assert.deepEqual(routeNarrowing({ principal: "agt_dan_deal", removed: ["fct_99990000"] }, [deal]), [], "a fact the folder never held changes nothing");
+    assert.deepEqual(routeNarrowing({ principal: "agt_dan_deal", removed: [] }, [deal]), []);
   });
 
-  test("a wall going back up from announced cancels public-side runs", () => {
-    const items = routeDealStatus({ deal: "deal_falcon", from: "announced", to: "confidential" }, runs, view());
-    assert.equal(items.length, 2);
-    assert.ok(items.every((i) => i.kind === "cancel" && i.urgent));
-  });
-
-  test("a wall going back up also cancels runs on OTHER deals' sides: while announced, they could see its facts too", () => {
-    const heron: RoutableRun = { run_id: "run_0000he01", agent: "agt_deal_2", role: "deal_analyst", acts_for: "dan", side: "deal_heron", task: "Prep Heron materials", state: "running" };
-    const announced = view({ deals: [{ ...falcon, status: "announced" }] });
-    assert.equal(canSee(heron, "deal_falcon", announced), true, "an announced deal's facts reach every side");
-    for (const to of ["confidential", "terminated"] as const) {
-      const items = routeDealStatus({ deal: "deal_falcon", from: "announced", to }, [...runs, heron], view());
-      assert.ok(
-        items.some((i) => i.run_id === heron.run_id && i.kind === "cancel" && i.urgent),
-        `announced -> ${to}: the Heron run may hold a Falcon fact or a queued Falcon update`,
-      );
-      assert.doesNotMatch(items.find((i) => i.run_id === heron.run_id)!.text, /Falcon|deal_falcon/, "the cancel names no deal");
-    }
-    // Falcon's own side keeps working when the wall goes back up (it was always cleared).
-    assert.ok(!routeDealStatus({ deal: "deal_falcon", from: "announced", to: "confidential" }, [...runs, heron], view()).some((i) => i.run_id === "run_0000dea1"));
-    // Straight from confidential, no other side ever saw Falcon: the Heron run keeps working.
-    assert.ok(!routeDealStatus({ deal: "deal_falcon", from: "confidential", to: "terminated" }, [...runs, heron], view()).some((i) => i.run_id === heron.run_id));
-  });
-
-  test("announced -> terminated puts the wall back up too: public-side runs are cancelled with the deal's own", () => {
-    const terminatedAfterAnnounce = view({ deals: [{ ...falcon, status: "terminated" }] });
-    // The wall is back up for a public-side agent (canSee reads only `announced` as public)...
-    assert.equal(canSee({ side: "public", acts_for: "leo" }, "deal_falcon", terminatedAfterAnnounce), false);
-    // ...so every public-side run that may hold Falcon facts or a queued Falcon update stops.
-    const items = routeDealStatus({ deal: "deal_falcon", from: "announced", to: "terminated" }, runs, terminatedAfterAnnounce);
-    assert.deepEqual(items.map((i) => [i.run_id, i.kind, i.urgent]).sort(), [
-      ["run_00005e51", "cancel", true],
-      ["run_0000de51", "cancel", true],
-      ["run_0000dea1", "cancel", true],
-    ]);
-    // Straight from confidential, the public side never saw Falcon: only the deal's runs stop.
+  test("a narrowed creator scope restarts the creator's agents too: an agent never holds more than its creator", () => {
+    const items = routeNarrowing({ principal: "dan", removed: ["fct_fa1c0001", "fct_fa1c0002"] }, [research, deal]);
     assert.deepEqual(
-      routeDealStatus({ deal: "deal_falcon", from: "confidential", to: "terminated" }, runs, view()).map((i) => i.run_id),
-      ["run_0000dea1"],
+      items.map((i) => i.run_id),
+      [deal.run_id],
     );
   });
 
-  test("a revoked entitlement cancels the runs that relied on it", () => {
-    assert.deepEqual(routeEntitlementChange({ entitlement: danOnFalcon, granted: true }, runs), []);
-    const items = routeEntitlementChange({ entitlement: danOnFalcon, granted: false }, runs);
+  test("a deleted agent's active runs get an urgent cancel", () => {
+    const items = routeAgentDeleted("agt_dan_deal", [research, deal, { ...deal, run_id: "run_0000dea3", state: "done" }]);
     assert.deepEqual(
-      items.map((i) => [i.run_id, i.kind, i.urgent]),
-      [["run_0000dea1", "cancel", true]],
+      items.map((i) => [i.run_id, i.kind, i.urgent, i.text]),
+      [[deal.run_id, "cancel", true, DELETED_TEXT]],
     );
   });
 });
 
 describe("simulatedRoutingAnswer (offline judge)", () => {
-  test("needs = word overlap with the task; cancels only on explicit stop words that touch the task", async () => {
+  test("needs = word overlap between the new fact and the agent's task", async () => {
     const judge = (await quiet(() => new FakeJudge({ override: simulatedRoutingAnswer }))).result;
-    const route = await routeFact(fact("fct_0b1c0007", "public", "Logistics sector freight volumes decided to soften"), runs, judge, view());
-    // The research and desk tasks mention logistics; nothing says stop.
-    assert.deepEqual(route.items.map((i) => i.kind).sort(), ["new_fact", "new_fact"]);
-    const stop = await routeFact(fact("fct_0b1c0006", "public", "The logistics sector note is cancelled this month"), runs, judge, view());
-    assert.ok(stop.items.some((i) => i.run_id === "run_00005e51" && i.kind === "cancel"));
+    const route = await routeNewFacts([{ agent: "agt_priya_research", facts: [sellSide, ops] }], [{ ...research, fact_ids: [] }], judge);
+    assert.deepEqual(
+      route.items.map((i) => [i.fact_id, i.p_needs]),
+      [["fct_0b1c0004", 0.75]],
+      "the sell-side note mentions the logistics sector; the office hours do not",
+    );
   });
 });
