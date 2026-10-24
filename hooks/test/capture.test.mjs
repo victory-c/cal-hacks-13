@@ -10,7 +10,7 @@ import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { test } from "node:test";
 
-import { MESSAGE_MAX, buildSession, gitInfo, makeTitle, parseTranscript, readDotEnv, sessionIdFor, stripHarness } from "../claude-code/lib.mjs";
+import { KIND, MESSAGE_MAX, buildSession, gitInfo, makeTitle, normalizePrincipal, parseTranscript, readDotEnv, sessionIdFor, stripHarness } from "../claude-code/lib.mjs";
 import { capturePath, commandFor, mergeSettings, snippet, writeSettings } from "../claude-code/install.mjs";
 
 const HOOKS_DIR = resolve(dirname(fileURLToPath(import.meta.url)), "..");
@@ -152,6 +152,22 @@ test("buildSession fills the CapturedSession shape; ended_at only on SessionEnd"
   assert.equal(empty.title, undefined);
 });
 
+test("buildSession v2: kind is always ai_session; principal only when set, trimmed and lowercased", () => {
+  const messages = parseTranscript(transcriptText);
+  const anon = buildSession({ payload: PAYLOAD, messages, hookEvent: "Stop" });
+  assert.equal(anon.kind, "ai_session");
+  assert.equal(anon.kind, KIND);
+  assert.equal("principal" in anon, false, "no principal key when CANON_PRINCIPAL is unset");
+
+  const dan = buildSession({ payload: PAYLOAD, messages, hookEvent: "Stop", principal: " Dan " });
+  assert.equal(dan.principal, "dan");
+  assert.equal(dan.kind, "ai_session");
+  for (const blank of ["", "   ", undefined, 42]) {
+    assert.equal("principal" in buildSession({ payload: PAYLOAD, messages, principal: blank }), false, `principal ${JSON.stringify(blank)}`);
+  }
+  assert.equal(normalizePrincipal("agt_research_1"), "agt_research_1");
+});
+
 // ---------- lib: readDotEnv, gitInfo ----------
 
 test("readDotEnv parses the flat .env format and ignores noise", () => {
@@ -261,6 +277,40 @@ test("e2e: SessionEnd payload carries ended_at", async () => {
     assert.equal(srv.hits.length, 1);
     assert.ok(typeof srv.hits[0].body.ended_at === "string");
     assert.equal(srv.hits[0].body.meta.hook_event, "SessionEnd");
+  } finally {
+    await srv.close();
+  }
+});
+
+test("e2e v2: CANON_PRINCIPAL (env, then .env) is sent as principal with kind ai_session", async () => {
+  const srv = await fakeServer();
+  try {
+    // CANON_REPO_ROOT points at our own .env so a developer's real .env cannot leak in.
+    const root = mkdtempSync(join(tmpdir(), "canon-principal-"));
+    writeFileSync(join(root, ".env"), "# no principal here\n");
+    const base = { CANON_URL: srv.url, CANON_TOKEN_CLAUDE_CODE: "test-token", CANON_REPO_ROOT: root, CANON_DEBUG: "1" };
+
+    const anon = await runHook(PAYLOAD, base);
+    assert.equal(anon.code, 0, anon.stderr);
+    assert.equal(srv.hits[0].body.kind, "ai_session");
+    assert.equal("principal" in srv.hits[0].body, false, "unset → no principal key");
+    assert.doesNotMatch(anon.stderr, / as /);
+
+    const env = await runHook(PAYLOAD, { ...base, CANON_PRINCIPAL: "Dan" });
+    assert.equal(env.code, 0, env.stderr);
+    assert.equal(env.stdout, "");
+    assert.equal(env.stderr.trim().split("\n").length, 1, `one debug line expected:\n${env.stderr}`);
+    assert.match(env.stderr, / as dan → 200/);
+    assert.equal(srv.hits[1].body.principal, "dan");
+    assert.equal(srv.hits[1].body.kind, "ai_session");
+    assert.equal(srv.hits[1].body.id, srv.hits[0].body.id, "same session id either way");
+
+    writeFileSync(join(root, ".env"), "CANON_PRINCIPAL=priya\n");
+    const dotenv = await runHook(PAYLOAD, base);
+    assert.equal(dotenv.code, 0, dotenv.stderr);
+    assert.equal(srv.hits[2].body.principal, "priya", ".env value used when the env has none");
+    await runHook(PAYLOAD, { ...base, CANON_PRINCIPAL: "leo" });
+    assert.equal(srv.hits[3].body.principal, "leo", "process env wins over .env");
   } finally {
     await srv.close();
   }

@@ -6,6 +6,8 @@ import { DEFAULT_SERVER_URL } from "@canon/shared";
 export const STORAGE = {
   canonUrl: "canonUrl",
   token: "token",
+  /** v2: whose sessions these are (`dan`). Sent as CapturedSession.principal. */
+  principal: "principal",
   /** Written by the service worker after each POST, read by the options page status line. */
   lastSuccess: "lastSuccess",
   lastError: "lastError",
@@ -15,6 +17,11 @@ export interface Settings {
   canonUrl: string;
   /** The `chatgpt=…` value from CANON_CLIENT_TOKENS. Empty until the user pastes it. */
   token: string;
+  /**
+   * v2: the person's principal id at the firm (`dan`, `priya`), lowercased. Empty = not set: the
+   * session goes out with no principal and triage treats it cautiously.
+   */
+  principal: string;
 }
 
 export interface PostResult {
@@ -23,11 +30,14 @@ export interface PostResult {
 }
 
 export function normalizeSettings(raw: Record<string, unknown>): Settings {
-  const url = typeof raw[STORAGE.canonUrl] === "string" ? (raw[STORAGE.canonUrl] as string).trim() : "";
-  const token = typeof raw[STORAGE.token] === "string" ? (raw[STORAGE.token] as string).trim() : "";
-  return { canonUrl: url || DEFAULT_SERVER_URL, token };
+  const text = (key: string): string => (typeof raw[key] === "string" ? (raw[key] as string).trim() : "");
+  return {
+    canonUrl: text(STORAGE.canonUrl) || DEFAULT_SERVER_URL,
+    token: text(STORAGE.token),
+    principal: text(STORAGE.principal).toLowerCase(),
+  };
 }
 
 export async function readSettings(): Promise<Settings> {
-  return normalizeSettings(await chrome.storage.local.get([STORAGE.canonUrl, STORAGE.token]));
+  return normalizeSettings(await chrome.storage.local.get([STORAGE.canonUrl, STORAGE.token, STORAGE.principal]));
 }

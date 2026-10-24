@@ -10,7 +10,7 @@ while you are still typing in it.
 |---|---|---|
 | `src/content/chatgpt.ts` | the chatgpt.com tab (isolated world) | Watches the DOM, extracts the turns 1.5 s after the last change, sends `{ kind: "turns", … }` to the worker. On `pagehide` sends `ended: true`. |
 | `src/background.ts` | extension service worker | Throttles per conversation (2 s), stamps `started_at`, `POST /api/sessions` with the bearer token. Badge `•` green on success, `!` red on failure. |
-| `src/options.html` + `options.ts` | options page | Canon URL, client token, Save, Test connection (`GET /health`), last post result. |
+| `src/options.html` + `options.ts` | options page | Canon URL, client token, principal id (v2), Save, Test connection (`GET /health`), last post result. |
 | `src/shared/` | both | `protocol.ts` (messages), `session.ts` (turns → `CapturedSession`, FNV-1a session ids), `settings.ts` (storage keys). Pure, tested. |
 | `src/content/claude.ts`, `gemini.ts` | claude.ai / gemini.google.com | Stubs: `console.info("not implemented (B9)")`. |
 
@@ -21,6 +21,12 @@ no matter how many times it is posted. The id is FNV-1a of `chatgpt:<conversatio
 stable across reloads with no state. Session capture does not call any AI; nothing here is
 simulated. (The server downstream may run its judge/distiller in simulated mode and says so.)
 
+**v2 (walls).** Every captured chat is `kind: "ai_session"`, and carries `principal` (whose
+context it is, e.g. `dan`) when one is set on the options page. The value is trimmed and
+lowercased; blank means the field is left out and triage treats the session cautiously. Today's
+v1 server accepts and drops both fields until lane A's v2 server keeps them; nothing else
+changes. The PRD cut order lists this extension last, so it stays this small.
+
 ## Run
 
 ```bash
@@ -30,7 +36,8 @@ npm run build -w extension          # → extension/dist (or: npm run dev -w ext
 1. `chrome://extensions` → Developer mode → **Load unpacked** → pick `extension/dist`.
 2. Click the extension → **Options**. Canon URL is `http://localhost:4100` by default. Token: the
    `chatgpt=…` value from `CANON_CLIENT_TOKENS` in the repo's `.env` (`dev-chatgpt` in
-   `.env.example`). Save, then **Test connection** should report the server's health.
+   `.env.example`). Principal: your id at the firm (`dan` in the demo). Save, then **Test
+   connection** should report the server's health.
 3. Open chatgpt.com and chat. The badge turns green on the first successful post; the session
    appears on the dashboard (http://localhost:4200) and in `data/sessions/`.
 

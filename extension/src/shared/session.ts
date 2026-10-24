@@ -42,8 +42,9 @@ export function titleFrom(turns: readonly Turn[]): string | undefined {
 /**
  * `startedAt` is when the service worker first saw this conversation (kept in chrome.storage.session).
  * `endedAt` is stamped only when the message says the page is going away.
+ * v2: every web chat is kind "ai_session"; `principal` (from the options page) goes out only when set.
  */
-export function toCapturedSession(msg: TurnsMessage, startedAt: string, endedAt: string = new Date().toISOString()): CapturedSession {
+export function toCapturedSession(msg: TurnsMessage, startedAt: string, endedAt: string = new Date().toISOString(), principal = ""): CapturedSession {
   const turns = [...msg.turns].sort((a, b) => a.index - b.index);
   const messages: SessionMessage[] = turns.map((t) => ({ role: t.role, content: t.text }));
   const session: CapturedSession = {
@@ -52,9 +53,12 @@ export function toCapturedSession(msg: TurnsMessage, startedAt: string, endedAt:
     started_at: startedAt,
     messages,
     meta: { url: msg.url, site: msg.site },
+    kind: "ai_session",
   };
   const title = msg.title ?? titleFrom(turns);
   if (title) session.title = title;
   if (msg.ended) session.ended_at = endedAt;
+  const who = principal.trim().toLowerCase();
+  if (who) session.principal = who;
   return session;
 }
