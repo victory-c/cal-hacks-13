@@ -10,9 +10,11 @@ live beat that breaks.
 - It opens on the moment: Leo's question and the neutral refusal. No logo or title before it.
   (Hyphenate asks for a video that opens on "the moment.")
 - Hard limit 3:00. The timings below add up to 2:55, leaving 5 seconds of slack.
-- Every number on screen comes from `bench/results/latest.json` (a run that is not simulated) or
-  the live dashboard counter. Placeholders: `[[BENCH: …]]`, `[[LIVE COUNTER: …]]`,
-  `[[QUOTE: …]]`, `[[CHECK: …]]`. If a number isn't measured by the final cut, drop the line.
+- Every measured number on screen (leaks, wrongly blocked, accuracy, tokens, latency, cost) comes
+  from `bench/results/latest.json` (a run that is not simulated) or the live dashboard counter.
+  Test-set sizes and thresholds are design settings, not results. Placeholders: `[[BENCH: …]]`,
+  `[[LIVE COUNTER: …]]`, `[[QUOTE: …]]`, `[[CHECK: …]]`. If a number isn't measured by the final
+  cut, drop the line.
   Never stage a number.
 - If any part ran simulated (fake judge, fake runner, keyword search instead of Moss), the
   dashboard already says "simulated." Leave that label in frame, and say so in the end card.

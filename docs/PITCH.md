@@ -8,8 +8,9 @@ beat that breaks. Judging is Sun 10:30–12:30, and the whole team stays at the 
 laptop (he knows the server). Edan keeps time, holds the backup recording, and hands the
 attack-box laptop to judges at the end.
 
-**Numbers:** every number comes from `bench/results/latest.json` (not simulated) or the live
-counter. Placeholders: `[[BENCH: …]]`, `[[LIVE COUNTER: …]]`, `[[QUOTE: …]]`, `[[CHECK: …]]`.
+**Numbers:** every measured number (leaks, wrongly blocked, accuracy, tokens, latency, cost)
+comes from `bench/results/latest.json` (not simulated) or the live counter. Thresholds, budgets
+and test-set sizes are design settings; call them that. Placeholders: `[[BENCH: …]]`, `[[LIVE COUNTER: …]]`, `[[QUOTE: …]]`, `[[CHECK: …]]`.
 If a number isn't measured, say "we haven't measured that yet." Never guess, and never quote a
 competitor's numbers.
 
@@ -18,18 +19,20 @@ competitor's numbers.
 | Time | Screen (Henry) | Say (Victor) |
 |---|---|---|
 | 0:00 | Desk assistant as Leo. The question is already typed; press Enter. Then switch to Maya's control room. | "Leo's a trader. He asks his AI: anything going on with Nimbus Logistics, should we add? *(refusal appears)* It says no, and nothing else. *(point at Maya's panel)* But compliance just got the full record: who asked, what, and which deal." |
-| 0:15 | Control room overview: deals, who is over each wall, live feed. | "Canon is the control room for a small finance team's AI. Built for Maya: one compliance officer, thirty people, and now AI everywhere." |
+| 0:15 | Control room overview: deals, who is over each wall, live feed. The banner "Synthetic data · decision support, not legal compliance" stays on screen for the whole pitch ([[CHECK: banner shipped in `web/`; if not, tape a card under the screen]]). | "Canon is the control room for a small finance team's AI. Built for Maya, an invented compliance officer at a thirty-person firm. All our data is synthetic." |
 | 0:25 | Event feed: Dan's ChatGPT session and the new memo arrive; triage rows flag Falcon. Then the lawyers' email lands in Quarantine. | "Context comes in live: Dan's ChatGPT session about deal terms, and a new memo. Jev asks yes-or-no questions about each one and flags both as Falcon. Claude writes the facts, and code puts them behind the wall. This email from the target's lawyers hides an instruction to the AI. Quarantined." |
 | 0:45 | Dan types the task. Two Droid lanes start. Open the inspector on the research agent's handoff and hover the "cut: wall" row. | "Dan types one task. Canon dispatches two Droid agents in separate sandboxes. The deal analyst gets Falcon facts; the research analyst gets public facts only. Here's the inspector: this Falcon fact was cut by the wall, not by relevance. The permission check is plain code, and it runs before search and before any model sees the request." |
 | 1:10 | Priya's access request in Maya's queue with Jev's pre-screen. Maya sets an expiry and approves. Wall map updates. | "Priya asks to join Falcon. Jev rates it borderline, so a person decides. Maya approves it with an expiry date, and the wall map updates." |
 | 1:25 | Maya sets Falcon to announced. Leo asks again and gets an answer. Research lane shows the urgent inbox item. | "Falcon is announced. Restrictions lift. Leo asks again and gets his answer, and the research agent picks up the public facts at its next step. No restart." |
-| 1:40 | Benchmark chart: leak rate against wrongly-blocked rate, one point per setup. | "We attacked it fifty ways. Canon with Jev leaked [[BENCH: leaks out of 50, Canon + Jev]]. Shared memory, told to respect the wall, leaked [[BENCH: leaks out of 50, shared memory]]. And Canon wrongly blocked [[BENCH: wrongly blocked rate, Canon + Jev]] of real tasks." |
-| 1:55 | Positioning line, then the scale path. | "Other memory tools ask what's relevant. Canon first asks what you're allowed to know. Small finance teams now, a company version next." |
+| 1:40 | Benchmark chart: leak rate against wrongly-blocked rate, one point per setup. | "We attacked it fifty times, in five styles. Canon with Jev leaked [[BENCH: leaks out of 50, Canon + Jev]]. Shared memory, told to respect the wall, leaked [[BENCH: leaks out of 50, shared memory]]. And Canon wrongly blocked [[BENCH: wrongly blocked rate, Canon + Jev]] of real tasks." |
+| 1:55 | Positioning line, then the scale path. | "Other memory tools ask what's relevant. Canon first asks what you're allowed to know. It's decision support for Maya, not legal compliance, and anything simulated is labeled. Small finance teams now, a company version next." |
 | 2:00 | Edan turns the attack-box laptop to the judges. | "Your turn. Try to get Project Falcon out of it." |
 
-About 290 spoken words. The times are cue points from the PRD; the close is the tightest beat
-and may spill to 2:03, so keep the 1:40 line short. Rehearse with a timer until the attack-box
-handoff starts by 2:05 (C11).
+About 305 spoken words. The times are cue points from the PRD; the close is the tightest beat
+and may spill to 2:05, so keep the 1:40 line short. Rehearse with a timer until the attack-box
+handoff starts by 2:05 (C11). The honesty lines at 0:15 (synthetic data) and 1:55 (decision
+support, simulated parts labeled) are required by the PRD, so never cut them for time. If a run
+is long, cut "Restrictions lift." and "No restart." at 1:25 first.
 
 **If a beat breaks live:** Henry says "here's the recording of that step," Edan plays the
 matching clip from the video, and Victor keeps talking on the same line. Don't debug at the
@@ -70,17 +73,20 @@ search like Glean copies the permissions your apps already have; it doesn't mana
 wall-crossings, and it doesn't brief and update the agents you dispatch.
 
 **3. What if Jev is wrong?**
-Jev never decides access. The permission filter is plain code and runs before Jev sees anything,
-so a wrong Jev answer at handoff can only drop a useful fact, never leak a restricted one. We
-measure that as the wrongly-blocked rate. At save time Jev leans safe: a 20% chance of
-"confidential" counts as yes, an unsure deal goes to Maya's queue, and the raw text is always
-archived.
+At handoff, a wrong Jev answer can only drop a useful fact, never leak one: the permission
+filter is plain code and runs before Jev sees anything. At save time Jev's answers help set a
+fact's wall label, so a deal fact that both our alias rules and Jev miss could be labeled public;
+that's the gap our paraphrase and indirect attacks measure. (If they ask for more:) No model can
+lower a wall or grant access; only Maya or a deal-status change can, and labels only move up on
+their own. Jev leans safe at save time: a 20% chance of "confidential" counts as yes, an unsure
+deal goes to Maya's queue, and the raw text is always archived. A wrong answer at handoff shows
+up as the wrongly-blocked rate.
 
 **4. What about prompt injection?**
 Five layers. Triage asks of every captured item, "Does this contain instructions aimed at an
 AI?" and quarantines it until compliance releases it. Facts reach agents quoted, with source
 labels, as data, never as instructions. Labels only move up on their own, so planted text can't
-make a fact public. Each Droid can touch only its own folder. And every output passes an exit
+lower a fact that's already behind the wall. Each Droid can touch only its own folder. And every output passes an exit
 check before it leaves its side.
 
 **5. Can an agent change its own permissions?**
@@ -107,7 +113,8 @@ in the audit log. (Offer to show the backup scenario.)
 **9. Why Droid for finance work? It's a coding agent.**
 It's a general agent with file and shell tools, and our finance tasks are work over a folder:
 read the memos, run Python for the valuation, write the memo file. Droid runs headless on our
-trigger, at a low permission level, in a sandbox folder holding only its side of the wall. One
+trigger, at a restricted autonomy level: it can edit files and run Python in a sandbox folder
+holding only its side of the wall, and touch nothing outside it. One
 runtime for every agent means every agent's work shows up the same way, in its lane and in the
 audit log. [[CHECK: what Factory's booth said about headless non-coding runs (blocker Q1)]]
 
@@ -133,15 +140,21 @@ legitimate tasks and scored [[BENCH: task accuracy, Canon + Jev]] on the answer 
 access requests go to Maya instead of being refused outright, so people aren't stuck.
 
 **14. What about indirect questions, like "any logistics deals coming?"**
-Indirect questions are one of the five attack styles in our set. They fail for the same reason
-direct ones do: no Falcon fact is ever in a public-side slice. On the way out, the exit check has
-Jev look for indirect references, and a 20% chance blocks the output.
+Indirect questions are one of the five attack styles in our set. When every Falcon fact is
+labeled right, they fail the same way direct ones do: no Falcon fact is in a public-side slice.
+The case they really test is a Falcon fact that was mislabeled public at save time, so on the way
+out the exit check has the judge look for indirect references, and a 20% chance blocks the
+output. Our leak number counts whatever still got through.
 
 **15. Where could Claude go wrong here?** (Anthropic)
 By leaking across the wall: summarizing a deal memo into a fact that reads as public, or
-repeating deal details in an agent's brief. Claude never decides access. Wall labels come from
-code rules and Jev and only move up, and Claude only writes briefs from facts that already passed
-the permission filter.
+repeating deal details in an agent's brief. No model can lower a wall or grant access, and Claude
+only writes briefs from facts that already passed the permission filter. (If they ask for more:)
+At save time, code rules plus the judge's answers set each fact's wall label, and it only moves
+up. If Jev isn't available the judge is Claude Haiku, so Claude does answer "is this
+confidential?" and "which deal?", and a 20% chance counts as yes. What's left is a deal fact
+that both the alias rules and the judge miss; our paraphrase and indirect attacks and the exit
+check are aimed at it.
 
 **16. Is Droid just a chatbot wrapper here?** (Factory)
 No. No one chats with it. A dispatched task triggers it, headless, in a sandbox Canon builds, and
