@@ -1,6 +1,6 @@
 {
   "project": "Bullwark",
-  "updated": "2026-10-24T15:51:30Z",
+  "updated": "2026-10-24T15:52:03Z",
   "team": [
     {
       "id": "A",
@@ -233,9 +233,9 @@
       "owner": "B",
       "milestone": "M3",
       "priority": "must",
-      "state": "todo",
+      "state": "doing",
       "title": "Droid agent runs inside the creator's scope: sandbox of scope facts, steps and files",
-      "note": "Reworking b/dispatch (PR #9) for the scopes PRD: agent profiles, no sides or exit check. Gate Sat 11:00 (Q1); fallback drops the Factory track."
+      "note": "Reworked on b/dispatch (PR #9) for scopes: runs an agent profile from its rule's task and its server-built scope (one fact file per scope fact), brief via handoff, outputs saved as the creator's memory; sides, entitlements and exit check removed. Greptile review addressed: a cancel or narrowing heard while the outputs are posted aborts the post and is honoured (cancelled, or restart); a deletion during the rule read never starts the run. Offline --demo built from fixtures/world by group (simulated). Remaining: lane A's scope-rule, scope-facts and sessions routes for the dispatcher token (and a server-side refusal of a save whose facts left the scope); one real droid exec run (Q1 gate 11:00)."
     },
     {
       "id": "B4",
@@ -332,9 +332,9 @@
       "owner": "B",
       "milestone": "M3",
       "priority": "must",
-      "state": "todo",
+      "state": "doing",
       "title": "Route newly in-scope facts and scope narrowing to agent inboxes",
-      "note": "Reworking with b/dispatch (PR #9): new facts that join an agent's scope reach it at its next step; a narrowed scope restarts the run in a fresh folder."
+      "note": "On b/dispatch (PR #9): facts that join an agent's scope reach it at its next step after one batched Jev ask, including facts missed during an event-stream gap (found on scope reads; declines are remembered). A narrowed scope restarts the run in a fresh folder. Waiting on lane A's scope routes."
     },
     {
       "id": "B19",

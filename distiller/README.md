@@ -92,7 +92,8 @@ phrases or numbers.
 agent runner. The current product target is Droid agent runs inside the creator's scope: a
 sandbox of scope facts, work steps and inbox updates (B2 and B18). Confirm headless finance work
 at the Factory gate before claiming the integration. The existing Claude and heuristic engines
-remain usable for development.
+remain usable for development. The agent dispatcher itself (B2, B18) is a separate entrypoint in
+`src/dispatch/` (`npm run dispatch -w distiller`); see `src/dispatch/README.md`.
 
 **Anthropic track.** `claude-sonnet-5-5` follows the claude-api skill: forced `tool_choice` is a
 400 on this model, so the request uses `auto` + `strict: true` + a system prompt that says to call
