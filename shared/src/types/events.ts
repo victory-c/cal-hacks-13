@@ -80,7 +80,12 @@ export type CanonEvent =
       remaining: number;
     })
   | (Base & {
-      /** A scope changed: built, rebuilt after a rule edit, or a new fact joined. Moderators only. */
+      /**
+       * A scope changed: built, rebuilt after a rule edit, or a new fact joined. Moderators and
+       * internal clients only. One event per principal: when a creator's scope changes, the
+       * server also emits one for each of their agents, with that agent's own added and removed
+       * facts. The dispatcher routes from the agent's event only.
+       */
       type: "scope.updated";
       principal: string;
       reason: "built" | "rule_changed" | "fact_joined" | "fact_left" | "fact_filed";

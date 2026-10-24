@@ -39,7 +39,11 @@ export interface CapturedSession {
   /** Full message list so far. Clients re-send the whole list; the server replaces. */
   messages: SessionMessage[];
   meta?: SessionMeta;
-  /** Whose context this is (principal id: `dan`). Missing = unknown, triage treats it cautiously. */
+  /**
+   * Whose context this is (principal id: `dan`). It becomes each fact's `author`, and a member's
+   * own facts join their scope, so the server binds it to a per-person client's principal (see
+   * ROUTES.sessions). Missing = unknown: triage treats it cautiously and sets no author.
+   */
   principal?: string;
   /** Missing = "ai_session". */
   kind?: SourceKind;
