@@ -1,6 +1,6 @@
 {
   "project": "Bullwark",
-  "updated": "2026-10-24T17:52:01Z",
+  "updated": "2026-10-24T17:59:58Z",
   "team": [
     {
       "id": "A",
@@ -253,7 +253,7 @@
       "priority": "must",
       "state": "doing",
       "title": "Jev triage: keep, group and labels, instructions (quarantine) and relation to existing facts",
-      "note": "Merged into b/integration-v2 with the ingest revision ledger (#19) and verified end to end against A2 (simulated judge): the world's chat, memo, transcript and news filed into groups, the lawyers' email quarantined (moderators only). Fixed there: a draft sent to inbox no longer retires a fact in another group (an agent's restatement had pushed a market/public fact cold). Note: the Nimbus alias of deal/falcon keeps public Nimbus news from auto-filing to market/public (inbox or deal/falcon); the demo's public facts are seeded. Remaining: a run with a real Jev/Claude judge (no keys on Henry's machine)."
+      "note": "Runs on real Jev (TypeSafe /v1/systemone, client rewritten to the documented API) on b/integration-v2. Measured end to end on the world (simulated heuristic writer, real Jev judge): the lawyers' email quarantined at inject p 0.98; memo, chat, transcript, news and Leo's agent output pass at 0.08-0.17; each batched triage call 106-191 ms; Priya, Leo and Leo's agent hold zero deal/falcon facts. Calibrated on real Jev: the injection question now asks about item.text only and excludes handling notes to people (a memo's 'do not paste into any AI tool' note had scored 0.57), and dispatcher sessions are judged on the agent's outputs only (our own task prompt had scored 0.30-0.86). A draft sent to inbox no longer retires a fact in another group. Remaining: the Claude writer live (no ANTHROPIC_API_KEY yet); public Nimbus news lands in inbox (the Nimbus alias belongs to deal/falcon)."
     },
     {
       "id": "B6",

@@ -65,6 +65,32 @@ function stripped(s: CapturedSession): CapturedSession {
 }
 
 describe("triage", () => {
+  test("an agent run is judged on its outputs only; the dispatcher's own task prompt and title are left out", async () => {
+    const run: CapturedSession = {
+      id: "ses_0000a9e1",
+      client: "dispatcher",
+      kind: "ai_session",
+      principal: "leo",
+      title: "agt_leodesk: Answer Leo's questions about positions",
+      started_at: "2026-10-24T16:00:00.000Z",
+      messages: [
+        { role: "user", content: "Task for agt_leodesk: answer Leo's questions about positions" },
+        { role: "assistant", content: "LKSP was up 6% on 2026-10-19." },
+      ],
+    };
+    const judge = scripted();
+    await triage(input([], { session: run }), judge);
+    const item = JSON.parse(judge.calls[0].state).item;
+    assert.equal(item.text, "assistant: LKSP was up 6% on 2026-10-19.");
+    assert.ok(!judge.calls[0].state.includes("Task for agt_leodesk"));
+
+    // Any other client's session is judged whole, title and every message.
+    const judge2 = scripted();
+    await triage(input([], { session: { ...run, client: "ingest" } }), judge2);
+    const other = JSON.parse(judge2.calls[0].state).item;
+    assert.match(other.text, /^agt_leodesk: Answer Leo's questions about positions\n\nuser: Task for agt_leodesk/);
+  });
+
   test("asks the judge exactly once: one state, the item question, then keep, group, labels, rel and relto per draft", async () => {
     const judge = scripted();
     const existing = [
