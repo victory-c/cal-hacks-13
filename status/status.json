@@ -1,6 +1,6 @@
 {
-  "project": "Canon",
-  "updated": "2026-10-24T11:55:58.971470+00:00",
+  "project": "Bullwark",
+  "updated": "2026-10-24T12:21:54.025471+00:00",
   "team": [
     {
       "id": "A",
@@ -335,6 +335,15 @@
       "state": "todo",
       "title": "Ingest client for synthetic memos, chat and meeting notes",
       "note": ""
+    },
+    {
+      "id": "B20",
+      "owner": "B",
+      "milestone": "M2",
+      "priority": "stretch",
+      "state": "done",
+      "title": "Rename the product to Bullwark in user-facing text",
+      "note": "Docs, README, extension name/options, dashboard titles and wordmark, hook messages. Code identifiers (canon_* tools, @canon/shared, CANON_* env, bench baseline label) unchanged."
     },
     {
       "id": "C1",

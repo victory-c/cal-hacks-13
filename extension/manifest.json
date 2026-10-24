@@ -1,8 +1,8 @@
 {
   "manifest_version": 3,
-  "name": "Canon Capture",
+  "name": "Bullwark Capture",
   "version": "0.1.0",
-  "description": "Streams your ChatGPT (and later Claude, Gemini) web sessions into Canon as you chat. Turn text only.",
+  "description": "Streams your ChatGPT (and later Claude, Gemini) web sessions into Bullwark as you chat. Turn text only.",
   "permissions": ["storage"],
   "host_permissions": [
     "https://chatgpt.com/*",
