@@ -1,6 +1,6 @@
 {
   "project": "Canon",
-  "updated": "2026-10-24T11:55:58.971470+00:00",
+  "updated": "2026-10-24T12:31:33Z",
   "team": [
     {
       "id": "A",
@@ -314,9 +314,9 @@
       "owner": "B",
       "milestone": "M2",
       "priority": "must",
-      "state": "todo",
+      "state": "doing",
       "title": "Claude fact writer with source links, dates, history and wall labels",
-      "note": "Content can make labels more restricted, never less."
+      "note": "Built and tested on b/writer (stacked on PR #7); awaiting review and lane-A routes. The wall labels are on b/triage and land with that PR."
     },
     {
       "id": "B18",
