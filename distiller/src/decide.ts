@@ -2,7 +2,7 @@
 // hot facts already in the store, ask Jev the typed questions for EVERY draft in ONE request,
 // then apply THRESHOLDS ourselves. Pure given a Judge: no I/O, no env, deterministic with FakeJudge.
 //
-// v1. The worker now runs the v2 triage (triage.ts: walls, quarantine, compliance queue), which
+// v1. The worker now runs the scopes triage (triage.ts: groups, labels, quarantine, inbox), which
 // reuses this file's exact-duplicate rule through normalizeStatement().
 
 import { INBOX, THRESHOLDS, TOP_FOLDERS, newFactId, today } from "@canon/shared";

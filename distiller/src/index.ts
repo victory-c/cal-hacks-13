@@ -32,7 +32,7 @@ try {
 const client = createClient({ baseUrl: url, token });
 const handler = createHandler({ client, distiller, judge, live });
 
-log(`distiller worker: engine ${distiller.name}, judge ${judge.name}${judge.name === "fake" ? " (simulated)" : ""}, v2 triage, listening on ${url}${ROUTES.events}${live ? " (DISTILL_LIVE=1)" : ""}`);
+log(`distiller worker: engine ${distiller.name}, judge ${judge.name}${judge.name === "fake" ? " (simulated)" : ""}, triage into groups, listening on ${url}${ROUTES.events}${live ? " (DISTILL_LIVE=1)" : ""}`);
 
 const stop = subscribeEvents(url + ROUTES.events, (event) => void handler(event), {
   headers: { authorization: `Bearer ${token}` },

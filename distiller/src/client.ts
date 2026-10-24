@@ -1,26 +1,13 @@
-// Typed fetch client for the Canon server. The distiller never imports server code: it reads
+// Typed fetch client for the Bullwark server. The distiller never imports server code: it reads
 // sessions from the cold archive and writes decided facts over the REST contract in
 // shared/src/types/api.ts, authenticated as the "distiller" client (CANON_TOKEN_DISTILLER).
 //
-// v2 routes (deals, lists, review queue, event relay) are lane A's and may not exist yet: they
-// throw CanonApiError with status 404 against a v1 server, and the worker treats that as "not
-// there yet" (see isMissingRoute), never as a crash.
+// The scopes routes the worker uses (groups, quarantine, event relay) are lane A's and may not
+// exist yet: they throw CanonApiError with status 404 against today's server, and the worker
+// treats that as "not there yet" (see isMissingRoute), never as a crash.
 
-import { DEAL_STATUSES, RELAYED_EVENTS, ROUTES, isDealWall } from "@canon/shared";
-import type {
-  CapturedSession,
-  Deal,
-  DealStatus,
-  Folder,
-  ListFactsResponse,
-  ListsResponse,
-  PostFactsBody,
-  PostFactsResponse,
-  PostReviewBody,
-  PublishEventBody,
-  RestrictedEntry,
-  Tier,
-} from "@canon/shared";
+import { GROUP_NEW, GROUP_RE, GROUP_UNSURE, INBOX, RELAYED_EVENTS, ROUTES } from "@canon/shared";
+import type { CapturedSession, Folder, Group, ListFactsResponse, PostFactsBody, PostFactsResponse, PostQuarantineBody, PublishEventBody, Tier } from "@canon/shared";
 
 const TIMEOUT_MS = 10_000;
 
@@ -37,13 +24,11 @@ export interface CanonClient {
   getSession(id: string): Promise<CapturedSession>;
   listFacts(query?: FactsQuery): Promise<ListFactsResponse["facts"]>;
   postFacts(body: PostFactsBody): Promise<PostFactsResponse>;
-  /** v2: GET /api/deals, checked by parseDeals(): a body it cannot use throws. */
-  getDeals(): Promise<Deal[]>;
-  /** v2: GET /api/lists, checked by parseLists(). The distiller is internal, so `watch` comes back too. */
-  getLists(): Promise<ListsResponse>;
-  /** v2: POST /api/review. Resolves to the new item's id when the server says it. */
-  postReview(body: PostReviewBody): Promise<string | undefined>;
-  /** v2: POST /api/events. Rejects any type outside RELAYED_EVENTS before sending. */
+  /** GET /api/groups, checked by parseGroups(): a body it cannot use throws. */
+  getGroups(): Promise<Group[]>;
+  /** POST /api/quarantine. Resolves to the new QuarantineItem's id when the server says it. */
+  postQuarantine(body: PostQuarantineBody): Promise<string | undefined>;
+  /** POST /api/events. Rejects any type outside RELAYED_EVENTS before sending. */
   publishEvent(event: RelayedEvent): Promise<void>;
 }
 
@@ -59,7 +44,7 @@ export class CanonApiError extends Error {
   }
 }
 
-/** True for a 404 or 405: the server does not have this route (a v1 server, or not built yet). */
+/** True for a 404 or 405: the server does not have this route (not built yet). */
 export function isMissingRoute(err: unknown): boolean {
   return err instanceof CanonApiError && (err.status === 404 || err.status === 405);
 }
@@ -104,11 +89,10 @@ export function createClient(opts: { baseUrl: string; token: string }): CanonCli
       return res.facts ?? [];
     },
     postFacts: (body) => call<PostFactsResponse>("POST", ROUTES.facts, body),
-    getDeals: async () => parseDeals(await call<unknown>("GET", ROUTES.deals), `GET ${ROUTES.deals}`),
-    getLists: async () => parseLists(await call<unknown>("GET", ROUTES.lists), `GET ${ROUTES.lists}`),
-    async postReview(body) {
-      // The contract does not pin the response yet: accept the item itself, { item }, or { id }.
-      return reviewId(await call<unknown>("POST", ROUTES.review, body, true));
+    getGroups: async () => parseGroups(await call<unknown>("GET", ROUTES.groups), `GET ${ROUTES.groups}`),
+    async postQuarantine(body) {
+      // PostQuarantineResponse is the QuarantineItem; { item } and an empty 200 are accepted too.
+      return itemId(await call<unknown>("POST", ROUTES.quarantine, body, true));
     },
     async publishEvent(event) {
       if (!(RELAYED_EVENTS as readonly string[]).includes(event?.type)) {
@@ -121,59 +105,31 @@ export function createClient(opts: { baseUrl: string; token: string }): CanonCli
 }
 
 // ---------------------------------------------------------------------------------------------
-// Deals and lists, checked. A name check against a list we misread proves nothing, so anything
-// we cannot use throws: the worker then labels nothing public (loadContext's labelPublic false)
-// instead of quietly checking names against an empty or partial list. Also used by cli.ts.
+// Groups, checked. Filing against a list we misread (a group id we cannot write as a folder, a
+// group whose aliases we never saw) proves nothing, so anything we cannot use throws: the worker
+// then files every fact in the inbox (loadContext's groupsKnown false) instead of quietly filing
+// against a partial list. Also used by cli.ts.
 
 /**
- * A DealsResponse ({ deals }) or a bare Deal[] (ROUTES.deals says "GET Deal[]"; DealsResponse
- * says { deals }: both are accepted). Every deal needs an id like deal_falcon and a code name, or
- * the whole list is refused. Missing aliases or companies are []; a missing status is
- * confidential.
+ * A GroupsResponse ({ groups }) or a bare Group[]. Every group needs an id that is a group path
+ * (GROUP_RE) and is not a sentinel answer ("new", "unsure"), or the whole list is refused. An
+ * `inbox` entry is dropped: it is the fallback, never a pick. A missing description is "";
+ * missing or malformed aliases are [] (non-strings dropped). A repeated id keeps the first.
  */
-export function parseDeals(body: unknown, where: string): Deal[] {
-  const raw = Array.isArray(body) ? body : isRecord(body) && Array.isArray(body.deals) ? body.deals : undefined;
-  if (!raw) throw new Error(`${where} is not a deal list: need { deals: Deal[] } or Deal[] (see shared/src/types/walls.ts)`);
-  return raw.map((d: unknown, i): Deal => {
-    const deal = isRecord(d) ? d : {};
-    const { id, code_name } = deal;
-    if (typeof id !== "string" || !isDealWall(id) || typeof code_name !== "string" || !code_name.trim()) {
-      throw new Error(`${where}: deals[${i}] needs an id like deal_falcon and a code_name`);
+export function parseGroups(body: unknown, where: string): Group[] {
+  const raw = Array.isArray(body) ? body : isRecord(body) && Array.isArray(body.groups) ? body.groups : undefined;
+  if (!raw) throw new Error(`${where} is not a group list: need { groups: Group[] } or Group[] (see shared/src/types/scopes.ts)`);
+  const out: Group[] = [];
+  raw.forEach((g: unknown, i) => {
+    const group = isRecord(g) ? g : {};
+    const { id } = group;
+    if (typeof id !== "string" || !GROUP_RE.test(id) || id === GROUP_NEW || id === GROUP_UNSURE) {
+      throw new Error(`${where}: groups[${i}] needs an id like deal/falcon (lowercase slug path, not "new" or "unsure")`);
     }
-    const status = (DEAL_STATUSES as readonly unknown[]).includes(deal.status) ? (deal.status as DealStatus) : "confidential";
-    return {
-      id,
-      code_name,
-      aliases: strings(deal.aliases),
-      companies: strings(deal.companies),
-      status,
-      status_changed_at: typeof deal.status_changed_at === "string" ? deal.status_changed_at : "",
-    };
+    if (id === INBOX || out.some((o) => o.id === id)) return;
+    out.push({ id, description: typeof group.description === "string" ? group.description : "", aliases: strings(group.aliases).filter((a) => a.trim()) });
   });
-}
-
-/**
- * A ListsResponse: `restricted` must be a list, `watch` a list when present. An entry with no
- * company name falls back to its ticker, and one with neither is dropped (it can match nothing).
- */
-export function parseLists(body: unknown, where: string): ListsResponse {
-  if (!isRecord(body) || !Array.isArray(body.restricted)) throw new Error(`${where} is not a ListsResponse: need { restricted: [], watch?: [] } (see shared/src/types/api.ts)`);
-  if (body.watch != null && !Array.isArray(body.watch)) throw new Error(`${where}: watch must be a list when present`);
-  const out: ListsResponse = { restricted: listEntries(body.restricted) };
-  if (Array.isArray(body.watch)) out.watch = listEntries(body.watch);
   return out;
-}
-
-function listEntries(xs: unknown[]): RestrictedEntry[] {
-  return xs.flatMap((x) => {
-    const e = isRecord(x) ? x : {};
-    const ticker = typeof e.ticker === "string" && e.ticker.trim() ? e.ticker : undefined;
-    const company = typeof e.company === "string" && e.company.trim() ? e.company : ticker;
-    if (!company) return [];
-    const entry: RestrictedEntry = { company, added_at: typeof e.added_at === "string" ? e.added_at : "" };
-    if (ticker) entry.ticker = ticker;
-    return [entry];
-  });
 }
 
 function isRecord(x: unknown): x is Record<string, unknown> {
@@ -184,7 +140,7 @@ function strings(x: unknown): string[] {
   return Array.isArray(x) ? x.filter((s): s is string => typeof s === "string") : [];
 }
 
-function reviewId(res: unknown): string | undefined {
+function itemId(res: unknown): string | undefined {
   if (typeof res !== "object" || res === null) return undefined;
   const r = res as { id?: unknown; item?: { id?: unknown } };
   if (typeof r.id === "string") return r.id;

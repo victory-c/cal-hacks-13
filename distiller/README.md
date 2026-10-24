@@ -1,18 +1,19 @@
-# `@canon/distiller` — captured item in, walled facts out
+# `@canon/distiller` — captured item in, grouped facts out
 
-**Owner:** lane B, Victor Chun. This README describes the implemented worker. Finance triage,
-wall labels, Claude fact writing and Droid agent dispatch are tracked in `../docs/WORK_SPLIT.md`.
+**Owner:** lane B, Victor Chun. This README describes the implemented worker. Triage into groups,
+Claude fact writing and Droid agent runs are tracked in `../docs/WORK_SPLIT.md`.
 
 A worker process on the server's event stream. It never imports
 server code: everything goes over HTTP as the `distiller` client (`CANON_TOKEN_DISTILLER`).
 
 ```
 SSE session.captured ─▶ GET /api/sessions/:id ─▶ engine.distill() ─▶ triage() ─────────────────────▶ POST /api/facts
-                        (cold archive)            DraftFact[] + plan    one Jev request per item:       facts carry wall +
-                                                                        inject · keep · confidential ·  decision.triage
-                        GET /api/facts (hot) ─┐                         deal · relation                ─▶ POST /api/review
-                        GET /api/deals ───────┼─▶ code rule (names) ──▶ thresholds + raise-only walls     label_unsure · quarantine
-                        GET /api/lists ───────┘                                                        ─▶ POST /api/events
+                        (cold archive)            DraftFact[] + plan    one Jev request per item:       facts in their group
+                                                                        inject · keep · group ·         (or inbox), with labels,
+                        GET /api/facts (hot) ─┐                         labels · relation               author, decision.triage
+                        GET /api/groups ──────┴─▶ aliases (code hint) ─▶ thresholds + filing rules    ─▶ POST /api/quarantine
+                                                                                                          held items only
+                                                                                                       ─▶ POST /api/events
                                                                                                           triage.decided · quarantine.flagged
 ```
 
@@ -26,35 +27,35 @@ logged and skipped; the loop never dies.
 |---|---|
 | `src/index.ts` | Entrypoint: `loadEnv()`, picks engine + judge (`triageJudge()`), subscribes to `/events`, clean SIGINT. |
 | `src/worker.ts` | `createHandler({ client, distiller, judge, live })`: the flow above, testable with fakes. Also `loadContext()` and `deliver()`, shared with the CLI. |
-| `src/client.ts` | Typed fetch client: `getSession`, `listFacts`, `postFacts`; the finance routes `getDeals`, `getLists` (checked by `parseDeals` / `parseLists`: a body they cannot use throws), `postReview`, `publishEvent` (RELAYED_EVENTS only). Bearer auth, 10 s timeout, errors say status + body. |
-| `src/triage.ts` | Finance save-time triage: one batched `judge.ask()`, thresholds and wall rules applied by us. Pure given a `Judge`. Also `financeFakeJudge()`, the offline judge. |
-| `src/walls.ts` | `codeWall()` (deal names and listed companies, in code, on folded text) and `raiseWall()` (public < deal < unlabeled, never lowers). Pure. |
+| `src/client.ts` | Typed fetch client: `getSession`, `listFacts`, `postFacts`; the scopes routes `getGroups` (checked by `parseGroups`: a body it cannot use throws), `postQuarantine`, `publishEvent` (RELAYED_EVENTS only). Bearer auth, 10 s timeout, errors say status + body. |
+| `src/triage.ts` | Save-time triage into groups: one batched `judge.ask()`, thresholds and filing rules applied by us. Pure given a `Judge`. Also `financeFakeJudge()`, the offline judge. |
+| `src/groups.ts` | `aliasHits()`: which groups a text names, by their aliases, matched in code on folded text. A filing hint, never a filing. Pure. |
 | `src/engines/` | `Distiller` interface, `createDistiller()`, the three engines (below). |
-| `src/decide.ts` | The earlier, pre-finance save-time decisions (tier, folder, dedupe). The worker no longer calls it; triage reuses its exact-duplicate rule. |
+| `src/decide.ts` | The earlier save-time decisions (tier, folder, dedupe). The worker no longer calls it; triage reuses its exact-duplicate rule. |
 | `src/cli.ts` | Run the pipeline on a recorded item; `--post` files the result on the server like the worker does. |
 | `fixtures/session.sample.json` | A Claude Code session (ships the capture hook, decides folders, targets backend internships). An existing compatibility transcript, not the finance demo world. |
-| `fixtures/world/` | The synthetic finance world (Harbor Lane Partners, Project Falcon): a deal, the restricted and watch lists, and five captured items. All made up; see its README. `src/engines/world.test.ts` checks it against the contract. |
+| `fixtures/world/` | The synthetic finance world (Harbor Lane Partners, Project Falcon): the groups (`groups.json`) and five captured items. All made up; see its README. `src/engines/world.test.ts` checks it against the contract. |
 
 ## Run and test
 
 ```bash
 npm run dev -w distiller                 # the worker; needs the server on CANON_URL (npm run dev at the root runs both)
-npm run distill -w distiller -- distiller/fixtures/session.sample.json            # no server needed
-npm run distill -w distiller -- <item.json> --deals <deals.json> --lists <lists.json>
+npm run distill -w distiller -- distiller/fixtures/world/falcon-process-memo.json   # no server needed
+npm run distill -w distiller -- <item.json> --groups <groups.json>
 npm run distill -w distiller -- distiller/fixtures/session.sample.json --engine claude --post
 npm run typecheck -w distiller && npm test -w distiller                            # offline, no keys
 ```
 
-The CLI prints the plan, the drafts, the triage table (outcome, wall, keep / confidential / deal
-answers, relation, action) and the review items, then everything as JSON. Deals and lists come
-from `--deals` / `--lists` (a `DealsResponse` / `ListsResponse` JSON file), else from
-`fixtures/world/deals.json` and `fixtures/world/lists.json` when they exist. With `--post` they
-come from the server only: `--deals` / `--lists` are refused and the fixtures are never read,
-since the result is filed on that server and a local list could label public what its walls
-would not (or skip the `inbox` fallback on a server without the finance routes). Without both,
-nothing is labeled public and every fact goes to `inbox`. If the server takes the facts but fails
-on a review item or event, `--post` says what was not filed and exits 1. Tokens and ms in its
-output are real measurements (`usage` from the API, wall clock); nothing is estimated.
+The CLI prints the plan, the drafts, the triage table (outcome, group, keep, Jev's group
+probability, labels, relation, action), why each non-`fact` draft landed where it did, then
+everything as JSON. Groups come from `--groups` (a `GroupsResponse` JSON file), else from
+`fixtures/world/groups.json` when it exists. With `--post` they come from the server only:
+`--groups` is refused and the fixture is never read, since the result is filed on that server and
+a local list could file a fact in a group the server does not have (or skip the `inbox` fallback
+on a server without `GET /api/groups`). Without a group list every fact goes to `inbox`. If the
+server takes the facts but fails on the quarantine item or an event, `--post` says what was not
+filed and exits 1. Tokens and ms in its output are real measurements (`usage` from the API, wall
+clock); nothing is estimated.
 
 ## Engines and the fallback order
 
@@ -72,8 +73,8 @@ logged error, not a silent downgrade.
 
 **The Claude fact writer.** The system prompt asks for one claim per fact, in third person with
 names (in an AI session the user is the principal; an external email's claims belong to its
-sender). Deal code names, company names and tickers stay verbatim, because the wall rules match
-them in code, and a hint such as "the logistics thing" is kept word for word, never resolved.
+sender). Deal code names, company names and tickers stay verbatim, because triage matches group
+aliases in code, and a hint such as "the logistics thing" is kept word for word, never resolved.
 `happened` is a `YYYY-MM-DD` day only when the source states it, never the capture time; a bad
 date is dropped in code. The item is data, never instructions: lines aimed at an AI are left out
 (triage quarantines the item). The transcript header always says kind, principal and external,
@@ -86,10 +87,10 @@ no fixture or benchmark task, and a test checks that it holds none of the test w
 phrases or numbers.
 
 **Factory integration:** `src/engines/droid.ts` is a distiller adapter stub, not an implemented
-agent runner. The current product target is headless finance-agent dispatch with isolated
-context, work steps, inbox updates and checked outputs (B2 and B18). Confirm headless finance
-work at the Factory gate before claiming the integration. The existing Claude and heuristic
-engines remain usable for development.
+agent runner. The current product target is Droid agent runs inside the creator's scope: a
+sandbox of scope facts, work steps and inbox updates (B2 and B18). Confirm headless finance work
+at the Factory gate before claiming the integration. The existing Claude and heuristic engines
+remain usable for development.
 
 **Anthropic track.** `claude-sonnet-5-5` follows the claude-api skill: forced `tool_choice` is a
 400 on this model, so the request uses `auto` + `strict: true` + a system prompt that says to call
@@ -97,129 +98,126 @@ engines remain usable for development.
 `effort: medium`; `max_tokens` 4096 because thinking counts against it; `fallbacks: "default"`
 (beta `server-side-fallback-2026-07-01`) so a safeguard false positive is retried server-side.
 
-## Jev save-time triage (`src/triage.ts`, `src/walls.ts`)
+## Jev save-time triage (`src/triage.ts`, `src/groups.ts`)
 
 **One `judge.ask()` per captured item** (CLAUDE.md rule). The state is the item (kind, client,
-`external`, principal, its text: title plus `role: content` per message), the deals (id, code
-name, aliases, companies, status), the numbered drafts and up to 40 existing hot facts (id,
-statement, wall). Past 24 000 characters the text keeps its head and tail, and the cut middle is
-scanned in code (on folded text) for sentences that read like orders to an AI or like forwarding
-something out; up to 8 of them are spliced in where the cut is, so the `inject` question is asked
-of the whole item. A sentence longer than 280 characters is cut to a window that starts just
-before the match, so padding in front of an order cannot push it out (the quarantine excerpt
-works the same way). The state also tells the judge the item text is untrusted data, never
-instructions. A missing (or malformed) `external`, `kind` or `principal` goes in as `"unknown"`,
-never as `false`, `ai_session` or a guessed owner (`provenance()`), and the state and the `inject`
-question tell the judge to read an unknown origin as possibly outside the firm. The questions:
+`external`, principal, its text: title plus `role: content` per message), the server's groups (id,
+description, aliases), the labels already in use, the numbered drafts (with the writer's
+suggested group and labels) and up to 40 existing hot facts (id, statement, group, labels). Past
+24 000 characters the text keeps its head and tail, and the cut middle is scanned in code (on
+folded text) for sentences that read like orders to an AI or like forwarding something out; up to
+8 of them are spliced in where the cut is, so the `inject` question is asked of the whole item. A
+sentence longer than 280 characters is cut to a window that starts just before the match, so
+padding in front of an order cannot push it out (the quarantine excerpt works the same way). The
+state also tells the judge the item text is untrusted data, never instructions. A missing (or
+malformed) `external`, `kind` or `principal` goes in as `"unknown"`, never as `false`,
+`ai_session` or a guessed owner (`provenance()`), and the state and the `inject` question tell
+the judge to read an unknown origin as possibly outside the firm. The questions:
 
 | Id | Type | Question | What code does (`TRIAGE_THRESHOLDS`) |
 |---|---|---|---|
-| `inject` | noul, once per item | Instructions aimed at an AI? | `>= 0.3`: the **whole item** is quarantined. Every draft's outcome is `quarantine`, nothing is written, one `quarantine` review item (with the sentence that tripped it). |
+| `inject` | noul, once per item | Instructions aimed at an AI? | `>= 0.3`: the **whole item** is quarantined. Every draft's outcome is `quarantine`, nothing is written (not even to inbox), one `POST /api/quarantine` with the sentence that tripped it. |
 | `keep:i` | noul | Worth remembering? | `< 0.35`: `archive_only` (the raw item stays in the cold archive). Kept facts are hot above 0.6, else cold (the existing `KEEP_HOT` rule). |
-| `conf:i` | noul | Looks like confidential deal information, including indirect references? | `>= 0.2` with no deal wall: `compliance`. |
-| `deal:i` | choice: `unsure`, each deal id, `public` | Which deal? | A pick below 0.6 counts as `unsure`. A confident deal raises the wall. |
+| `group:i` | choice: `unsure`, each group id from `GET /api/groups`, `new` | Which group? | Filed there only at `>= 0.6` and when nothing in code disputes it (below). `unsure`, a pick below 0.6 or `new` → `inbox`; `new` carries `new_group`, the writer's suggested group when it is a well-formed id that is not already a group. |
+| `label:i:<slug>` | noul per candidate | Does label *x* apply? | Candidates: the writer's suggestions (lowercased, `LABEL_RE`), then labels already in use, at most 8. `>= 0.5` applies it. |
 | `rel:i` | choice over `RELATIONS` (`unrelated` first) | Relation to the closest fact? | `same` → merge, `replaces` → supersede, the rest → add. Needs p > 0.5 to merge or supersede. |
 | `relto:i` | choice: `none`, existing ids | Which fact? | Must be one the judge was shown, else none. |
 
-**The wall, raise-only.** It starts at `public` and only goes up (`raiseWall`: public < any
-deal < unlabeled):
+**Filing: code files only what Jev picked confidently and nothing in code disputes.** Otherwise
+the fact is written to `inbox`, which only moderators see; it joins no member scope, not even its
+author's, until a moderator files it. Code disputes a confident pick of group G when:
 
-1. **Code rule** (`codeWall`, no model): the draft's statement and detail are matched against every
-   deal's id, code name, its short form ("Project Falcon" → "Falcon"), aliases and companies, plus
-   restricted and watch-list companies, case-insensitively, with letters and digits as the only
-   word characters. The text is folded first: NFKC, accents and zero-width / format characters
-   dropped, Cyrillic and Greek look-alikes mapped to Latin, `_` read as a space, and camelCase also
-   tried split. So `Falcon_LOI_v3.docx`, `deal_falcon`, `#project_falcon`, `ProjectFalcon`,
-   `FalconModel.xlsx` and "Falcon" with a zero-width space inside all name Falcon. A hit walls the fact to
-   that deal **even when Jev says public**.
-2. **Jev's confident deal** (`deal_p >= 0.6`) raises it.
-3. **The related fact** (`relto`, or an exact duplicate) is a floor: a fact that replaces, merges
-   into, adds to or contradicts an existing fact never gets a lower wall than that fact.
-4. **The item backstops the draft.** The code rule also runs once over the whole captured item. A
-   writer often paraphrases the code name away ("the target"), so a draft that would be labeled
-   `public` from an item that names a deal goes to `compliance` instead, with that deal as the
-   proposal (not forced: public news that mentions a deal company is not over-walled).
+1. **An alias of another group is in the draft** (`aliasHits`, no model): the draft's statement
+   and detail are matched against every group's aliases, each alias's short form ("Project
+   Falcon" → "Falcon") and the group id itself, case-insensitively, with letters and digits as the
+   only word characters. The text is folded first: NFKC, accents and zero-width / format
+   characters dropped, Cyrillic and Greek look-alikes mapped to Latin, `_` read as a space, and
+   camelCase also tried split. So `Falcon_LOI_v3.docx`, `deal_falcon`, `#project_falcon`,
+   `ProjectFalcon`, `FalconModel.xlsx` and "Falcon" with a zero-width space inside all name
+   `deal/falcon`. An alias is a hint, never a filing: an alias of G with Jev unsure is still inbox.
+2. **The draft names no group and its item names only other groups.** The same check runs once
+   over the whole captured item. A writer often paraphrases the code name away ("the target"), so
+   a draft from an item that names `deal/falcon` that Jev files elsewhere waits for a moderator.
+3. **The draft relates to a fact in another group** (`same`, `replaces`, `adds_detail` or
+   `contradicts` with a `relto` the judge was shown): content never moves between groups on its
+   own.
 
-Outcomes: `fact` with a deal wall, or with `public` when nothing points at a deal, the
-confidentiality answer is below 0.2, Jev is confidently public and the item names no deal.
-Everything else that is kept is **`compliance`**: two deals (a conflict), a floor that is itself
-unlabeled, a listed company that belongs to no known deal (even next to a deal wall),
-confidential with no clear deal, deal unsure, or a public-looking draft from an item that names a
-deal. A `compliance` fact is **written with no wall** (unlabeled: nobody but compliance sees it)
-and a `label_unsure` review item carries `proposed_wall` (= `TriageDecision.wall`: what content
-and the related fact's floor say, raised by Jev's below-threshold deal pick, else the deal the item
-names; never below the floor). For a `fact`, `TriageDecision.wall` is the wall the fact got,
-floor included. For a two-deal conflict there is no single right wall, so the item has no
-`proposed_wall` and says "pick one".
+**An exact duplicate** of a stored fact merges into it whatever the judge says (the `decide.ts`
+rule) and is filed in that fact's group, so a moderator's filing holds when the same item is
+distilled again; a duplicate of an inbox fact stays in inbox.
+
+**Every written fact** (`fact` or `inbox`) carries `folder` = its group, `labels`, `author` (the
+item's principal; unset when the principal is unknown, never guessed), `happened` (a
+`YYYY-MM-DD` the writer read off the source, else dropped), `source`, and `decision.triage` (the
+full `TriageDecision`: outcome, keep, group and Jev's probability, `new_group`, labels, injection,
+relation, and a one-line `reason`, moderators only). `SaveDecision.folder_p` is Jev's probability
+for its pick.
 
 **Missing or neutral answers land on the safe side:** no `inject` answer is 0.5, so the item is
-quarantined; no `conf` answer is 0.5, so confidential; no `deal` answer is unsure; no relation
-answer is add (nothing retired). The `deal`, `rel` and `relto` options list the safe answer first,
-so a judge that falls back to `options[0]` picks it. The exact-duplicate rule from `decide.ts`
-still holds: a draft that repeats a stored fact word for word merges into it.
+quarantined; no `group` answer is unsure, so inbox; no label answer applies the label (a label
+only ever lets an exclusion remove a fact); no relation answer is add (nothing retired). The
+`group`, `rel` and `relto` options list the safe answer first, so a judge that falls back to
+`options[0]` picks it.
 
-**What the worker files.** Facts (`fact` and `compliance`) go to `POST /api/facts` with
-`decision.triage` set. Then the review items (`POST /api/review`), then the events
-(`POST /api/events`): one `triage.decided` per draft, including archive-only and quarantined
-ones, and one `quarantine.flagged` per quarantined item, carrying the id the review queue gave
-back. An item with no drafts still gets the `inject` question. A route that exists but fails
-(a 5xx, a timeout, a dropped connection) loses nothing: the review items and events it did not
-take are held and retried with backoff (5 s doubling to a minute), on the next capture (a re-post
-of the same one included) and once more on shutdown, for up to 10 minutes, then the worker says
-what it gave up on. The facts are never sent again. A quarantine item's `quarantine.flagged`
-waits with it, so the event carries the queue's id. Only a missing route (404 / 405) is skipped.
+**What the worker files.** Facts go to `POST /api/facts` with `decision.triage` set. Then the
+quarantine item (`POST /api/quarantine`), then the events (`POST /api/events`): one
+`triage.decided` per draft, including archive-only and quarantined ones, and one
+`quarantine.flagged` per quarantined item, carrying the id the server gave back. An item with no
+drafts still gets the `inject` question. A route that exists but fails (a 5xx, a timeout, a
+dropped connection) loses nothing: the quarantine item and events it did not take are held and
+retried with backoff (5 s doubling to a minute), on the next capture (a re-post of the same one
+included) and once more on shutdown, for up to 10 minutes, then the worker says what it gave up
+on. The facts are never sent again. A quarantine item's `quarantine.flagged` waits with it, so
+the event carries the server's id. Only a missing route (404 / 405) is skipped.
 
-**Against a server without the finance routes** (`/api/deals`, `/api/lists`, `/api/review` or
-`/api/events` answer 404): **walls are not enforced there.** Such a server (today's) checks folder
-grants only, so an unlabeled or deal-walled fact in `team/` would reach every client that reads
-`team/`. The worker warns once per route for its whole life, triages with an empty deal list, **labels nothing public** (a public
-result is written unlabeled) and **files every fact in `inbox`**, which no AI client reads under
-`DEMO_GRANTS` (`wall_reason` says why). It skips the review items and events and keeps running.
-Facts still go to `POST /api/facts`, which it accepts. The same holds when either route fails
-or returns a body the client cannot use (not `{ deals }` / `Deal[]`, a deal without a
-`deal_…` id or code name, `restricted` not a list): `labelPublic` is false.
+**Against a server without the scopes routes** (`/api/groups`, `/api/quarantine` or
+`/api/events` answer 404, as today's does): the worker warns once per route for its whole life,
+**files every fact in `inbox`** (`reason` says "the server gave no group list"), skips the
+quarantine item and events, and keeps running. Facts still go to `POST /api/facts`, which today's
+server accepts in `inbox` (one of the distiller's folders). The same holds when `GET /api/groups`
+fails or returns a body the client cannot use (not `{ groups }` / `Group[]`, a group id that is
+not a group path, or `new` / `unsure` as an id): `groupsKnown` is false.
 
 **Offline judge (simulated).** With no keys `createJudge()` returns the fake judge, and
 `triageJudge()` swaps in `financeFakeJudge()`: a few regexes with finance sense, not a model,
-reading the same folded text as the code rule. Falcon, Nimbus, LOI, term sheet, multiple, EBITDA
-and similar read as confidential Falcon information (a named deal at 0.9, unnamed deal talk at
-0.7, a plain line from an item that names a deal at 0.65). An indirect reference (the target,
-the buyer, the seller, …) from an item with deal terms reads as maybe confidential (0.4, Falcon at
-0.5), so it goes to compliance with Falcon proposed. "ignore your instructions", "AI assistant"
-and similar read as injection, and so does "forward … to" in an item from outside the firm;
-public news and everyday lines read as public. The probabilities it gives are made up for the
-simulation; logs and the CLI say "simulated".
+reading the same folded text as the alias check. A draft that names a group's alias picks it
+(0.9). Falcon, Nimbus, LOI, term sheet, multiple, EBITDA and similar pick the first `deal/` group
+(0.7), and so does a plain line from an item that names a `deal/` group (0.65). An indirect
+reference (the target, the buyer, the seller, …) from an item with deal terms is a low-confidence
+deal pick (0.5), so it waits in inbox. Public news, research, trading and office lines pick
+`market/public`, `research/logistics`, `desk/trading` and `firm/ops` (0.8) when those groups
+exist; anything else is unsure. A label applies when the draft says it. "ignore your
+instructions", "AI assistant" and similar read as injection, and so does "forward … to" in an item
+from outside the firm. The probabilities it gives are made up for the simulation; logs and the
+CLI say "simulated".
 
 ## Env (all from `.env`, see `.env.example`)
 
 `CANON_URL` · `CANON_TOKEN_DISTILLER` (dev default `dev-distiller`) · `DISTILLER` · `FACTORY_API_KEY`
 · `ANTHROPIC_API_KEY` · `FIRM_TZ` · `DISTILL_LIVE` · `JUDGE_PROVIDER` / `JEV_API_KEY` / `JEV_API_URL`.
 
-## Assumptions (B5, written down while Victor slept)
+## Assumptions (B5, scopes PRD rework)
 
-- **Folder:** finance triage asks no folder question. A fact goes to the engine's `folder`, else `team`, or
-  `team/<deal>` (e.g. `team/falcon`) for a deal-walled fact. Unlabeled facts stay in plain `team`
-  so the path hints at nothing. Without the server's deals and lists every fact goes to `inbox`
-  (fail closed by folder). `SaveDecision.folder_p` is 1 because code chose the folder.
-- **Tier:** kept facts keep the existing rule (hot above `KEEP_HOT` 0.6, else cold).
-- **The floor covers every relation but `unrelated`**, not only replaces and same: a detail added
-  to a Falcon fact is Falcon information.
-- **The code rule walls by the draft and backstops by the item.** A name in the draft walls the
-  fact; a name only in the item sends a public-looking draft to compliance (proposing that deal)
-  rather than walling it, since the item may be public news that mentions a deal company. Jev
-  sees the whole item, so a plain line from a Falcon memo can still be walled by Jev (the fake
-  judge does this too). Restricted-list companies count at draft level only.
-- **A listed company with no known deal** sends the fact to compliance rather than labeling it,
-  even when a deal wall applies: that wall covers the deal, not the other company. The deal wall
-  is the proposal.
-- **Watch-list names stay out of `wall_reason`** ("a watch-list name"), since the reason rides on
-  events. The review item, which is compliance-only, quotes the statement.
-- **Missing, failing or malformed deals or lists** (either one) means no public labels and every
-  fact in `inbox`, in the worker and the CLI. With `--post` the CLI uses only the server's and
-  refuses `--deals` / `--lists`.
-- **A held public fact keeps outcome `fact` and `decision.wall` `public`** while the fact itself is
-  written with no wall; `wall_reason` says "left unlabeled". `TriageDecision.wall` has no
-  "unlabeled" value, so saying it there needs a contract change (lane A).
+- **The item backstop is kept from the walls version.** A draft that names no group, from an
+  item that names only other groups than Jev's pick, goes to inbox. Groups are flat in the
+  contract, so this also holds for non-deal aliases: a multi-topic chat that mentions `LKSP` (an
+  alias of `desk/trading`) sends its other lines to inbox for a moderator. Safe, at some cost in
+  moderator work; revisit after the first end-to-end run.
+- **`contradicts` counts as relating**, like same, replaces and adds detail: a line that
+  contradicts a Falcon fact is Falcon information.
+- **An exact duplicate follows its stored fact's group**, not Jev's pick: the content is already
+  there, and a moderator's filing would otherwise be undone on every re-distill.
+- **The relation → action mapping holds for inbox facts too**: a fact that replaces a filed fact
+  still retires it (to cold, never deleted) while the replacement waits in inbox. Members can lose
+  that fact until a moderator files the replacement; nothing reaches anyone it should not.
+- **Labels are generous**: a neutral answer applies a label, because labels only ever let an
+  exclusion remove a fact. Candidates are the writer's suggestions and labels in use (Jev picks,
+  it does not name), so a brand-new label needs the writer to propose it.
+- **`new` proposes the writer's suggested group** (`DraftFact.folder`) when it is a well-formed id
+  that is not already a group; the engines still suggest the scaffold's folders (`team`,
+  `projects`), so until B17's follow-up the proposal is often absent or coarse.
+- **A quarantined draft's decision** says `group: "inbox"` and no labels: nothing from it is
+  written, and its Jev answers came from a state that held an injection.
 - **A missing `external`, `kind` or `principal` is unknown, not the friendly default.** The
   capture route can drop all three (today's `parseSession` in `server/` does), so a missing flag
   may be an outside email that lost it. Triage does not apply the contract's "missing kind =
@@ -228,21 +226,18 @@ simulation; logs and the CLI say "simulated".
   (any "forward/send ... to", and any send to an email address or an outside / personal one).
   Only the author's own plan ("before i send the LOI draft to the team") and "share" the noun
   ("per share ... a premium to") are let through, so the demo world's internal items still triage
-  when the server strips their flags. An item stated `external: false` is read as before. The
-  quarantine item says what was unknown ("kind, origin and owner unknown") instead of filling in a
-  default.
+  when the server strips their flags. An item stated `external: false` is read as before. A fact
+  from an item with no principal has no `author`.
 
 ## Open
 
-- Contract requests (lane A): pin the `POST /api/review` response (the client accepts the item,
-  `{ item }` or `{ id }`; `quarantine.flagged.review_id` is `""` when it gets none), and give
-  `TriageDecision` a way to say "two deals" (today `wall` holds the first one and the review item
-  has no `proposed_wall`).
-- Server request (lane A, asked in PR #7): `POST /api/sessions` must keep `external`, `kind` and
-  `principal` through `parseSession` and storage. Until it does, every item reaches triage as
-  unknown origin: the fail-safe above holds, but an outside email whose only forwarding line is
-  phrased as the sender's own plan ("I'll send the terms to Priya") is not quarantined as it would
-  be with `external: true`, and compliance's review items carry no owner or source kind.
+- Server requests (lane A): `POST /api/sessions` must keep `external`, `kind` and `principal`
+  through `parseSession` and storage (asked in PR #7). Until it does, every item reaches triage as
+  unknown origin and every fact is written without an `author`, so living scopes cannot add a
+  member's own facts to their scope. The distiller's grant must let it write every group (today
+  it writes only `career`, `projects`, `team`, `private` and `inbox`, so a fact in `deal/falcon`
+  would be a 403 once `GET /api/groups` exists) and `GET /api/facts?tier=hot` must return facts
+  from every group to the distiller, or the relation and duplicate rules cannot see them.
 - Replay skipping is time-based (events older than the worker). Proposal for A↔B: the server's
   `EventBus` honours `Last-Event-ID` (replay only ring ids above it) and `subscribeEvents` sends
   the last id it saw on reconnect; then the worker can drop the 5 s heuristic.

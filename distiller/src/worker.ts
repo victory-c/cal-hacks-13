@@ -1,20 +1,21 @@
 // The worker's event handler: session.captured → fetch → distill → Jev triage (one request) →
-// POST /api/facts, then the review items (POST /api/review) and the relayed events
-// (POST /api/events: triage.decided per draft, quarantine.flagged per held item).
+// POST /api/facts (facts in their groups, or in inbox), then the quarantine item when the item
+// was held (POST /api/quarantine) and the relayed events (POST /api/events: triage.decided per
+// draft, quarantine.flagged per held item).
 // Built as a factory over an injected client/distiller/judge so worker.test.ts drives it with
 // fakes and no network. One bad session is logged and skipped; the loop never dies.
 //
-// Against a v1 server the v2 routes 404. A v1 server checks folder grants only, never walls, so
-// an unlabeled or deal-walled fact in team/ would reach any client that reads team/. The worker
-// says so once per route, triages with an empty deal list, labels nothing public, files every
-// fact in inbox (which no AI client reads), and keeps going.
+// Against a server without the scopes routes (today's: they 404) the worker says so once per
+// route and keeps going. Without GET /api/groups it files every fact in inbox, which only
+// moderators see: filing in a group the server never listed could put a fact where the wrong
+// people see it (and today's server only lets the distiller write its old folders and inbox).
 //
-// A v2 route that exists but fails for a moment (a 5xx, a timeout) does not lose what it was
-// given: the review items and events it did not take are held and retried (with backoff, on the
-// next capture, and once more on settle()), without sending the facts again.
+// A scopes route that exists but fails for a moment (a 5xx, a timeout) does not lose what it was
+// given: the quarantine item and events it did not take are held and retried (with backoff, on
+// the next capture, and once more on settle()), without sending the facts again.
 
 import { ROUTES, timed } from "@canon/shared";
-import type { CanonEvent, Deal, Fact, Judge, ListsResponse, PostReviewBody } from "@canon/shared";
+import type { CanonEvent, Fact, Group, Judge, PostQuarantineBody } from "@canon/shared";
 import { isMissingRoute } from "./client.ts";
 import type { CanonClient, RelayedEvent } from "./client.ts";
 import type { Distiller } from "./engines/index.ts";
@@ -38,8 +39,8 @@ export interface HandlerOptions {
    */
   replayGraceMs?: number;
   /**
-   * First wait before retrying review items and events a route failed to take; doubles per try,
-   * up to a minute. Default 5000.
+   * First wait before retrying a quarantine item and events a route failed to take; doubles per
+   * try, up to a minute. Default 5000.
    */
   retryMs?: number;
   /** How long held items are retried before the worker gives up on them and says so. Default 10 minutes. */
@@ -70,8 +71,8 @@ export function createHandler(opts: HandlerOptions): Handler {
   const processed = new Set<string>(); // "<id>:<messages>" keys; a re-sent session is a no-op
   const pending = new Map<string, Pending>(); // live-mode debounce, one per session id
   const inflight = new Set<Promise<void>>();
-  const warnOnce = onceWarner(); // one line per missing v2 route for the worker's whole life
-  const held: Held[] = []; // review items and events a failing route did not take
+  const warnOnce = onceWarner(); // one line per missing scopes route for the worker's whole life
+  const held: Held[] = []; // quarantine items and events a failing route did not take
   let retryTimer: ReturnType<typeof setTimeout> | undefined;
   let retrying: Promise<void> | undefined;
 
@@ -101,7 +102,7 @@ export function createHandler(opts: HandlerOptions): Handler {
         h.tries++;
         const id = h.box.session_id;
         const r = await redeliver(opts.client, h.box, warnOnce);
-        if (r.reviews || r.events) log(`session ${id}: retry ${h.tries}: filed ${r.reviews} review items, relayed ${r.events} events`);
+        if (r.quarantined || r.events) log(`session ${id}: retry ${h.tries}: filed ${r.quarantined} quarantine items, relayed ${r.events} events`);
         if (r.unsent && Date.now() - h.since < retryForMs) {
           h.box = r.unsent;
           continue;
@@ -193,15 +194,14 @@ async function processSession(event: Captured, opts: HandlerOptions, processed: 
     log(`session ${id}: ${opts.distiller.name} distilled ${drafts.length} drafts in ${distilled.ms} ms${simulated ? " (simulated)" : ""}`);
     if (plan) log(`session ${id}: plan: ${plan}`);
 
-    // Every captured item gets the injection question, drafts or not. The store, deals and lists
+    // Every captured item gets the injection question, drafts or not. The store and the groups
     // only matter when there is something to file.
-    const ctx: TriageContext = drafts.length ? await loadContext(opts.client, warnOnce) : { existing: [], deals: [], lists: { restricted: [] }, labelPublic: false };
+    const ctx: TriageContext = drafts.length ? await loadContext(opts.client, warnOnce) : { existing: [], groups: [], groupsKnown: false };
     const triaged = await timed(() => triage({ session, drafts, ...ctx }, opts.judge));
     const result = triaged.result;
-    log(
-      `session ${id}: ${opts.judge.name} triaged ${drafts.length} drafts against ${ctx.existing.length} facts and ${ctx.deals.length} deals in ${triaged.ms} ms (${summarizeTriage(result)})`,
-    );
-    if (result.quarantine) log(`session ${id}: quarantined: ${result.quarantine.excerpt ?? ""}`);
+    const against = ctx.groupsKnown ? `${ctx.groups.length} groups` : "no group list";
+    log(`session ${id}: ${opts.judge.name} triaged ${drafts.length} drafts against ${ctx.existing.length} facts and ${against} in ${triaged.ms} ms (${summarizeTriage(result)})`);
+    if (result.quarantine) log(`session ${id}: quarantined: ${result.quarantine.item.excerpt} (${result.quarantine.summary})`);
     if (drafts.length === 0 && !result.quarantine) {
       log(`session ${id}: nothing to save`);
       return;
@@ -210,7 +210,7 @@ async function processSession(event: Captured, opts: HandlerOptions, processed: 
     const delivered = await timed(() => deliver(opts.client, result, warnOnce));
     const d = delivered.result;
     log(
-      `session ${id}: saved ${d.saved.length}, retired ${d.retired.length}, filed ${d.reviews} review items, relayed ${d.events} events in ${delivered.ms} ms${d.unsent ? `; held for retry: ${describeUnsent(d.unsent)}` : ""}`,
+      `session ${id}: saved ${d.saved.length}, retired ${d.retired.length}, filed ${d.quarantined} quarantine items, relayed ${d.events} events in ${delivered.ms} ms${d.unsent ? `; held for retry: ${describeUnsent(d.unsent)}` : ""}`,
     );
     // The facts are saved, so the session stays processed; only what a route failed to take is retried.
     if (d.unsent) hold(d.unsent);
@@ -222,7 +222,7 @@ async function processSession(event: Captured, opts: HandlerOptions, processed: 
 }
 
 // ---------------------------------------------------------------------------------------------
-// v2 context and delivery. Exported for cli.ts (--post) and the tests.
+// Scopes context and delivery. Exported for cli.ts (--post) and the tests.
 
 /** Warns the first time a key is seen, then stays quiet: one line per missing route, not per session. */
 export type WarnOnce = (key: string, msg: string) => void;
@@ -238,31 +238,20 @@ export function onceWarner(): WarnOnce {
 
 export interface TriageContext {
   existing: Fact[];
-  deals: Deal[];
-  lists: ListsResponse;
-  /** False unless both deals and lists came back: no name check, no public label, every fact in inbox. */
-  labelPublic: boolean;
+  groups: Group[];
+  /** False unless the server gave a group list the client could use: then every fact goes to inbox. */
+  groupsKnown: boolean;
 }
 
-const NO_LISTS =
-  "triaging with an empty deal list: nothing is labeled public and every fact is filed in inbox, which no AI client reads (a server without these routes does not enforce walls)";
+const NO_GROUPS = "every fact is filed in inbox (moderators only) until the server lists its groups";
 
 /**
- * Hot facts (required: a v1 route), deals and lists (v2: missing, failing or malformed means
- * degrade to labelPublic false, not fail; client.ts throws on a body it cannot use).
+ * Hot facts (required: an existing route) and groups (missing, failing or malformed means degrade
+ * to groupsKnown false, not fail; client.ts throws on a body it cannot use).
  */
 export async function loadContext(client: CanonClient, warnOnce: WarnOnce): Promise<TriageContext> {
-  const [existing, deals, lists] = await Promise.all([
-    client.listFacts({ tier: "hot" }),
-    optional(() => client.getDeals(), `GET ${ROUTES.deals}`, NO_LISTS, warnOnce),
-    optional(() => client.getLists(), `GET ${ROUTES.lists}`, NO_LISTS, warnOnce),
-  ]);
-  return {
-    existing,
-    deals: deals.ok ? deals.value : [],
-    lists: lists.ok ? lists.value : { restricted: [] },
-    labelPublic: deals.ok && lists.ok,
-  };
+  const [existing, groups] = await Promise.all([client.listFacts({ tier: "hot" }), optional(() => client.getGroups(), `GET ${ROUTES.groups}`, NO_GROUPS, warnOnce)]);
+  return { existing, groups: groups.ok ? groups.value : [], groupsKnown: groups.ok };
 }
 
 export interface Delivered extends Sent {
@@ -273,32 +262,31 @@ export interface Delivered extends Sent {
 type QuarantineFlagged = Extract<RelayedEvent, { type: "quarantine.flagged" }>;
 
 /**
- * Review items and events not yet filed for one triage result. Facts are never in here: they go
- * first, and once the server saved them they are not sent again.
+ * The quarantine item and events not yet filed for one triage result. Facts are never in here:
+ * they go first, and once the server saved them they are not sent again.
  */
 export interface Unsent {
   session_id: string;
-  /** The quarantine item and its quarantine.flagged event, which waits for the id the queue gives back. */
-  quarantine?: { review: PostReviewBody; event: QuarantineFlagged };
-  reviews: PostReviewBody[];
+  /** The quarantine item and its quarantine.flagged event, which waits for the id the server gives back. */
+  quarantine?: { item: PostQuarantineBody; event: QuarantineFlagged };
   events: RelayedEvent[];
 }
 
 export interface Sent {
-  /** Review items the server accepted. */
-  reviews: number;
+  /** Quarantine items the server accepted. */
+  quarantined: number;
   /** Events the server accepted for relay. */
   events: number;
   /**
    * What a route that exists failed to take (a 5xx, a timeout, a dropped connection): kept for
-   * redeliver(). A route that is missing (404/405, a v1 server) is skipped, never kept.
+   * redeliver(). A route that is missing (404/405, not built yet) is skipped, never kept.
    */
   unsent?: Unsent;
 }
 
 /**
- * Files one triage result: facts first (a v1 route, so a failure here fails the session and it is
- * retried whole), then the review items, then the events (redeliver()).
+ * Files one triage result: facts first (an existing route, so a failure here fails the session
+ * and it is retried whole), then the quarantine item, then the events (redeliver()).
  */
 export async function deliver(client: CanonClient, result: TriageResult, warnOnce: WarnOnce): Promise<Delivered> {
   const facts = triagedFacts(result);
@@ -307,15 +295,15 @@ export async function deliver(client: CanonClient, result: TriageResult, warnOnc
   return { saved: posted.saved, retired: posted.retired, ...sent };
 }
 
-/** The review items and events one triage result files, none sent yet. */
+/** The quarantine item and events one triage result files, none sent yet. */
 function outbox(result: TriageResult): Unsent {
   const at = new Date().toISOString();
-  const box: Unsent = { session_id: result.session_id, reviews: [], events: [] };
+  const box: Unsent = { session_id: result.session_id, events: [] };
   if (result.quarantine) {
-    const event: QuarantineFlagged = { type: "quarantine.flagged", at, session_id: result.session_id, review_id: "", p: result.injection_p, excerpt: result.quarantine.excerpt ?? "" };
-    box.quarantine = { review: result.quarantine, event };
+    const { item } = result.quarantine;
+    const event: QuarantineFlagged = { type: "quarantine.flagged", at, session_id: result.session_id, quarantine_id: "", p: item.p, excerpt: item.excerpt };
+    box.quarantine = { item, event };
   }
-  for (const d of result.drafts) if (d.review) box.reviews.push(d.review);
   for (const d of result.drafts) {
     const event: RelayedEvent = { type: "triage.decided", at, session_id: result.session_id, statement: d.draft.statement, decision: d.decision };
     if (d.fact) event.fact_id = d.fact.id;
@@ -324,20 +312,20 @@ function outbox(result: TriageResult): Unsent {
   return box;
 }
 
-const REVIEW = `POST ${ROUTES.review}`;
+const QUARANTINE = `POST ${ROUTES.quarantine}`;
 const PUBLISH = `POST ${ROUTES.publish}`;
-const NO_QUEUE = "review items are not filed (the facts stay unlabeled or quarantined, the safe side)";
+const NO_QUARANTINE = "the quarantine item is not filed (nothing from the item is written either way)";
 const NO_RELAY = "triage events are not relayed to the dashboard";
 
 /**
  * Sends what `box` holds: the quarantine item, then its quarantine.flagged event with the id the
- * queue gave back, the label_unsure items, then the events. A missing route is warned once and
- * skipped for good (review_id is "" when the queue is missing or names no id). A route that exists
- * but fails keeps its items, and the rest of that route's items wait behind them, in `unsent`.
+ * server gave back, then the events. A missing route is warned once and skipped for good
+ * (quarantine_id is "" when the route is missing or names no id). A route that exists but fails
+ * keeps its items, and the rest of that route's items wait behind them, in `unsent`.
  */
 export async function redeliver(client: CanonClient, box: Unsent, warnOnce: WarnOnce): Promise<Sent> {
-  const left: Unsent = { session_id: box.session_id, reviews: [], events: [] };
-  const out: Sent = { reviews: 0, events: 0 };
+  const left: Unsent = { session_id: box.session_id, events: [] };
+  const out: Sent = { quarantined: 0, events: 0 };
   const gone = new Set<string>();
   const failed = new Set<string>();
   const attempt = async <T>(route: string, consequence: string, fn: () => Promise<T>): Promise<Optional<T>> => {
@@ -350,35 +338,26 @@ export async function redeliver(client: CanonClient, box: Unsent, warnOnce: Warn
 
   const events: RelayedEvent[] = [];
   if (box.quarantine) {
-    const { review, event } = box.quarantine;
-    const r = await attempt(REVIEW, NO_QUEUE, () => client.postReview(review));
+    const { item, event } = box.quarantine;
+    const r = await attempt(QUARANTINE, NO_QUARANTINE, () => client.postQuarantine(item));
     if (r.ok) {
-      out.reviews++;
-      events.push({ ...event, review_id: r.value ?? "" });
+      out.quarantined++;
+      events.push({ ...event, quarantine_id: r.value ?? "" });
     } else if (r.missing) events.push(event);
     else left.quarantine = box.quarantine;
-  }
-  for (const item of box.reviews) {
-    const r = await attempt(REVIEW, NO_QUEUE, () => client.postReview(item));
-    if (r.ok) out.reviews++;
-    else if (!r.missing) left.reviews.push(item);
   }
   for (const event of [...events, ...box.events]) {
     const r = await attempt(PUBLISH, NO_RELAY, () => client.publishEvent(event));
     if (r.ok) out.events++;
     else if (!r.missing) left.events.push(event);
   }
-  if (left.quarantine || left.reviews.length || left.events.length) out.unsent = left;
+  if (left.quarantine || left.events.length) out.unsent = left;
   return out;
 }
 
-/** "1 quarantine item, 2 review items, 3 events": what an Unsent holds, for the logs. */
+/** "1 quarantine item (and its event), 3 events": what an Unsent holds, for the logs. */
 export function describeUnsent(box: Unsent): string {
-  const parts = [
-    box.quarantine ? "1 quarantine item (and its event)" : "",
-    box.reviews.length ? `${box.reviews.length} review item${box.reviews.length === 1 ? "" : "s"}` : "",
-    box.events.length ? `${box.events.length} event${box.events.length === 1 ? "" : "s"}` : "",
-  ];
+  const parts = [box.quarantine ? "1 quarantine item (and its event)" : "", box.events.length ? `${box.events.length} event${box.events.length === 1 ? "" : "s"}` : ""];
   return parts.filter(Boolean).join(", ");
 }
 
@@ -389,7 +368,7 @@ async function optional<T>(fn: () => Promise<T>, route: string, consequence: str
     return { ok: true, value: await fn() };
   } catch (err) {
     if (isMissingRoute(err)) {
-      warnOnce(route, `server has no ${route} yet (a v1 server?): ${consequence}`);
+      warnOnce(route, `server has no ${route} yet: ${consequence}`);
       return { ok: false, missing: true };
     }
     const why = errorMessage(err);
