@@ -8,31 +8,46 @@
 //            Re-fetch the slice with POST /api/handoff AS THE AGENT'S PRINCIPAL (registered once
 //            via POST /api/principals with acts_for + side), so the permission filter runs every
 //            time and an announced deal's facts reach public-side agents automatically.
-//   step     runner.step() in the sandbox; every StepEvent is published as agent.step.
-//   after    when the run finishes, every out/ file goes through POST /api/exit-check before it
-//            "leaves". Blocked (or the check unavailable): the run fails with a compliance-safe
+//   step     runner.step() in the sandbox; every StepEvent is published as agent.step. On the
+//            public side the agent's own words (messages, tool calls, file names, results) are
+//            held: the lane shows only the step's kind until the exit check passes them.
+//   after    when the run finishes, the folder is frozen (read-only) and every out/ file goes
+//            through POST /api/exit-check before it "leaves", plus, on the public side, the held
+//            step log. Blocked (or the check unavailable): the run fails with a compliance-safe
 //            reason, the folder locks, nothing is released.
 //
 // Every change is published through POST /api/events (agent.run / agent.step / agent.inbox) so
-// the dashboard draws one lane per agent and the audit log has the record.
+// the dashboard draws one lane per agent and the audit log has the record. A run's reason is on
+// every lane, so it never carries runtime stderr or a quoted fact; the worker log has the detail.
 
 import { randomBytes } from "node:crypto";
-import { readFileSync, statSync } from "node:fs";
+import { readFileSync, rmSync, statSync } from "node:fs";
 import { join } from "node:path";
 
-import { DEFAULT_BUDGET_TOKENS, env, nowIso } from "@canon/shared";
-import type { AgentRole, AgentRun, AgentStep, ContextFact, DispatchRequest, InboxItem, Principal, RunState } from "@canon/shared";
+import { DEFAULT_BUDGET_TOKENS, PUBLIC_WALL, env, nowIso } from "@canon/shared";
+import type { AgentRole, AgentRun, AgentRuntime, AgentStep, ContextFact, DispatchRequest, InboxItem, Principal, RunState } from "@canon/shared";
 import { ROLE_LABELS } from "./brief.ts";
 import type { BriefWriter } from "./brief.ts";
 import type { DispatchClient, RelayedEvent } from "./client.ts";
-import { errorMessage, log, shortReason, warn } from "./log.ts";
+import { errorMessage, log, warn } from "./log.ts";
 import { planDispatch } from "./plan.ts";
 import type { PlannedRun, Planner } from "./plan.ts";
 import type { RoutableRun } from "./routing.ts";
 import { isActive } from "./routing.ts";
-import { CancelledError } from "./runners/types.ts";
+import { CancelledError, StepError } from "./runners/types.ts";
 import type { Runner, StepEvent } from "./runners/types.ts";
-import { createSandbox, listOutFiles, lock, writeBriefFile, writeFactsFile } from "./sandbox.ts";
+import {
+  archiveSandbox,
+  createSandbox,
+  freeze,
+  listOutFiles,
+  lock,
+  recordsRoot as defaultRecordsRoot,
+  repoRelative,
+  unlockForCleanup,
+  writeBriefFile,
+  writeFactsFile,
+} from "./sandbox.ts";
 import type { Sandbox } from "./sandbox.ts";
 
 export const DEFAULT_MAX_STEPS = 4;
@@ -43,6 +58,9 @@ const MAX_OUTPUT_BYTES = 256_000;
 /** What a run's lane shows when the exit check holds its output. Names no deal, no hit. */
 export const EXIT_BLOCKED_REASON = "Output held by the exit check. Compliance has been notified.";
 export const EXIT_UNAVAILABLE_REASON = "Output held: the exit check is not available on this server yet.";
+/** What a public-side lane shows for a step until the exit check has passed the agent's words. */
+export const HELD_STEP_TEXT = "(held until the exit check)";
+const LOG_HINT = "The worker log has the details.";
 
 const ROLE_SLUG: Record<AgentRole, string> = { deal_analyst: "deal", research_analyst: "research", desk_assistant: "desk" };
 const DESK_OF: Record<AgentRole, Principal["desk"]> = { deal_analyst: "deal", research_analyst: "research", desk_assistant: "trading" };
@@ -57,8 +75,16 @@ export interface DispatcherOptions {
   /** Per runtime invocation. Default DISPATCH_STEP_TIMEOUT_MS, else 300 s. */
   stepTimeoutMs?: number;
   budgetTokens?: number;
-  /** Where sandboxes go. Default <data dir>/agents. Tests pass a temp dir. */
+  /**
+   * Where live sandboxes go. Default DISPATCH_SANDBOX_DIR, else <OS temp dir>/canon-agents; never
+   * inside the repo or the data dir (sandbox.ts refuses). Tests pass a temp dir.
+   */
   root?: string;
+  /**
+   * Where a finished run's locked folder is copied as its record (then the live folder is removed).
+   * Default <data dir>/agents, but only when `root` is not given; false keeps no copy.
+   */
+  recordsRoot?: string | false;
   /** Local listener for every event the dispatcher publishes (the CLI prints them). */
   onEvent?: (e: RelayedEvent) => void;
 }
@@ -71,8 +97,12 @@ interface RunRecord {
   controller: AbortController;
   cancelReason?: string;
   lastFactIds?: string[];
+  /** Public side: the agent's step events, held off the lane until the exit check passes them. */
+  held: Array<{ n: number; e: StepEvent }>;
   done?: Promise<void>;
 }
+
+type Phase = "register" | "slice" | "brief" | "step" | "release";
 
 export function newRunId(): string {
   return `run_${randomBytes(4).toString("hex")}`;
@@ -88,9 +118,9 @@ export function maxStepsFromEnv(): number {
 
 export class Dispatcher {
   private readonly runs = new Map<string, RunRecord>();
-  private readonly counters = new Map<AgentRole, number>();
   private readonly maxSteps: number;
   private readonly stepTimeoutMs: number;
+  private readonly records: string | false;
   private outbox: Promise<void> = Promise.resolve();
   private publishFailures = 0;
 
@@ -98,6 +128,7 @@ export class Dispatcher {
     this.maxSteps = opts.maxSteps ?? maxStepsFromEnv();
     const envTimeout = Number(env("DISPATCH_STEP_TIMEOUT_MS", String(DEFAULT_STEP_TIMEOUT_MS)));
     this.stepTimeoutMs = opts.stepTimeoutMs ?? (Number.isFinite(envTimeout) && envTimeout > 0 ? envTimeout : DEFAULT_STEP_TIMEOUT_MS);
+    this.records = opts.recordsRoot ?? (opts.root ? false : defaultRecordsRoot());
   }
 
   /** Plans the request and starts one run per planned agent. Resolves once they have started. */
@@ -113,23 +144,25 @@ export class Dispatcher {
   /** Starts one run now. The run executes in the background; settle() waits for it. */
   start(planned: Pick<PlannedRun, "role" | "side" | "task">, actsFor: string): AgentRun {
     const id = newRunId();
-    const n = (this.counters.get(planned.role) ?? 0) + 1;
-    this.counters.set(planned.role, n);
     const sandbox = createSandbox(id, { root: this.opts.root });
     const run: AgentRun = {
       id,
-      agent: `agt_${ROLE_SLUG[planned.role]}_${n}`,
+      // From the run id, not a counter: two dispatcher processes (the worker and a CLI run), or a
+      // restarted one, never register the same agent principal for a different person or side.
+      agent: agentId(planned.role, id),
       role: planned.role,
       acts_for: actsFor,
       side: planned.side,
       task: planned.task,
       state: "queued",
       runtime: this.opts.runner.name,
-      sandbox: sandbox.rel,
+      // The run's record: its locked copy under data/agents once it ends. The live folder is in the
+      // OS temp dir, away from the repo, and is not shown.
+      sandbox: this.records ? repoRelative(join(this.records, id)) : sandbox.dir,
       steps: 0,
       started_at: nowIso(),
     };
-    const rec: RunRecord = { run, sandbox, inbox: [], controller: new AbortController() };
+    const rec: RunRecord = { run, sandbox, inbox: [], controller: new AbortController(), held: [] };
     this.runs.set(id, rec);
     this.publishRun(rec);
     rec.done = this.execute(rec);
@@ -146,7 +179,7 @@ export class Dispatcher {
       if (item.kind === "cancel" && item.urgent) {
         const delivered = { ...item, delivered_at: nowIso() };
         this.publish({ type: "agent.inbox", at: delivered.delivered_at, item: delivered });
-        this.requestCancel(rec, item.text);
+        this.requestCancel(rec, cancelReasonOf(item));
         continue;
       }
       rec.inbox.push(item);
@@ -206,30 +239,34 @@ export class Dispatcher {
   private async execute(rec: RunRecord): Promise<void> {
     const { run } = rec;
     let finished = false;
+    let phase: Phase = "register";
+    let stepN = 0;
     try {
       const principal: Principal = {
         id: run.agent,
         kind: "agent",
-        name: `${ROLE_LABELS[run.role]} ${run.agent.split("_").at(-1)}`,
+        name: `${ROLE_LABELS[run.role]} ${run.id.slice(4)}`,
         desk: DESK_OF[run.role],
         acts_for: run.acts_for,
         side: run.side,
       };
-      try {
-        await this.opts.client.registerPrincipal(principal);
-      } catch (err) {
-        throw new Error(`could not register agent principal ${run.agent}: ${shortReason(err)}`);
-      }
+      await this.opts.client.registerPrincipal(principal);
 
       for (let n = 1; n <= this.maxSteps; n++) {
+        stepN = n;
         const updates = this.drainInbox(rec, n);
         if (rec.cancelReason) return this.endCancelled(rec);
 
+        phase = "slice";
         const slice = await this.fetchSlice(rec, n);
         if (slice.refused) return this.endFailed(rec, slice.message);
-        if (n === 1) await this.writeBrief(rec, slice.facts, slice.profile);
+        if (n === 1) {
+          phase = "brief";
+          await this.writeBrief(rec, slice.facts, slice.profile);
+        }
         if (rec.cancelReason) return this.endCancelled(rec);
 
+        phase = "step";
         this.setState(rec, "running");
         const result = await this.opts.runner.step({
           runId: run.id,
@@ -242,7 +279,7 @@ export class Dispatcher {
           prompt: stepPrompt(run.role, n, this.maxSteps, updates),
           signal: rec.controller.signal,
           timeoutMs: this.stepTimeoutMs,
-          emit: (e) => this.publishStep(rec, n, e),
+          emit: (e) => this.runnerStep(rec, n, e),
         });
         run.steps = n;
         if (rec.cancelReason) return this.endCancelled(rec);
@@ -252,23 +289,33 @@ export class Dispatcher {
         }
         this.setState(rec, "waiting");
       }
+      phase = "release";
       await this.release(rec, finished);
     } catch (err) {
       if (err instanceof CancelledError || rec.cancelReason) return this.endCancelled(rec);
-      return this.endFailed(rec, `${run.runtime} failed: ${shortReason(err)}`);
+      // The full error (stderr, server bodies) stays in the worker log; the lane gets a safe line.
+      warn(`run ${run.id} (${run.agent}): ${phase} failed: ${errorMessage(err)}`);
+      return this.endFailed(rec, failureReason(phase, run.runtime, stepN, err));
     }
   }
 
-  /** Urgent first, then oldest first. Returns the update lines for the step prompt. */
+  /**
+   * Urgent first, then oldest first. Returns the update lines for the step prompt. A cancel ends
+   * the drain: nothing queued after it is delivered, and nothing at all once the run is cancelled.
+   */
   private drainInbox(rec: RunRecord, n: number): string[] {
+    if (rec.cancelReason) return [];
     const items = rec.inbox.splice(0).sort((a, b) => Number(b.urgent) - Number(a.urgent) || a.at.localeCompare(b.at));
     const updates: string[] = [];
     for (const item of items) {
       const delivered = { ...item, delivered_at: nowIso() };
       this.publish({ type: "agent.inbox", at: delivered.delivered_at, item: delivered });
       this.publishStep(rec, n, { kind: "inbox", text: `${item.urgent ? "URGENT " : ""}${item.kind}: ${item.text}` });
-      if (item.kind === "cancel") rec.cancelReason ??= item.text;
-      else updates.push(item.text);
+      if (item.kind === "cancel") {
+        rec.cancelReason ??= cancelReasonOf(item);
+        break;
+      }
+      updates.push(item.text);
     }
     return updates;
   }
@@ -304,40 +351,80 @@ export class Dispatcher {
 
   private async writeBrief(rec: RunRecord, facts: ContextFact[], profile: string): Promise<void> {
     const { run } = rec;
-    let brief;
-    try {
-      brief = await this.opts.briefWriter.write({ role: run.role, side: run.side, task: run.task, acts_for: run.acts_for, facts, profile, maxSteps: this.maxSteps });
-    } catch (err) {
-      throw new Error(`brief failed: ${shortReason(err)}`);
-    }
+    const brief = await this.opts.briefWriter.write({ role: run.role, side: run.side, task: run.task, acts_for: run.acts_for, facts, profile, maxSteps: this.maxSteps });
     writeBriefFile(rec.sandbox, brief.text);
     const e: StepEvent = { kind: "brief", text: `brief.md written by ${brief.writer}${brief.simulated ? " (simulated)" : ""}`, file: "brief.md" };
     if (brief.tokens) e.tokens = brief.tokens;
     this.publishStep(rec, 1, e);
   }
 
-  /** Exit check on every out/ file, then done (all passed) or failed (anything held). */
+  /**
+   * What the runtime reports. A deal-side lane shows it live. A public-side agent's words could
+   * name a deal it should not know, and the lane is not behind any wall, so they are held: the lane
+   * shows the step's kind (and real token counts) now, the words only after the exit check.
+   */
+  private runnerStep(rec: RunRecord, n: number, e: StepEvent): void {
+    if (rec.run.side !== PUBLIC_WALL) return this.publishStep(rec, n, e);
+    rec.held.push({ n, e });
+    const shown: StepEvent = { kind: e.kind, text: HELD_STEP_TEXT };
+    if (e.tokens) shown.tokens = e.tokens;
+    this.publishStep(rec, n, shown);
+  }
+
+  /**
+   * Freezes the folder, then runs the exit check on every out/ file (and, on the public side, on
+   * the held step log), then done (all passed) or failed (anything held).
+   */
   private async release(rec: RunRecord, finished: boolean): Promise<void> {
     const { run, sandbox } = rec;
+    // Read-only before anything is read: the bytes the check passes are the bytes that stay. The
+    // runner has returned, and runners settle only after their process has exited.
+    freeze(sandbox.dir);
     const { files, skipped } = listOutFiles(sandbox);
     if (skipped.length) return this.endFailed(rec, "Output held: out/ contains a link or a special file.");
     if (files.length === 0) return this.endFailed(rec, `No output in out/ after ${run.steps} step(s).`);
 
+    // File names are the agent's words too: no held reason names one.
     for (const file of files) {
       const abs = join(sandbox.dir, file);
-      if (statSync(abs).size > MAX_OUTPUT_BYTES) return this.endFailed(rec, `Output held: ${file} is too large for the exit check.`);
+      if (statSync(abs).size > MAX_OUTPUT_BYTES) return this.endFailed(rec, "Output held: a file in out/ is too large for the exit check.");
       const buf = readFileSync(abs);
-      if (buf.includes(0)) return this.endFailed(rec, `Output held: ${file} is not text.`);
-      const verdict = await this.opts.client.exitCheck({ principal: run.agent, text: buf.toString("utf8"), run_id: run.id });
-      if (rec.cancelReason) return this.endCancelled(rec);
-      if (verdict === null) return this.endFailed(rec, EXIT_UNAVAILABLE_REASON);
-      // The hits are compliance-only (the server's exit_check event carries them): never here.
-      if (verdict.blocked) return this.endFailed(rec, EXIT_BLOCKED_REASON);
+      if (buf.includes(0)) return this.endFailed(rec, "Output held: a file in out/ is not text.");
+      const verdict = await this.exitCheck(rec, buf.toString("utf8"));
+      if (verdict !== "passed") return this.endHeld(rec, verdict);
     }
+
+    if (run.side === PUBLIC_WALL) {
+      const stepLog = [...files, ...rec.held.map(({ e }) => [e.text, e.file].filter(Boolean).join(" "))].join("\n");
+      if (Buffer.byteLength(stepLog, "utf8") > MAX_OUTPUT_BYTES) return this.endFailed(rec, "Output held: the agent's step log is too large for the exit check.");
+      const verdict = await this.exitCheck(rec, stepLog);
+      if (verdict !== "passed") return this.endHeld(rec, verdict);
+      // Passed: the lane gets the words now (tokens were counted when the step happened).
+      for (const { n, e } of rec.held.splice(0)) {
+        const shown: StepEvent = { kind: e.kind, text: e.text };
+        if (e.file) shown.file = e.file;
+        this.publishStep(rec, n, shown);
+      }
+    }
+
     for (const file of files) this.publishStep(rec, run.steps, { kind: "file", text: `released ${file} (exit check passed)`, file });
     const note = finished ? "" : ` (stopped at the step limit of ${this.maxSteps})`;
     this.publishStep(rec, run.steps, { kind: "result", text: `Done: ${files.length} file(s) released${note}.` });
     this.end(rec, "done");
+  }
+
+  /** One POST /api/exit-check as the agent. The hits are compliance-only (the server's exit_check event has them): never here. */
+  private async exitCheck(rec: RunRecord, text: string): Promise<"passed" | "cancelled" | { held: string }> {
+    const verdict = await this.opts.client.exitCheck({ principal: rec.run.agent, text, run_id: rec.run.id });
+    if (rec.cancelReason) return "cancelled";
+    if (verdict === null) return { held: EXIT_UNAVAILABLE_REASON };
+    if (verdict.blocked) return { held: EXIT_BLOCKED_REASON };
+    return "passed";
+  }
+
+  private endHeld(rec: RunRecord, verdict: "cancelled" | { held: string }): void {
+    if (verdict === "cancelled") this.endCancelled(rec);
+    else this.endFailed(rec, verdict.held);
   }
 
   private endCancelled(rec: RunRecord): void {
@@ -354,16 +441,35 @@ export class Dispatcher {
   private end(rec: RunRecord, state: Extract<RunState, "done" | "failed" | "cancelled">, reason?: string): void {
     if (!isActive(rec.run)) return;
     rec.controller.abort(); // nothing should still be running; make sure
+    let locked = false;
     try {
       lock(rec.sandbox.dir, reason ?? state);
+      locked = true;
     } catch (err) {
-      warn(`run ${rec.run.id}: could not lock ${rec.sandbox.rel}: ${errorMessage(err)}`);
+      warn(`run ${rec.run.id}: could not lock ${rec.sandbox.dir}: ${errorMessage(err)}`);
     }
+    if (this.records && locked) this.keepRecord(rec, this.records);
     rec.run.state = state;
     rec.run.ended_at = nowIso();
     if (reason) rec.run.reason = reason;
     log(`run ${rec.run.id} (${rec.run.agent}@${rec.run.side}): ${state} after ${rec.run.steps} step(s)${reason ? `: ${reason}` : ""}`);
     this.publishRun(rec);
+  }
+
+  /** Copies the locked folder to the records root, then removes the live one (it would sit next to later runs). */
+  private keepRecord(rec: RunRecord, records: string): void {
+    try {
+      archiveSandbox(rec.sandbox, records);
+    } catch (err) {
+      warn(`run ${rec.run.id}: could not keep its record in ${records} (the live folder ${rec.sandbox.dir} stays): ${errorMessage(err)}`);
+      return;
+    }
+    try {
+      unlockForCleanup(rec.sandbox.dir);
+      rmSync(rec.sandbox.dir, { recursive: true, force: true });
+    } catch (err) {
+      warn(`run ${rec.run.id}: could not remove the live folder ${rec.sandbox.dir}: ${errorMessage(err)}`);
+    }
   }
 
   private setState(rec: RunRecord, state: RunState): void {
@@ -398,6 +504,35 @@ export class Dispatcher {
         warn(`POST /api/events failed (${this.publishFailures} so far): ${errorMessage(err)}`);
       }
     });
+  }
+}
+
+/** `agt_<role>_<run hex>`: unique per run, so never shared across processes or restarts. */
+export function agentId(role: AgentRole, runId: string): string {
+  return `agt_${ROLE_SLUG[role]}_${runId.slice(4)}`;
+}
+
+/**
+ * The run's reason for a cancel. A cancel routed from a new fact quotes that fact for the agent;
+ * the reason is on every lane, so it names only the fact id.
+ */
+export function cancelReasonOf(item: InboxItem): string {
+  return item.fact_id ? `Stopped: a new fact (${item.fact_id}) changes this task.` : item.text;
+}
+
+/** One line for the lane: what failed, never the error's text (stderr, server bodies). */
+function failureReason(phase: Phase, runtime: AgentRuntime, n: number, err: unknown): string {
+  switch (phase) {
+    case "register":
+      return `Could not register the agent with the server. ${LOG_HINT}`;
+    case "slice":
+      return `Could not fetch the agent's facts from the server. ${LOG_HINT}`;
+    case "brief":
+      return `Could not write the brief. ${LOG_HINT}`;
+    case "step":
+      return `${runtime} failed on step ${n}${err instanceof StepError ? ` (${err.publicReason})` : ""}. ${LOG_HINT}`;
+    case "release":
+      return `Output held: the exit check could not be completed. ${LOG_HINT}`;
   }
 }
 

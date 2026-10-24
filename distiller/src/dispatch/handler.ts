@@ -1,8 +1,8 @@
 // The dispatcher worker's event handler, apart from index.ts so tests drive it with fakes:
 //   dispatch.requested   -> plan + start runs (once per request id)
 //   fact.saved           -> routing.routeFact (wall check in code, then ONE judge ask) -> inboxes
-//   deal.status_changed  -> refresh the walls, routing.routeDealStatus (urgent) -> inboxes
-//   entitlement.changed  -> refresh the walls; a revoked grant cancels the runs that relied on it
+//   deal.status_changed  -> routing.routeDealStatus (urgent) -> inboxes, then refresh the walls
+//   entitlement.changed  -> a revoked grant cancels the runs that relied on it, then refresh the walls
 // Events stamped before the worker started (the server's SSE replay on connect) are skipped, so a
 // restart never re-dispatches old tasks. One bad event is logged; the loop never dies.
 
@@ -44,6 +44,19 @@ export function createDispatchHandler(opts: HandlerOptions): DispatchHandler {
     return { deals: walls.deals, entitlements: walls.entitlements };
   };
 
+  /**
+   * After a wall change has been routed: re-read the walls. A failed refresh drops the cache, so
+   * the next fact.saved re-reads them and, if that fails too, routes nothing (fails closed).
+   */
+  const refresh = async (what: string): Promise<void> => {
+    try {
+      await view(true);
+    } catch (err) {
+      walls = undefined;
+      warn(`${what}: routed from the event, but the walls could not be refreshed (${errorMessage(err)}); the next fact re-reads them`);
+    }
+  };
+
   const handle = async (event: CanonEvent): Promise<void> => {
     switch (event.type) {
       case "dispatch.requested": {
@@ -65,17 +78,25 @@ export function createDispatchHandler(opts: HandlerOptions): DispatchHandler {
         );
         return;
       }
+      // Wall changes route from the event itself, before any I/O: a cancel never waits on, or is
+      // lost to, a refresh of the walls. The cache is patched from the event at once, so a fact
+      // routed meanwhile already sees the new wall.
       case "deal.status_changed": {
-        const v = await view(true);
-        const items = routeDealStatus(event, opts.dispatcher.routable(), v);
-        const n = opts.dispatcher.deliver(items);
+        if (walls) walls.deals = walls.deals.map((d) => (d.id === event.deal ? { ...d, status: event.to } : d));
+        const n = opts.dispatcher.deliver(routeDealStatus(event, opts.dispatcher.routable(), { deals: walls?.deals ?? [] }));
         log(`deal ${event.deal}: ${event.from} -> ${event.to}; ${n} urgent inbox item(s)`);
+        await refresh(`deal ${event.deal}`);
         return;
       }
       case "entitlement.changed": {
-        await view(true);
+        const { principal, deal } = event.entitlement;
+        if (walls) {
+          const others = walls.entitlements.filter((e) => !(e.principal === principal && e.deal === deal));
+          walls.entitlements = event.granted ? [...others, event.entitlement] : others;
+        }
         const n = opts.dispatcher.deliver(routeEntitlementChange(event, opts.dispatcher.routable()));
-        if (n) log(`entitlement ${event.entitlement.principal}/${event.entitlement.deal} revoked: ${n} run(s) cancelled`);
+        if (n) log(`entitlement ${principal}/${deal} revoked: ${n} run(s) cancelled`);
+        await refresh(`entitlement ${principal}/${deal}`);
         return;
       }
       default:

@@ -56,6 +56,21 @@ export class CancelledError extends Error {
   }
 }
 
+/**
+ * A step that failed for a reason safe to show on every lane (an exit code, a timeout).
+ * `message` adds the detail (droid's stderr, which may quote what the agent did) for the worker
+ * log only; the run's reason uses `publicReason`.
+ */
+export class StepError extends Error {
+  constructor(
+    readonly publicReason: string,
+    detail?: string,
+  ) {
+    super(detail ? `${publicReason}: ${detail}` : publicReason);
+    this.name = "StepError";
+  }
+}
+
 /** The last non-empty line says DONE (finished). CONTINUE or anything else: not finished. */
 export function saysDone(text: string): boolean {
   const last = text

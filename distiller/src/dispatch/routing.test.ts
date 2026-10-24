@@ -143,6 +143,24 @@ describe("wall changes are urgent and need no judge", () => {
     assert.ok(items.every((i) => i.kind === "cancel" && i.urgent));
   });
 
+  test("announced -> terminated puts the wall back up too: public-side runs are cancelled with the deal's own", () => {
+    const terminatedAfterAnnounce = view({ deals: [{ ...falcon, status: "terminated" }] });
+    // The wall is back up for a public-side agent (canSee reads only `announced` as public)...
+    assert.equal(canSee({ side: "public", acts_for: "leo" }, "deal_falcon", terminatedAfterAnnounce), false);
+    // ...so every public-side run that may hold Falcon facts or a queued Falcon update stops.
+    const items = routeDealStatus({ deal: "deal_falcon", from: "announced", to: "terminated" }, runs, terminatedAfterAnnounce);
+    assert.deepEqual(items.map((i) => [i.run_id, i.kind, i.urgent]).sort(), [
+      ["run_00005e51", "cancel", true],
+      ["run_0000de51", "cancel", true],
+      ["run_0000dea1", "cancel", true],
+    ]);
+    // Straight from confidential, the public side never saw Falcon: only the deal's runs stop.
+    assert.deepEqual(
+      routeDealStatus({ deal: "deal_falcon", from: "confidential", to: "terminated" }, runs, view()).map((i) => i.run_id),
+      ["run_0000dea1"],
+    );
+  });
+
   test("a revoked entitlement cancels the runs that relied on it", () => {
     assert.deepEqual(routeEntitlementChange({ entitlement: danOnFalcon, granted: true }, runs), []);
     const items = routeEntitlementChange({ entitlement: danOnFalcon, granted: false }, runs);

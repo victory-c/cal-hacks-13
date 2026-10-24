@@ -1,17 +1,38 @@
-// One sandbox folder per agent run: data/agents/<run_id>/ with brief.md (the task), facts.md (its
-// slice) and out/ (the only place outputs leave from, after the exit check). The folder holds only
-// what the agent's side of the wall may see, because the slice came from POST /api/handoff as the
+// One sandbox folder per agent run: <root>/<run_id>/ with brief.md (the task), facts.md (its slice)
+// and out/ (the only place outputs leave from, after the exit check). The folder holds only what
+// the agent's side of the wall may see, because the slice came from POST /api/handoff as the
 // agent's own principal. When the run ends (done, failed or cancelled) lock() makes the folder
-// read-only and writes a LOCKED marker, so it stays as the run's audit record.
+// read-only and writes a LOCKED marker; archiveSandbox() then copies it to <data dir>/agents/ as
+// the run's audit record.
+//
+// Where the live folder sits matters, because nothing in Factory's docs confines Droid's reads to
+// its --cwd: `--auto low` allows read-only inspection of files, folders and the environment. So the
+// live root is OUTSIDE the repo and the data dir (DISPATCH_SANDBOX_DIR, else <OS temp>/canon-agents)
+// and agentsRoot() refuses anything else: `../../facts` or `../../../.env` from a sandbox reaches
+// nothing of Canon's. An absolute path still could, so the Droid runner also scrubs every env value
+// that points into the repo or the data dir and, on macOS, runs droid under sandbox-exec with both
+// denied (runners/droid.ts). See README "Limits" for what is still open.
 //
 // Path confinement for the runners that touch files on the agent's behalf (the Claude fallback
 // runner's tools): resolveInside() rejects absolute paths, `..`, NUL bytes and symlinks that lead
-// out of the folder. Droid confines itself to its --cwd at `--auto low`; see README "Limits".
+// out of the folder.
 
-import { chmodSync, existsSync, lstatSync, mkdirSync, readdirSync, readFileSync, realpathSync, statSync, writeFileSync } from "node:fs";
-import { dirname, isAbsolute, join, relative, resolve, sep } from "node:path";
+import {
+  chmodSync,
+  copyFileSync,
+  existsSync,
+  lstatSync,
+  mkdirSync,
+  readdirSync,
+  readFileSync,
+  realpathSync,
+  statSync,
+  writeFileSync,
+} from "node:fs";
+import { tmpdir } from "node:os";
+import { basename, dirname, isAbsolute, join, relative, resolve, sep } from "node:path";
 
-import { REPO_ROOT, dataDir } from "@canon/shared";
+import { REPO_ROOT, dataDir, env } from "@canon/shared";
 import type { ContextFact, Wall } from "@canon/shared";
 
 export const SANDBOX_FILES = { brief: "brief.md", facts: "facts.md", out: "out", locked: "LOCKED" } as const;
@@ -20,10 +41,8 @@ export const RUN_ID_RE = /^run_[0-9a-f]{4,}$/;
 
 export interface Sandbox {
   runId: string;
-  /** Absolute path of the folder. */
+  /** Absolute path of the live folder (outside the repo and the data dir). */
   dir: string;
-  /** Relative to the repo root with forward slashes, for AgentRun.sandbox (`data/agents/run_1a2b`). */
-  rel: string;
   /** Absolute path of out/. */
   outDir: string;
 }
@@ -35,9 +54,56 @@ export class SandboxEscapeError extends Error {
   }
 }
 
-/** <data dir>/agents, or `root` when given (tests use a temp dir). */
+/** The folders an agent must never reach: the repo and the data dir (real paths, deduplicated). */
+export function storeRoots(): string[] {
+  const roots = [REPO_ROOT, dataDir()].flatMap((p) => {
+    const abs = resolve(p);
+    return [abs, realPath(abs)];
+  });
+  return [...new Set(roots)];
+}
+
+/** The real path of `p`, resolving symlinks through its deepest existing part (/tmp -> /private/tmp). */
+export function realPath(p: string): string {
+  const abs = resolve(p);
+  const tail: string[] = [];
+  let cur = abs;
+  for (;;) {
+    try {
+      return join(realpathSync(cur), ...tail);
+    } catch {
+      const up = dirname(cur);
+      if (up === cur) return abs;
+      tail.unshift(basename(cur));
+      cur = up;
+    }
+  }
+}
+
+/** Throws unless `dir` is neither inside the repo or the data dir nor a folder that contains them. */
+export function assertOutsideStore(dir: string): void {
+  if (!isAbsolute(dir)) throw new Error(`sandbox root must be an absolute path (got "${dir}")`);
+  const d = realPath(dir);
+  for (const store of storeRoots()) {
+    if (within(store, d) || within(d, store)) {
+      throw new Error(
+        `sandbox root ${dir} overlaps ${store}: an agent there could read Canon's fact store, cold archive or .env. ` +
+          "Set DISPATCH_SANDBOX_DIR to a folder outside the repo and the data dir (default: the OS temp dir).",
+      );
+    }
+  }
+}
+
+/** Live sandboxes: `root` (tests), else DISPATCH_SANDBOX_DIR, else <OS temp dir>/canon-agents. Never inside the repo or the data dir. */
 export function agentsRoot(root?: string): string {
-  return root ?? join(dataDir(), "agents");
+  const dir = root ?? env("DISPATCH_SANDBOX_DIR") ?? join(realpathSync(tmpdir()), "canon-agents");
+  assertOutsideStore(dir);
+  return dir;
+}
+
+/** Where finished runs' locked folders are kept as their record: <data dir>/agents. */
+export function recordsRoot(): string {
+  return join(dataDir(), "agents");
 }
 
 export function createSandbox(runId: string, opts: { root?: string } = {}): Sandbox {
@@ -45,10 +111,13 @@ export function createSandbox(runId: string, opts: { root?: string } = {}): Sand
   const dir = join(agentsRoot(opts.root), runId);
   const outDir = join(dir, SANDBOX_FILES.out);
   mkdirSync(outDir, { recursive: true });
-  // Relative to the repo root when the data dir is inside it (the default), else absolute.
-  const fromRepo = relative(REPO_ROOT, dir);
-  const rel = fromRepo && !fromRepo.startsWith("..") && !isAbsolute(fromRepo) ? fromRepo.split(sep).join("/") : dir;
-  return { runId, dir, rel, outDir };
+  return { runId, dir, outDir };
+}
+
+/** `p` relative to the repo root with forward slashes when it is inside the repo, else absolute. */
+export function repoRelative(p: string): string {
+  const fromRepo = relative(REPO_ROOT, p);
+  return fromRepo && !fromRepo.startsWith("..") && !isAbsolute(fromRepo) ? fromRepo.split(sep).join("/") : p;
 }
 
 /**
@@ -214,14 +283,46 @@ export function isLocked(dir: string): boolean {
 }
 
 /**
+ * Makes the whole folder read-only (files 0444, folders 0555) without the LOCKED marker. The
+ * dispatcher freezes a run before its exit check reads out/, so the bytes it checks are the bytes
+ * that stay. The runners return only after their process has exited, so nothing is left to undo it.
+ */
+export function freeze(dir: string): void {
+  chmodTree(dir, 0o444, 0o555);
+}
+
+/**
  * Writes LOCKED (when, why) and makes the whole folder read-only: files 0444, folders 0555,
- * deepest first. Idempotent. A runtime that is still running loses write access from here on.
+ * deepest first. Idempotent; works on a frozen folder too. The first reason stays.
  */
 export function lock(dir: string, reason: string): void {
   if (!isLocked(dir)) {
+    const mode = statSync(dir).mode & 0o777;
+    if ((mode & 0o200) === 0) chmodSync(dir, mode | 0o200); // frozen: open the top just for the marker
     writeFileSync(join(dir, SANDBOX_FILES.locked), `${JSON.stringify({ locked_at: new Date().toISOString(), reason })}\n`, "utf8");
   }
   chmodTree(dir, 0o444, 0o555);
+}
+
+/**
+ * Copies a locked sandbox to `<recordsRoot>/<run_id>` as the run's audit record, then locks the
+ * copy. Regular files and folders only: links are never followed, and a file over `maxFileBytes`
+ * is left out. Returns the copy's path. A copy that already exists is left alone.
+ */
+export function archiveSandbox(sb: Sandbox, recordsDir: string, maxFileBytes = 1_000_000): string {
+  const dest = join(recordsDir, sb.runId);
+  if (existsSync(dest)) return dest;
+  const copy = (from: string, to: string) => {
+    mkdirSync(to, { recursive: true });
+    for (const d of readdirSync(from, { withFileTypes: true })) {
+      const src = join(from, d.name);
+      if (d.isDirectory()) copy(src, join(to, d.name));
+      else if (d.isFile() && lstatSync(src).size <= maxFileBytes) copyFileSync(src, join(to, d.name));
+    }
+  };
+  copy(sb.dir, dest);
+  lock(dest, "record copy of a locked run");
+  return dest;
 }
 
 /** Undoes lock()'s permissions (not the marker) so a test or `rm -rf` can delete the folder. */

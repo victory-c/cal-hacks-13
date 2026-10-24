@@ -13,7 +13,7 @@ import { join, resolve, sep } from "node:path";
 
 import { SONNET, createMessage, hasAnthropicKey, toolCalls, textOf, usageOf } from "../anthropic.ts";
 import { listInside, readInside, resolveInside, writeInside } from "../sandbox.ts";
-import { CancelledError, addTokens, saysDone } from "./types.ts";
+import { CancelledError, StepError, addTokens, saysDone } from "./types.ts";
 import type { Runner, StepRequest, StepResult } from "./types.ts";
 
 const MAX_TURNS = 16;
@@ -96,7 +96,7 @@ export class ClaudeRunner implements Runner {
     for (let turn = 0; turn < MAX_TURNS; turn++) {
       if (req.signal.aborted) throw new CancelledError();
       const left = deadline - Date.now();
-      if (left <= 0) throw new Error(`claude step timed out after ${req.timeoutMs} ms`);
+      if (left <= 0) throw new StepError(`timed out after ${req.timeoutMs} ms`);
       let resp;
       try {
         resp = await createMessage(

@@ -9,13 +9,13 @@ import type { AgentRun, ContextFact, ExitCheckBody, ExitCheckResult, HandoffBody
 import { quiet } from "../test-helpers.ts";
 import { TemplateBriefWriter } from "./brief.ts";
 import type { DispatchClient, RelayedEvent } from "./client.ts";
-import { Dispatcher, EXIT_BLOCKED_REASON, EXIT_UNAVAILABLE_REASON, stepPrompt } from "./dispatcher.ts";
+import { Dispatcher, EXIT_BLOCKED_REASON, EXIT_UNAVAILABLE_REASON, HELD_STEP_TEXT, stepPrompt } from "./dispatcher.ts";
 import { createDispatchHandler } from "./handler.ts";
 import { OfflineClient } from "./offline.ts";
 import { HeuristicPlanner } from "./plan.ts";
 import { routeDealStatus, simulatedRoutingAnswer } from "./routing.ts";
 import { FakeRunner } from "./runners/fake.ts";
-import { CancelledError } from "./runners/types.ts";
+import { CancelledError, StepError } from "./runners/types.ts";
 import type { Runner, StepRequest, StepResult } from "./runners/types.ts";
 import { unlockForCleanup } from "./sandbox.ts";
 
@@ -108,7 +108,9 @@ describe("dispatcher: a run's life", () => {
     const run = d.start({ role: "research_analyst", side: "public", task: "Update our logistics sector note" }, "dan");
     await quiet(() => d.settle());
 
-    assert.deepEqual(calls.principals, [{ id: run.agent, kind: "agent", name: "Research analyst 1", desk: "research", acts_for: "dan", side: "public" }]);
+    const hex = run.id.slice(4);
+    assert.equal(run.agent, `agt_research_${hex}`);
+    assert.deepEqual(calls.principals, [{ id: run.agent, kind: "agent", name: `Research analyst ${hex}`, desk: "research", acts_for: "dan", side: "public" }]);
     assert.deepEqual(
       calls.handoff.map((h) => [h.principal, h.run_id, h.task]),
       [
@@ -116,10 +118,15 @@ describe("dispatcher: a run's life", () => {
         [run.agent, run.id, "Update our logistics sector note"],
       ],
     );
+    // Public side: the out/ file, then the agent's held step log (file names included).
     assert.deepEqual(
       calls.exitCheck.map((x) => [x.principal, x.run_id]),
-      [[run.agent, run.id]],
+      [
+        [run.agent, run.id],
+        [run.agent, run.id],
+      ],
     );
+    assert.equal(calls.exitCheck[1].text, "out/sector-note.md\nwrote out/sector-note.md out/sector-note.md");
     const final = d.get(run.id)!;
     assert.equal(final.state, "done");
     assert.equal(final.steps, 2);
@@ -186,13 +193,20 @@ describe("dispatcher: a run's life", () => {
     assert.equal(d.get(run.id)!.reason, "Stopped by compliance.");
   });
 
-  test("an exit-check block fails the run with a compliance-safe reason and releases nothing", async () => {
+  test("an exit-check block fails the run with a compliance-safe reason and releases nothing, not even the agent's words", async () => {
     const { client, calls } = fakeClient({
       async exitCheck(): Promise<ExitCheckResult> {
         return { blocked: true, hits: ["Nimbus Logistics"], p: 0.93, review_id: "rev_00000001" };
       },
     });
-    const runner = new ScriptedRunner((req) => (writeOut(req), { done: true, summary: "DONE" }));
+    // The agent says the hit out loud in a message, a tool call and its final summary.
+    const runner = new ScriptedRunner((req) => {
+      writeOut(req, "sector-note.md", "Nimbus Logistics' pending sale changes the sector.\n");
+      req.emit({ kind: "tool", text: "Execute grep -i nimbus facts.md" });
+      req.emit({ kind: "message", text: "Wrote out/sector-note.md on Nimbus Logistics' pending sale." });
+      req.emit({ kind: "result", text: "Nimbus note done. DONE", tokens: { input: 10, output: 5 } });
+      return { done: true, summary: "DONE" };
+    });
     const d = make(client, runner);
     const run = d.start({ role: "research_analyst", side: "public", task: "Update our logistics sector note" }, "dan");
     await quiet(() => d.settle());
@@ -200,9 +214,89 @@ describe("dispatcher: a run's life", () => {
     const final = d.get(run.id)!;
     assert.equal(final.state, "failed");
     assert.equal(final.reason, EXIT_BLOCKED_REASON);
-    assert.ok(!calls.events.some((e) => JSON.stringify(e).includes("Nimbus")), "the hits never reach the agent's events");
+    assert.ok(!calls.events.some((e) => /nimbus/i.test(JSON.stringify(e))), "neither the hits nor the agent's words reach the events");
     assert.ok(!calls.events.some((e) => e.type === "agent.step" && e.step.text.startsWith("released")));
+    const steps = calls.events.flatMap((e) => (e.type === "agent.step" ? [e.step] : []));
+    assert.deepEqual(
+      steps.filter((s) => s.text === HELD_STEP_TEXT).map((s) => s.kind),
+      ["file", "tool", "message", "result"],
+      "the lane still shows that the agent worked",
+    );
+    assert.deepEqual(steps.find((s) => s.kind === "result" && s.text === HELD_STEP_TEXT)?.tokens, { input: 10, output: 5 }, "real token counts are not words");
     assert.ok(existsSync(join(root, run.id, "LOCKED")));
+  });
+
+  test("public side: a clean file still does not release words that name a deal; the held step log goes through the exit check", async () => {
+    const offline = new OfflineClient();
+    const runner = new ScriptedRunner((req) => {
+      writeOut(req, "sector-note.md", "Freight demand is the driver this quarter.\n");
+      req.emit({ kind: "message", text: "Wrote out/sector-note.md on Nimbus Logistics' pending sale." });
+      return { done: true, summary: "DONE" };
+    });
+    const events: RelayedEvent[] = [];
+    const d = new Dispatcher({ client: offline, runner, planner: new HeuristicPlanner(), briefWriter: new TemplateBriefWriter(), maxSteps: 2, root, onEvent: (e) => events.push(e) });
+    const run = d.start({ role: "research_analyst", side: "public", task: "Update our logistics sector note" }, "dan");
+    await quiet(() => d.settle());
+
+    assert.equal(d.get(run.id)!.state, "failed");
+    assert.equal(d.get(run.id)!.reason, EXIT_BLOCKED_REASON);
+    assert.deepEqual(
+      offline.exitChecks.map((x) => x.result.blocked),
+      [false, true],
+      "the file passed; the step log did not",
+    );
+    assert.ok(!events.some((e) => /nimbus/i.test(JSON.stringify(e))));
+  });
+
+  test("public side: a file name that names a deal is held too", async () => {
+    const offline = new OfflineClient();
+    const runner = new ScriptedRunner((req) => (writeOut(req, "nimbus-sale.md", "Freight demand is the driver.\n"), { done: true, summary: "DONE" }));
+    const events: RelayedEvent[] = [];
+    const d = new Dispatcher({ client: offline, runner, planner: new HeuristicPlanner(), briefWriter: new TemplateBriefWriter(), maxSteps: 2, root, onEvent: (e) => events.push(e) });
+    const run = d.start({ role: "research_analyst", side: "public", task: "Update our logistics sector note" }, "dan");
+    await quiet(() => d.settle());
+    assert.equal(d.get(run.id)!.reason, EXIT_BLOCKED_REASON);
+    assert.ok(!events.some((e) => /nimbus/i.test(JSON.stringify(e))));
+  });
+
+  test("deal side: the lane shows the agent's words live (its exit check clears its own deal)", async () => {
+    const { client, calls } = fakeClient();
+    const runner = new ScriptedRunner((req) => {
+      writeOut(req, "deal-memo.md", "Falcon board memo.\n");
+      req.emit({ kind: "message", text: "Drafted the Falcon board memo." });
+      return { done: true, summary: "DONE" };
+    });
+    const d = make(client, runner);
+    const run = d.start({ role: "deal_analyst", side: "deal_falcon", task: "Prep Falcon board materials" }, "dan");
+    await quiet(() => d.settle());
+    assert.equal(d.get(run.id)!.state, "done");
+    assert.ok(calls.events.some((e) => e.type === "agent.step" && e.step.text === "Drafted the Falcon board memo."));
+    assert.ok(!calls.events.some((e) => e.type === "agent.step" && e.step.text === HELD_STEP_TEXT));
+    assert.equal(calls.exitCheck.length, 1, "the file only");
+  });
+
+  test("the exit check reads a frozen folder: nothing can rewrite a file between the check and the release", { skip: process.getuid?.() === 0 ? "root ignores file modes" : false }, async () => {
+    let rewrite: unknown;
+    let dir = "";
+    const { client, calls } = fakeClient({
+      async exitCheck(body): Promise<ExitCheckResult> {
+        calls.exitCheck.push(body);
+        // A process left behind tries to swap the checked file for something else.
+        try {
+          writeFileSync(join(dir, "out", "sector-note.md"), "Rumour: Nimbus Logistics may be acquired.\n");
+        } catch (err) {
+          rewrite = err;
+        }
+        return { blocked: false, hits: [] };
+      },
+    });
+    const runner = new ScriptedRunner((req) => ((dir = req.dir), writeOut(req), { done: true, summary: "DONE" }));
+    const d = make(client, runner);
+    const run = d.start({ role: "research_analyst", side: "public", task: "Update our logistics sector note" }, "dan");
+    await quiet(() => d.settle());
+    assert.equal(d.get(run.id)!.state, "done");
+    assert.match(String((rewrite as NodeJS.ErrnoException)?.code), /EACCES|EPERM/);
+    assert.equal(readFileSync(join(dir, "out", "sector-note.md"), "utf8"), calls.exitCheck[0].text, "the released bytes are the checked bytes");
   });
 
   test("no exit check on the server (v1, 404) fails closed", async () => {
@@ -235,15 +329,117 @@ describe("dispatcher: a run's life", () => {
     assert.equal(runner.prompts.length, 0, "the runtime never ran");
   });
 
-  test("a failing runtime is a failed run, never a silent downgrade", async () => {
+  test("a failing runtime is a failed run, never a silent downgrade; the reason carries no stderr", async () => {
     const { client } = fakeClient();
-    const d = make(client, new ScriptedRunner(() => Promise.reject(new Error("droid exec exited 1: auth failed"))));
+    const d = make(client, new ScriptedRunner(() => Promise.reject(new Error("droid exec exited 1: auth failed for sk-123"))));
     const run = d.start({ role: "research_analyst", side: "public", task: "Update our logistics sector note" }, "dan");
-    await quiet(() => d.settle());
+    const { lines } = await quiet(() => d.settle());
     const final = d.get(run.id)!;
     assert.equal(final.state, "failed");
     assert.equal(final.runtime, "fake");
-    assert.match(final.reason ?? "", /^fake failed: droid exec exited 1: auth failed/);
+    assert.equal(final.reason, "fake failed on step 1. The worker log has the details.");
+    assert.ok(lines.some((l) => l.includes("auth failed for sk-123")), "the detail is in the worker log");
+
+    const d2 = make(client, new ScriptedRunner(() => Promise.reject(new StepError("droid exec exited 1", "Error: cat ../../facts/team/fct_fa1c.md: Falcon terms"))));
+    const run2 = d2.start({ role: "research_analyst", side: "public", task: "Update our logistics sector note" }, "dan");
+    await quiet(() => d2.settle());
+    assert.equal(d2.get(run2.id)!.reason, "fake failed on step 1 (droid exec exited 1). The worker log has the details.");
+  });
+
+  test("a failure before the runtime ran is not blamed on the runtime", async () => {
+    const { client } = fakeClient({
+      registerPrincipal: async () => {
+        throw new Error("POST /api/principals -> HTTP 500: stack trace with internals");
+      },
+    });
+    const runner = new ScriptedRunner();
+    const d = make(client, runner);
+    const run = d.start({ role: "research_analyst", side: "public", task: "Update our logistics sector note" }, "dan");
+    await quiet(() => d.settle());
+    assert.equal(runner.prompts.length, 0);
+    assert.equal(d.get(run.id)!.reason, "Could not register the agent with the server. The worker log has the details.");
+
+    const { client: c2 } = fakeClient({
+      handoff: async () => {
+        throw new Error("POST /api/handoff -> HTTP 500");
+      },
+    });
+    const d2 = make(c2, new ScriptedRunner());
+    const run2 = d2.start({ role: "research_analyst", side: "public", task: "Update our logistics sector note" }, "dan");
+    await quiet(() => d2.settle());
+    assert.equal(d2.get(run2.id)!.reason, "Could not fetch the agent's facts from the server. The worker log has the details.");
+  });
+
+  test("a cancel routed from a new fact names only the fact id in the run's reason, never its text", async () => {
+    const { client } = fakeClient();
+    let fired = false;
+    const d: Dispatcher = make(client, new ScriptedRunner(), 4, (e) => {
+      if (!fired && e.type === "agent.run" && e.run.state === "waiting") {
+        fired = true;
+        d.deliver([
+          {
+            id: "inb_0000000c",
+            run_id: e.run.id,
+            kind: "cancel",
+            urgent: true,
+            text: 'Stop: a new fact changes this task (quoted as data): "Falcon board moved; terms at 41.50" [fct_fa1c0042, wall: deal_falcon]',
+            fact_id: "fct_fa1c0042",
+            p_needs: 0.4,
+            p_cancels: 0.8,
+            at: new Date().toISOString(),
+          },
+        ]);
+      }
+    });
+    const run = d.start({ role: "deal_analyst", side: "deal_falcon", task: "Prep Falcon board materials" }, "dan");
+    await quiet(() => d.settle());
+    const final = d.get(run.id)!;
+    assert.equal(final.state, "cancelled");
+    assert.equal(final.reason, "Stopped: a new fact (fct_fa1c0042) changes this task.");
+  });
+
+  test("agent ids come from the run id: two dispatcher processes never share one", async () => {
+    const { client, calls } = fakeClient();
+    const worker = make(client, new ScriptedRunner((req) => (writeOut(req), { done: true, summary: "DONE" })));
+    const cli = make(client, new ScriptedRunner((req) => (writeOut(req), { done: true, summary: "DONE" })));
+    const a = worker.start({ role: "deal_analyst", side: "deal_falcon", task: "Prep Falcon board materials" }, "dan");
+    const b = cli.start({ role: "deal_analyst", side: "public", task: "Prep Falcon board materials" }, "priya");
+    await quiet(async () => {
+      await worker.settle();
+      await cli.settle();
+    });
+    assert.match(a.agent, /^agt_deal_[0-9a-f]{8}$/);
+    assert.notEqual(a.agent, b.agent);
+    const byId = new Map(calls.principals.map((p) => [p.id, p]));
+    assert.equal(byId.get(a.agent)?.acts_for, "dan");
+    assert.equal(byId.get(b.agent)?.acts_for, "priya");
+  });
+
+  test("a finished run is kept as a locked record under the records root; the live folder goes", { skip: process.getuid?.() === 0 ? "root ignores file modes" : false }, async () => {
+    const records = mkdtempSync(join(tmpdir(), "canon-records-"));
+    try {
+      const { client } = fakeClient();
+      const d = new Dispatcher({
+        client,
+        runner: new ScriptedRunner((req) => (writeOut(req), { done: true, summary: "DONE" })),
+        planner: new HeuristicPlanner(),
+        briefWriter: new TemplateBriefWriter(),
+        maxSteps: 2,
+        root,
+        recordsRoot: records,
+      });
+      const run = d.start({ role: "research_analyst", side: "public", task: "Update our logistics sector note" }, "dan");
+      assert.equal(run.sandbox, join(records, run.id), "the lane names the record, not the live folder");
+      await quiet(() => d.settle());
+      const rec = join(records, run.id);
+      assert.ok(existsSync(join(rec, "LOCKED")));
+      assert.match(readFileSync(join(rec, "out", "sector-note.md"), "utf8"), /freight demand/);
+      assert.equal(statSync(rec).mode & 0o222, 0);
+      assert.equal(existsSync(join(root, run.id)), false, "a finished run's live folder does not sit next to later runs");
+    } finally {
+      unlockForCleanup(records);
+      rmSync(records, { recursive: true, force: true });
+    }
   });
 
   test("the inbox drains before the next step, urgent first, into the step's prompt", async () => {
@@ -364,6 +560,79 @@ describe("worker handler", () => {
     assert.ok(!inbox.some((e) => e.item.run_id === research.id && e.item.fact_id === falconFact.id), "the research agent never does");
     assert.equal(d.get(deal.id)!.state, "cancelled");
     assert.notEqual(d.get(research.id)!.state, "cancelled");
+  });
+
+  /** A runner whose every step waits at the gate (or a cancel), so runs are surely live while we route. */
+  function gatedRunner() {
+    let open!: () => void;
+    let entered!: () => void;
+    const gate = new Promise<void>((r) => (open = r));
+    const inStep = new Promise<void>((r) => (entered = r));
+    const runner = new ScriptedRunner(async (req) => {
+      entered();
+      await Promise.race([gate, new Promise((r) => req.signal.addEventListener("abort", r, { once: true }))]);
+      if (req.signal.aborted) throw new CancelledError();
+      return { done: false, summary: "CONTINUE" };
+    });
+    return { runner, open, inStep };
+  }
+
+  test("a termination and a revoked entitlement are delivered even when the walls cannot be refreshed", async () => {
+    const offline = new OfflineClient();
+    const { runner, open } = gatedRunner();
+    const d = new Dispatcher({ client: offline, runner, planner: new HeuristicPlanner(), briefWriter: new TemplateBriefWriter(), maxSteps: 3, root });
+    const judge = (await quiet(() => new FakeJudge({ override: simulatedRoutingAnswer }))).result;
+    const down = async (): Promise<never> => {
+      throw new Error("GET /api/deals -> HTTP 500: half-built v2 route");
+    };
+    const handler = createDispatchHandler({ dispatcher: d, client: { getDeals: down, getEntitlements: down }, judge });
+    const falconRun = d.start({ role: "deal_analyst", side: "deal_falcon", task: "Prep Falcon board materials" }, "dan");
+    const heronRun = d.start({ role: "deal_analyst", side: "deal_heron", task: "Prep Heron materials" }, "dan");
+    const at = new Date().toISOString();
+
+    const { lines } = await quiet(async () => {
+      await handler({ type: "deal.status_changed", at, deal: "deal_falcon", from: "confidential", to: "terminated", by: "maya" });
+      await handler({ type: "entitlement.changed", at, entitlement: { principal: "dan", deal: "deal_heron", granted_by: "maya", granted_at: at, reason: "rotation" }, granted: false });
+      // With the walls unreadable, a new fact is routed nowhere: fail closed.
+      await handler({ type: "fact.saved", at, fact: { id: "fct_0b1c0042", statement: "Freight volumes fell", folder: "team", tier: "hot", jev_keep: 0.9, source: { client: "ingest", session: "ses_00000042" }, updated: "2026-10-24", wall: "public" }, decision: { tier: "hot", folder: "team", action: "add", keep_p: 0.9, folder_p: 0.9, judge: "fake" } });
+      await handler.settle();
+      open();
+      await d.settle();
+    });
+    assert.equal(d.get(falconRun.id)!.state, "cancelled");
+    assert.match(d.get(falconRun.id)!.reason ?? "", /terminated/);
+    assert.equal(d.get(heronRun.id)!.state, "cancelled");
+    assert.ok(lines.some((l) => /could not be refreshed/.test(l)));
+  });
+
+  test("announced -> terminated: a public agent never gets the queued Falcon update in its next prompt", async () => {
+    const offline = new OfflineClient();
+    offline.setDealStatus("deal_falcon", "announced");
+    const { runner, open, inStep } = gatedRunner();
+    const d = new Dispatcher({ client: offline, runner, planner: new HeuristicPlanner(), briefWriter: new TemplateBriefWriter(), maxSteps: 3, root });
+    const judge = (await quiet(() => new FakeJudge({ override: simulatedRoutingAnswer }))).result;
+    const handler = createDispatchHandler({ dispatcher: d, client: offline, judge });
+    const research = d.start({ role: "research_analyst", side: "public", task: "Update our logistics sector note" }, "dan");
+    const at = new Date().toISOString();
+    const statement = "Falcon buyer for the logistics sector named at 41.50 a share";
+
+    await quiet(async () => {
+      await inStep; // step 1 is under way; anything routed now lands in step 2's prompt
+
+      // While Falcon is announced, its fact reaches the public agent's inbox (queued for the next step).
+      await handler({ type: "fact.saved", at, fact: { id: "fct_fa1c0043", statement, folder: "team", tier: "hot", jev_keep: 0.9, source: { client: "ingest", session: "ses_00000043" }, updated: "2026-10-24", wall: "deal_falcon" }, decision: { tier: "hot", folder: "team", action: "add", keep_p: 0.9, folder_p: 0.9, judge: "fake" } });
+      offline.setDealStatus("deal_falcon", "terminated");
+      await handler({ type: "deal.status_changed", at, deal: "deal_falcon", from: "announced", to: "terminated", by: "maya" });
+      await handler.settle();
+      open();
+      await d.settle();
+    });
+    assert.ok(
+      offline.events.some((e) => e.type === "agent.inbox" && e.item.run_id === research.id && e.item.kind === "new_fact"),
+      "the update was queued while Falcon was announced",
+    );
+    assert.equal(d.get(research.id)!.state, "cancelled");
+    assert.ok(!runner.prompts.some((p) => p.includes("41.50")), "the wall went back up before the next step");
   });
 });
 

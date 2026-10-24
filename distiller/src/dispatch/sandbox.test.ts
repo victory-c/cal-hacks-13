@@ -1,19 +1,26 @@
 import assert from "node:assert/strict";
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, statSync, symlinkSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync as realPathSync, rmSync, statSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { dirname, isAbsolute, join, relative, resolve } from "node:path";
 import { afterEach, beforeEach, describe, test } from "node:test";
 
+import { REPO_ROOT, dataDir } from "@canon/shared";
 import type { ContextFact } from "@canon/shared";
+import { withEnv } from "../test-helpers.ts";
 import {
   SandboxEscapeError,
+  agentsRoot,
+  archiveSandbox,
   createSandbox,
+  freeze,
   isLocked,
   listOutFiles,
   lock,
   readInside,
+  realPath,
   renderFacts,
   resolveInside,
+  storeRoots,
   unlockForCleanup,
   writeInside,
 } from "./sandbox.ts";
@@ -32,9 +39,39 @@ describe("sandbox layout", () => {
     const sb = createSandbox("run_1a2b3c4d", { root });
     assert.equal(sb.dir, join(root, "run_1a2b3c4d"));
     assert.ok(statSync(sb.outDir).isDirectory());
-    assert.equal(sb.rel, sb.dir, "outside the repo the path stays absolute");
     assert.throws(() => createSandbox("../run_1a2b", { root }), /bad run id/);
     assert.throws(() => createSandbox("run_xyz!", { root }), /bad run id/);
+  });
+});
+
+describe("where live sandboxes may sit: never where `..` reaches Canon's store", () => {
+  const inside = (p: string, dir: string) => {
+    const rel = relative(realPath(dir), realPath(p));
+    return rel === "" || (!rel.startsWith("..") && !isAbsolute(rel));
+  };
+
+  test("the default root is in the OS temp dir, outside the repo and the data dir", async () => {
+    const dir = await withEnv({ DISPATCH_SANDBOX_DIR: undefined }, () => agentsRoot());
+    assert.equal(dir, join(realPathSync(tmpdir()), "canon-agents"));
+    assert.ok(!inside(dir, REPO_ROOT), `${dir} must not be inside the repo`);
+    assert.ok(!inside(dir, dataDir()), `${dir} must not be inside the data dir`);
+    for (const store of storeRoots()) assert.ok(!inside(store, dir), `${dir} must not contain ${store}`);
+  });
+
+  test("a root inside the repo, inside the data dir, or above them is refused, and nothing is created", async () => {
+    for (const bad of [join(dataDir(), "agents"), join(REPO_ROOT, "tmp-agents"), dirname(resolve(REPO_ROOT))]) {
+      assert.throws(() => createSandbox("run_0000bad1", { root: bad }), /overlaps/, bad);
+      assert.equal(existsSync(join(bad, "run_0000bad1")), false);
+      await withEnv({ DISPATCH_SANDBOX_DIR: bad }, () => assert.throws(() => agentsRoot(), /overlaps/));
+    }
+    await withEnv({ DISPATCH_SANDBOX_DIR: "relative/agents" }, () => assert.throws(() => agentsRoot(), /absolute/));
+    await withEnv({ DISPATCH_SANDBOX_DIR: root }, () => assert.equal(agentsRoot(), root));
+  });
+
+  test("the store roots include the repo and the data dir as real paths", () => {
+    const roots = storeRoots();
+    assert.ok(roots.includes(realPath(REPO_ROOT)));
+    assert.ok(roots.includes(realPath(dataDir())));
   });
 });
 
@@ -127,5 +164,40 @@ describe("lock", () => {
     lock(sb.dir, "again"); // idempotent
     assert.match(readFileSync(join(sb.dir, "LOCKED"), "utf8"), /terminated/, "the first reason stays");
     mkdirSync(join(root, "unrelated")); // the parent stays writable
+  });
+
+  test("freeze makes it read-only without the marker; lock then still writes the marker", { skip: process.getuid?.() === 0 ? "root ignores file modes" : false }, () => {
+    const sb = createSandbox("run_00000005", { root });
+    writeFileSync(join(sb.outDir, "note.md"), "draft");
+    freeze(sb.dir);
+    assert.equal(isLocked(sb.dir), false);
+    assert.throws(() => writeFileSync(join(sb.outDir, "note.md"), "rewritten after the check"), /EACCES|EPERM/);
+    lock(sb.dir, "done");
+    assert.match(readFileSync(join(sb.dir, "LOCKED"), "utf8"), /done/);
+    assert.equal(statSync(sb.dir).mode & 0o222, 0);
+  });
+
+  test("archiveSandbox copies a locked run as its record: regular files only, links never followed, copy locked", { skip: process.getuid?.() === 0 ? "root ignores file modes" : false }, () => {
+    const sb = createSandbox("run_00000006", { root });
+    const records = mkdtempSync(join(tmpdir(), "canon-records-"));
+    const outside = mkdtempSync(join(tmpdir(), "canon-outside-"));
+    try {
+      writeFileSync(join(sb.dir, "facts.md"), "facts");
+      writeFileSync(join(sb.outDir, "note.md"), "note");
+      writeFileSync(join(outside, "secret.md"), "not for the record");
+      symlinkSync(join(outside, "secret.md"), join(sb.outDir, "link.md"));
+      lock(sb.dir, "done");
+      const dest = archiveSandbox(sb, records);
+      assert.equal(dest, join(records, "run_00000006"));
+      assert.equal(readFileSync(join(dest, "out", "note.md"), "utf8"), "note");
+      assert.equal(readFileSync(join(dest, "facts.md"), "utf8"), "facts");
+      assert.match(readFileSync(join(dest, "LOCKED"), "utf8"), /done/, "the run's own lock reason is kept");
+      assert.equal(existsSync(join(dest, "out", "link.md")), false);
+      assert.equal(statSync(dest).mode & 0o222, 0, "the record is read-only");
+    } finally {
+      unlockForCleanup(records);
+      rmSync(records, { recursive: true, force: true });
+      rmSync(outside, { recursive: true, force: true });
+    }
   });
 });

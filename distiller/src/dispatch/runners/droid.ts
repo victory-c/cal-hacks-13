@@ -22,13 +22,27 @@
 // names. mapDroidEvent() reads them defensively (text / content / message, parameters / input,
 // usage.input_tokens / inputTokens). Run one real `droid exec -o stream-json` at the booth and
 // fix the field list here if it differs; nothing outside this file depends on it.
+//
+// Confinement. Nothing in Factory's docs says Droid's reads stay inside --cwd (`--auto low` allows
+// read-only inspection of files, folders and the environment), so code does what it can:
+//   - the sandbox lives outside the repo and the data dir (sandbox.ts agentsRoot());
+//   - agentEnv() drops Canon's secrets and every env value that points into the repo or the data
+//     dir (npm_*, INIT_CWD, PWD, NODE_OPTIONS, ...), and PATH entries inside them;
+//   - on macOS, droid runs under sandbox-exec with a profile that denies reads and writes of the
+//     repo, the data dir and every other run's folder (DISPATCH_OS_SANDBOX=auto|on|off, default auto);
+//   - droid leads its own process group: a cancel or a timeout kills the whole tree (the shells and
+//     scripts its tools started), and the step settles only after droid has exited, so the
+//     dispatcher never locks a folder under a live process. Leftovers are killed after every step.
 
-import { spawn } from "node:child_process";
-import { isAbsolute, relative, resolve, sep } from "node:path";
+import { spawn, spawnSync } from "node:child_process";
+import { existsSync } from "node:fs";
+import { delimiter, dirname, isAbsolute, relative, resolve, sep } from "node:path";
 
 import { env } from "@canon/shared";
 import { isRecord } from "../anthropic.ts";
-import { CancelledError, addTokens, onPath, saysDone } from "./types.ts";
+import { log } from "../log.ts";
+import { realPath, storeRoots } from "../sandbox.ts";
+import { CancelledError, StepError, addTokens, onPath, saysDone } from "./types.ts";
 import type { Runner, StepEvent, StepRequest, StepResult } from "./types.ts";
 
 /** Every droid flag we pass, in one place. */
@@ -42,61 +56,163 @@ export const DROID_FLAGS = {
 
 export const DEFAULT_DROID_MODEL = "claude-sonnet-5-5";
 const KILL_GRACE_MS = 2000;
+/** After SIGKILL, how long to wait for droid to be gone before settling anyway. */
+const CLOSE_WAIT_MS = 3000;
+const SANDBOX_EXEC = "/usr/bin/sandbox-exec";
 
-/** Canon secrets the agent never needs. Droid gets FACTORY_API_KEY and the plain environment. */
-const SCRUBBED_ENV = /^(ANTHROPIC_API_KEY|JEV_API_KEY|CANON_TOKEN_\w+|CANON_CLIENT_TOKENS|MOSS_PROJECT_KEY|MOSS_PROJECT_ID)$/;
+/** Canon secrets and settings the agent never needs. Droid gets FACTORY_API_KEY and the plain environment. */
+const SCRUBBED_ENV = /^(ANTHROPIC_API_KEY|JEV_API_KEY|CANON_\w+|MOSS_PROJECT_KEY|MOSS_PROJECT_ID)$/;
+
+/** Process groups of droid steps still running, killed if the worker exits underneath them. */
+const liveGroups = new Set<number>();
+let exitHookInstalled = false;
+
+function killGroup(pid: number | undefined, signal: NodeJS.Signals): void {
+  if (pid === undefined) return;
+  try {
+    process.kill(-pid, signal);
+  } catch {
+    // the group is gone
+  }
+}
+
+/**
+ * The environment droid runs with: no Canon secrets, no value that points into the repo or the
+ * data dir (the sandbox is outside both, and an env var must not hand the way back), PATH without
+ * entries inside them, and PWD set to the sandbox.
+ */
+export function agentEnv(dir: string, base: NodeJS.ProcessEnv = process.env, hidden: readonly string[] = storeRoots()): NodeJS.ProcessEnv {
+  const inside = (p: string) => hidden.some((h) => p === h || p.startsWith(h + sep));
+  const out: NodeJS.ProcessEnv = {};
+  for (const [k, v] of Object.entries(base)) {
+    if (v === undefined || SCRUBBED_ENV.test(k)) continue;
+    if (k === "PATH") {
+      out.PATH = v
+        .split(delimiter)
+        .filter((p) => p !== "" && !inside(resolve(p)))
+        .join(delimiter);
+      continue;
+    }
+    if (hidden.some((h) => v.includes(h))) continue;
+    out[k] = v;
+  }
+  out.PWD = dir;
+  return out;
+}
+
+/**
+ * A Seatbelt profile that allows everything except reading or writing under `denied`, with
+ * `allowed` carved back out (the last matching rule wins). Paths must be real paths.
+ */
+export function seatbeltProfile(denied: readonly string[], allowed: readonly string[] = []): string {
+  const rule = (verb: "allow" | "deny", p: string) => `(${verb} file-read* file-write* (subpath ${JSON.stringify(p)}))`;
+  return ["(version 1)", "(allow default)", ...denied.map((d) => rule("deny", d)), ...allowed.map((a) => rule("allow", a))].join("\n");
+}
+
+/** For one step: the repo, the data dir and every other run's folder are denied; this run's folder is not. */
+export function stepProfile(dir: string): string {
+  const own = realPath(dir);
+  return seatbeltProfile([...storeRoots(), dirname(own)], [own]);
+}
+
+export type OsSandbox = "seatbelt" | "none";
+
+/**
+ * DISPATCH_OS_SANDBOX: auto (default) uses sandbox-exec on macOS when it works here (it does not
+ * nest inside another sandbox), on requires it, off skips it.
+ */
+export function resolveOsSandbox(mode = env("DISPATCH_OS_SANDBOX", "auto")): OsSandbox {
+  if (mode === "off") return "none";
+  if (mode !== "auto" && mode !== "on") throw new Error(`DISPATCH_OS_SANDBOX must be auto, on or off (got "${mode}")`);
+  const usable =
+    process.platform === "darwin" && existsSync(SANDBOX_EXEC) && spawnSync(SANDBOX_EXEC, ["-p", "(version 1)(allow default)", "/usr/bin/true"]).status === 0;
+  if (usable) return "seatbelt";
+  if (mode === "on") throw new Error("DISPATCH_OS_SANDBOX=on, but sandbox-exec is not usable here (macOS only, and it does not nest)");
+  return "none";
+}
 
 export class DroidRunner implements Runner {
   readonly name = "droid" as const;
   readonly simulated = false;
+  readonly osSandbox: OsSandbox;
   private readonly model: string;
+  private readonly bin: string;
 
-  constructor(opts: { model?: string } = {}) {
+  constructor(opts: { model?: string; osSandbox?: OsSandbox } = {}) {
     if (!env("FACTORY_API_KEY")) throw new Error("DroidRunner: FACTORY_API_KEY is not set. Put it in .env, or set DISPATCH_RUNTIME=claude|fake.");
-    if (!onPath("droid")) throw new Error("DroidRunner: the droid binary is not on PATH (install: https://app.factory.ai/cli), or set DISPATCH_RUNTIME=claude|fake.");
+    const bin = onPath("droid");
+    if (!bin) throw new Error("DroidRunner: the droid binary is not on PATH (install: https://app.factory.ai/cli), or set DISPATCH_RUNTIME=claude|fake.");
+    this.bin = bin;
     this.model = opts.model ?? env("DISPATCH_DROID_MODEL", DEFAULT_DROID_MODEL);
+    this.osSandbox = opts.osSandbox ?? resolveOsSandbox();
+    log(
+      this.osSandbox === "seatbelt"
+        ? "droid runs under sandbox-exec: the repo and the data dir are denied to it"
+        : "droid runs WITHOUT an OS sandbox: only the folder's location and the env scrub keep it away from the repo (README, Limits)",
+    );
   }
 
   args(req: StepRequest): string[] {
     return [DROID_FLAGS.subcommand, ...DROID_FLAGS.autonomy, ...DROID_FLAGS.output, DROID_FLAGS.cwd, req.dir, DROID_FLAGS.model, this.model, req.prompt];
   }
 
+  /** What is actually spawned: droid itself, or droid under sandbox-exec. */
+  command(req: StepRequest): { file: string; args: string[] } {
+    if (this.osSandbox === "seatbelt") return { file: SANDBOX_EXEC, args: ["-p", stepProfile(req.dir), this.bin, ...this.args(req)] };
+    return { file: this.bin, args: this.args(req) };
+  }
+
   step(req: StepRequest): Promise<StepResult> {
     if (req.signal.aborted) return Promise.reject(new CancelledError());
-    const childEnv: NodeJS.ProcessEnv = {};
-    for (const [k, v] of Object.entries(process.env)) if (!SCRUBBED_ENV.test(k)) childEnv[k] = v;
+    if (!exitHookInstalled) {
+      exitHookInstalled = true;
+      process.once("exit", () => {
+        for (const pid of liveGroups) killGroup(pid, "SIGKILL");
+      });
+    }
 
     return new Promise<StepResult>((resolvePromise, reject) => {
-      // The command is looked up on childEnv.PATH, so a test's fake droid on PATH is what runs.
-      const child = spawn("droid", this.args(req), { cwd: req.dir, env: childEnv, stdio: ["ignore", "pipe", "pipe"] });
+      const { file, args } = this.command(req);
+      // detached: droid leads its own process group, so a kill reaches everything its tools started.
+      const child = spawn(file, args, { cwd: req.dir, env: agentEnv(req.dir), stdio: ["ignore", "pipe", "pipe"], detached: true });
+      const pid = child.pid;
+      if (pid !== undefined) liveGroups.add(pid);
       let settled = false;
+      /** Set by a cancel or a timeout: the step fails with this once droid is gone. */
+      let stopping: Error | undefined;
       let buffer = "";
       let stderr = "";
       let lastMessage = "";
       let completion: { text: string; tokens?: { input: number; output: number } } | undefined;
       let killTimer: ReturnType<typeof setTimeout> | undefined;
+      let giveUpTimer: ReturnType<typeof setTimeout> | undefined;
 
       const finish = (fn: () => void) => {
         if (settled) return;
         settled = true;
         clearTimeout(timer);
+        clearTimeout(killTimer);
+        clearTimeout(giveUpTimer);
         req.signal.removeEventListener("abort", onAbort);
+        if (pid !== undefined) liveGroups.delete(pid);
         fn();
       };
-      const kill = () => {
-        if (child.exitCode !== null || child.signalCode !== null) return;
-        child.kill("SIGTERM");
-        killTimer = setTimeout(() => child.kill("SIGKILL"), KILL_GRACE_MS);
-        killTimer.unref();
+      /** SIGTERM the whole group, SIGKILL after the grace period; settle once droid has exited. */
+      const stop = (err: Error) => {
+        if (stopping || settled) return;
+        stopping = err;
+        clearTimeout(timer);
+        killGroup(pid, "SIGTERM");
+        killTimer = setTimeout(() => {
+          killGroup(pid, "SIGKILL");
+          giveUpTimer = setTimeout(() => finish(() => reject(err)), CLOSE_WAIT_MS);
+        }, KILL_GRACE_MS);
       };
-      const onAbort = () => {
-        kill();
-        finish(() => reject(new CancelledError("droid step cancelled; process killed")));
-      };
-      const timer = setTimeout(() => {
-        kill();
-        finish(() => reject(new Error(`droid step timed out after ${req.timeoutMs} ms; process killed`)));
-      }, req.timeoutMs);
+      const onAbort = () => stop(new CancelledError("droid step cancelled; process group killed"));
+      const timer = setTimeout(
+        () => stop(new StepError(`timed out after ${req.timeoutMs} ms`, `droid step timed out after ${req.timeoutMs} ms; process group killed`)),
+        req.timeoutMs,
+      );
       req.signal.addEventListener("abort", onAbort, { once: true });
 
       const handleLine = (line: string) => {
@@ -112,7 +228,7 @@ export class DroidRunner implements Runner {
         const mapped = mapDroidEvent(ev, req.dir);
         for (const s of mapped.steps) {
           if (s.kind === "message") lastMessage = s.text;
-          if (!settled) req.emit(s);
+          if (!settled && !stopping) req.emit(s); // a stopped agent's last words do not stream
         }
         if (mapped.completion) completion = { text: mapped.completion.text, tokens: addTokens(completion?.tokens, mapped.completion.tokens) };
       };
@@ -130,14 +246,23 @@ export class DroidRunner implements Runner {
       child.stderr.on("data", (chunk: string) => {
         stderr = (stderr + chunk).slice(-4000);
       });
-      child.on("error", (err) => finish(() => reject(new Error(`cannot start droid: ${err.message}`))));
+      child.on("error", (err) => {
+        // Only a failed spawn has no process to wait for; any other error (a failed kill) is not fatal.
+        if (pid === undefined) finish(() => reject(new StepError("could not start droid", err.message)));
+      });
+      // Droid itself is gone: nothing it started outlives the step.
+      child.on("exit", () => killGroup(pid, "SIGKILL"));
       child.on("close", (code, signal) => {
-        if (killTimer) clearTimeout(killTimer);
-        if (buffer) handleLine(buffer);
+        killGroup(pid, "SIGKILL");
+        if (buffer && !stopping) handleLine(buffer);
         finish(() => {
+          if (stopping) {
+            reject(stopping);
+            return;
+          }
           if (code !== 0) {
             const tail = stderr.trim().split("\n").slice(-3).join(" | ");
-            reject(new Error(`droid exec exited ${code ?? signal}${tail ? `: ${tail}` : ""}`));
+            reject(new StepError(`droid exec exited ${code ?? signal}`, tail || undefined));
             return;
           }
           const text = completion?.text || lastMessage;

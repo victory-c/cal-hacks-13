@@ -138,8 +138,10 @@ export async function routeFact(fact: Fact, runs: readonly RoutableRun[], judge:
 /**
  * deal.status_changed, no judge: terminated cancels every run on that deal's side (urgent);
  * announced sends an urgent wall_change to every public-side run, whose next handoff now
- * includes the lifted facts. Back to confidential from announced is the cautious case:
- * public-side runs may already hold facts that are restricted again, so they are cancelled.
+ * includes the lifted facts. Any move away from announced (back to confidential, or to
+ * terminated) puts the wall back up (canSee reads only announced as public), and public-side
+ * runs may already hold the deal's facts in facts.md, out/ or a queued new_fact item, so they
+ * are cancelled.
  */
 export function routeDealStatus(
   change: { deal: string; from: DealStatus; to: DealStatus },
@@ -151,20 +153,23 @@ export function routeDealStatus(
   const at = nowIso();
   const item = (r: RoutableRun, kind: InboxItem["kind"], text: string): InboxItem => ({ id: newInboxId(), run_id: r.run_id, kind, urgent: true, text, at });
 
-  if (change.to === "terminated") {
-    return active.filter((r) => r.side === change.deal).map((r) => item(r, "cancel", `${name} was terminated. Work on it stops now.`));
-  }
   if (change.to === "announced") {
     return active
       .filter((r) => r.side === PUBLIC_WALL)
       .map((r) => item(r, "wall_change", `${name} was announced. Its facts are public now; your next facts.md includes the ones that fit your task.`));
   }
-  if (change.to === "confidential" && change.from === "announced") {
-    return active
-      .filter((r) => r.side === PUBLIC_WALL)
-      .map((r) => item(r, "cancel", "A wall went back up. Public-side work stops so nothing restricted is used; dispatch again to restart."));
+  const items: InboxItem[] = [];
+  if (change.to === "terminated") {
+    items.push(...active.filter((r) => r.side === change.deal).map((r) => item(r, "cancel", `${name} was terminated. Work on it stops now.`)));
   }
-  return [];
+  if (change.from === "announced") {
+    items.push(
+      ...active
+        .filter((r) => r.side === PUBLIC_WALL)
+        .map((r) => item(r, "cancel", "A wall went back up. Public-side work stops so nothing restricted is used; dispatch again to restart.")),
+    );
+  }
+  return items;
 }
 
 /** entitlement.changed: a revoked grant stops the runs working that deal for that person. */
