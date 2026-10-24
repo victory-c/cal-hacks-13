@@ -88,12 +88,34 @@ work.
 Copy `.env.example` to `.env` and fill in the keys you have. Never commit `.env`. Keys are
 handed person to person, never through git or chat logs.
 
-## Sponsor integrations
+## Sponsor tracks
 
-Each section says where the integration does real work in the running product. They get
-filled in as the work lands.
+Where each sponsor's tool does real work in the running product (PRD v2: context with walls for
+small finance teams). Status is honest: **built** = on `main` and in the demo, **in progress** =
+on a branch, **planned** = not started or blocked. Full detail, blockers and the last check
+time: [`docs/SPONSORS.md`](docs/SPONSORS.md). Devpost text: [`docs/DEVPOST.md`](docs/DEVPOST.md).
 
-- **Anthropic (Claude):** distiller fallback (`distiller/src/engines/claude.ts`, `claude-sonnet-5-5`), judge fallback (`shared/src/judge/claude.ts`, `claude-haiku-5-5`), resume writing. _Role and failure modes: TBD_
-- **Factory Droid SDK:** the distiller engine (`distiller/src/engines/droid.ts`): runs on every captured session, can only write to the fact store, plan + fact diffs shown on the dashboard. _TBD_
-- **Moss:** the retrieval layer behind `canon_context` (`server/src/retrieval/`). Retrieval latency shows on the dashboard. _TBD_
-- **Microsoft (Built for the Real World):** benchmark chart from `bench/results/`, scale slide, responsible-design notes (folders, cold archive). _TBD_
+- **Factory Droid:** runs every dispatched agent as headless `droid exec` at a low permission
+  level, one sandbox folder per agent, steps streamed into the agent's dashboard lane, updates
+  routed between steps (`distiller/src/dispatch/`). **In progress**; gate Sat 11:00 (blocker Q1).
+- **Anthropic (Claude):** `claude-sonnet-5-5` writes facts from captured context
+  (`distiller/src/engines/claude.ts`) and agent briefs; `claude-haiku-5-5` is the fallback judge
+  (`shared/src/judge/claude.ts`). Claude never decides access: wall labels come from code rules
+  and Jev and only move up, and briefs are written only from facts that passed the permission
+  filter. Judge **built**; finance writer and briefs **in progress**.
+- **Jev (TypeSafe AI):** the judge behind save-time triage (keep, confidential, which deal, AI
+  instructions, relation), handoff relevance, access pre-screen and live routing
+  (`shared/src/judge/jev.ts`, `distiller/src/triage.ts`). Client **built** but unverified
+  against TypeSafe's docs (blocker Q3); triage **in progress**.
+- **Moss:** search by meaning on every handoff and routing check, after the permission filter
+  (`server/src/retrieval/moss.ts`). **Planned** (blocker Q2); the keyword retriever runs today.
+- **Hyphenate (Autonomous Systems for Finance):** the whole product: deny-by-default walls,
+  neutral refusals, the compliance queue and the audit log (`shared/src/types/walls.ts`,
+  `server/`, `web/`). Contract **built** on `b/contract-v2`; server and control room **planned**.
+- **Microsoft (Built for the Real World):** the benchmark in `bench/` (leak rate, wrongly-blocked
+  rate, accuracy, tokens, latency, cost across four setups) and the scale path. v1 runner
+  **built**; v2 setups **planned**.
+- **Armadin (security):** injection quarantine at triage, raise-only wall labels, neutral
+  refusals and the exit check on agent outputs. **In progress / planned**, see
+  `docs/SPONSORS.md`.
+- **Bitdeer, Mana, Notability:** **planned**, see `docs/SPONSORS.md`.
