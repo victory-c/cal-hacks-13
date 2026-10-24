@@ -178,6 +178,28 @@ describe("worker handler", () => {
     assert.equal(lines.filter((l) => l.includes("dropping stale result")).length, 1);
   });
 
+  test("B and C queued behind a running A: B is skipped without distilling, C is distilled", async () => {
+    const h = await revisionHarness();
+    const c: CapturedSession = { ...h.a, messages: [{ role: "user", content: "We decided to use DuckDB because the analysts query it locally." }] };
+    const { lines } = await quiet(async () => {
+      const first = h.handler(captured(h.a.id, 1, true));
+      await h.started.promise;
+      h.sessions[h.a.id] = h.b;
+      const second = h.handler(captured(h.a.id, 1, true));
+      for (let i = 0; i < 5; i++) await tick();
+      h.sessions[h.a.id] = c;
+      const third = h.handler(captured(h.a.id, 1, true));
+      for (let i = 0; i < 5; i++) await tick();
+      h.blocked.release();
+      await Promise.all([first, second, third]);
+      await h.handler.settle();
+    });
+    assert.deepEqual(h.distilled, [h.a, c], "B never reaches the distiller");
+    assert.equal(h.calls.posts.length, 1);
+    assert.match(h.calls.posts[0].facts[0].fact.statement, /DuckDB/);
+    assert.ok(lines.some((l) => l.includes("a newer revision is queued, skipping this one")), lines.join("\n"));
+  });
+
   test("a fetch overtaken by a newer capture never claims, even when its older content lands last", async () => {
     const a: CapturedSession = { ...fixture, messages: [{ role: "user", content: "We decided to use Postgres because it handles concurrent writes." }] };
     const b: CapturedSession = { ...a, messages: [{ role: "user", content: "We decided to use SQLite because the demo runs on one laptop." }] };
@@ -224,7 +246,7 @@ describe("worker handler", () => {
       h.blocked.release();
       await Promise.all([first, second, restored, h.handler.settle()]);
     });
-    assert.deepEqual(h.distilled, [h.a, h.b, h.a]);
+    assert.deepEqual(h.distilled, [h.a, h.a], "B, already replaced by the restored A, never reaches the distiller");
     assert.equal(h.calls.posts.length, 1, "only the last A is current");
     assert.match(h.calls.posts[0].facts[0].fact.statement, /Postgres/);
   });
