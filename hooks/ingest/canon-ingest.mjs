@@ -336,11 +336,15 @@ function isMain() {
 }
 
 if (isMain()) {
+  // exitCode, not process.exit(): exiting while fetch's sockets close aborts Node on Windows
+  // (libuv UV_HANDLE_CLOSING assertion) after the run already printed success.
   run(process.argv.slice(2)).then(
-    (code) => process.exit(code),
+    (code) => {
+      process.exitCode = code;
+    },
     (e) => {
       process.stderr.write(`canon-ingest: ${e?.stack ?? e}\n`);
-      process.exit(1);
+      process.exitCode = 1;
     },
   );
 }
