@@ -9,9 +9,16 @@
 // ISO date in the sentence and never guessed; and a paragraph aimed at an AI ("ignore your
 // previous instructions …") never becomes a draft, however its lines are wrapped. This engine does
 // not quarantine anything: deciding that the whole item is an injection is triage's job (Jev).
+//
+// Scopes: a draft's group is guessed from the aliases in the group list passed in with the item
+// (a code name, company or ticker the sentence names; see groups.ts). Exactly one group's names:
+// that group. None, or two groups' names: no suggestion. It is a simulated hint, never a filing:
+// an alias match cannot tell a deal memo from public news that names the same company, so triage
+// (Jev) reads the whole item and decides. No labels offline; the writer and triage add those.
 
-import type { CapturedSession, DraftFact, Folder } from "@canon/shared";
-import type { Distiller, DistillResult } from "./index.ts";
+import type { CapturedSession, DraftFact } from "@canon/shared";
+import { aliasGroup, filingGroups } from "./groups.ts";
+import type { DistillOptions, Distiller, DistillResult } from "./index.ts";
 
 const SIGNAL_WORDS = [
   // v1: what someone built or decided
@@ -55,19 +62,6 @@ const SPEAKER_KINDS = new Set(["chat", "transcript"]);
  */
 const AUTHORED_KINDS = new Set(["ai_session", "memo", "note"]);
 const SPEAKER_RE = /^([A-Z][a-z]+(?: [A-Z][a-z]+)?):\s+(.+)$/;
-
-// Order matters: the first group that matches wins.
-const FOLDER_GUESSES: Array<[RegExp, Folder]> = [
-  [/\b(resume|job|intern|internship|interns|recruit|recruiter|recruiting)\b/i, "career"],
-  [/\b(repo|PR|code|hook|server)\b/i, "projects"],
-  // A finance firm's deal work is team context; the wall label, not the folder, decides who sees it.
-  [/\bteam\b|\bwe decided\b|\b(deal|LOI|term sheet|valuation|EBITDA|diligence|board)\b/i, "team"],
-];
-
-export function guessFolder(sentence: string): Folder | undefined {
-  for (const [re, folder] of FOLDER_GUESSES) if (re.test(sentence)) return folder;
-  return undefined;
-}
 
 /**
  * Third person with a name when we know who said it: "I proposed X" → "Dan proposed X",
@@ -209,7 +203,8 @@ interface Candidate {
 export class HeuristicDistiller implements Distiller {
   readonly name = "heuristic" as const;
 
-  async distill(session: CapturedSession): Promise<DistillResult> {
+  async distill(session: CapturedSession, opts: DistillOptions = {}): Promise<DistillResult> {
+    const groups = filingGroups(opts.groups);
     const messages = session.messages.filter((m) => m.role === "user" || m.role === "assistant");
     const seen = new Set<string>();
     const kept: Candidate[] = [];
@@ -236,8 +231,8 @@ export class HeuristicDistiller implements Distiller {
             if (seen.has(key)) continue;
             seen.add(key);
             const draft: DraftFact = { statement, source: sourceOf(session) };
-            const folder = guessFolder(statement);
-            if (folder) draft.folder = folder;
+            const group = aliasGroup(statement, groups);
+            if (group) draft.folder = group;
             if (happened) draft.happened = happened;
             kept.push({ draft, score: s, order: kept.length });
           }
@@ -252,10 +247,12 @@ export class HeuristicDistiller implements Distiller {
       .sort((a, b) => a.order - b.order)
       .map((c) => c.draft);
 
+    // With no group list there is nothing to match, so the plan says nothing about groups.
+    const grouped = groups.length ? `, ${drafts.filter((d) => d.folder).length} of ${drafts.length} drafts grouped by alias` : "";
     const left = leftOut ? `, ${leftOut} ${leftOut === 1 ? "paragraph" : "paragraphs"} left out as instructions aimed at an AI` : "";
     return {
       drafts,
-      plan: `heuristic: ${candidates} candidate sentences from ${messages.length} messages${left} (simulated)`,
+      plan: `heuristic: ${candidates} candidate sentences from ${messages.length} messages${grouped}${left} (simulated)`,
       simulated: true,
     };
   }
