@@ -5,6 +5,7 @@ import { DEFAULT_SERVER_URL, ROUTES, createJudge, env, loadEnv, subscribeEvents 
 import { createClient } from "./client.ts";
 import { createDistiller } from "./engines/index.ts";
 import { errorMessage, log, warn } from "./log.ts";
+import { triageJudge } from "./triage.ts";
 import { createHandler } from "./worker.ts";
 
 loadEnv();
@@ -21,7 +22,8 @@ if (!token) {
 let distiller, judge;
 try {
   distiller = createDistiller();
-  judge = createJudge();
+  // With no keys the judge is the fake; triage swaps in its finance rules (still simulated).
+  judge = triageJudge(createJudge());
 } catch (err) {
   console.error(`[distiller] cannot start: ${errorMessage(err)}`);
   process.exit(1);
@@ -30,7 +32,7 @@ try {
 const client = createClient({ baseUrl: url, token });
 const handler = createHandler({ client, distiller, judge, live });
 
-log(`distiller worker: engine ${distiller.name}, judge ${judge.name}, listening on ${url}${ROUTES.events}${live ? " (DISTILL_LIVE=1)" : ""}`);
+log(`distiller worker: engine ${distiller.name}, judge ${judge.name}${judge.name === "fake" ? " (simulated)" : ""}, v2 triage, listening on ${url}${ROUTES.events}${live ? " (DISTILL_LIVE=1)" : ""}`);
 
 const stop = subscribeEvents(url + ROUTES.events, (event) => void handler(event), {
   headers: { authorization: `Bearer ${token}` },
