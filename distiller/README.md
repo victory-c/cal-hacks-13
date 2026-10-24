@@ -46,22 +46,27 @@ in its output are real measurements (`usage` from the API, wall clock); nothing 
 when it is. The worker never switches engine on its own: a failing engine is a logged error, not
 a silent downgrade.
 
-**Until B2 wires the Droid SDK, set `DISTILLER=claude` (or `heuristic`) whenever `FACTORY_API_KEY`
-is in `.env`.** Otherwise the worker picks the `droid` engine, which throws `NotConfiguredError` on
-every session, and no facts are written. In the product plan Claude writes facts and Droid runs
-dispatched agents (B2), so adding the Factory key for agent work must not switch the distiller.
+For the finance product's Claude fact-writer path, set `DISTILLER=claude` explicitly.
+`droid` is now an implemented optional scaffold extractor, not the B2/B18 scoped-agent runner.
+The engine does not silently fall back after a provider failure.
 
 | Engine | Real? | Needs | Where it plugs in |
 |---|---|---|---|
-| `droid` | **Pending blocker Q1.** Constructs; `distill()` throws `NotConfiguredError` until the SDK is wired (task B2). | `FACTORY_API_KEY` | `src/engines/droid.ts` |
+| `droid` | Official SDK + pinned CLI; headless structured fact extraction. | `FACTORY_API_KEY` | `src/engines/droid.ts` |
 | `claude` | Yes. `claude-sonnet-5-5`, one strict `emit_facts` tool, raw Messages API over `fetch` (no SDK dependency). | `ANTHROPIC_API_KEY` | `src/engines/claude.ts` |
 | `heuristic` | **No, simulated.** Keyword sentences (built/shipped/decided/…), folder guessed by keywords, max 8. | nothing | `src/engines/heuristic.ts` |
 
-**Factory integration:** `src/engines/droid.ts` is a distiller adapter stub, not an implemented
-agent runner. The current product target is headless finance-agent dispatch with isolated
-context, work steps, inbox updates and checked outputs (B2 and B18). Confirm headless finance
-work at the Factory gate before claiming the integration. The existing Claude and heuristic
-engines remain usable for development.
+**Factory integration:** the official SDK opens an isolated temporary directory, rejects permission
+requests, disables discovered tools and built-in skills, and returns a plan and up to 12 structured
+fact proposals. It closes the session and removes the directory on failure or success. Source
+attribution comes from the captured session; Jev judges the proposals before the worker writes.
+Successful writes report the actual extraction engine and timing over SSE. Free-form plans are
+limited to the internal worker stream because they summarize raw transcripts; plans for batches
+containing private facts are omitted entirely. `npm ci` installs the pinned CLI; its executable must be
+complete and runnable. `FACTORY_MODEL` optionally overrides the account default.
+
+This does not implement the finance-agent runner, scoped sandboxes with files and steps, or live
+inboxes and restarts (B2 and B18). Those features stay on their existing work branches.
 
 **Anthropic track.** `claude-sonnet-5-5` follows the claude-api skill: forced `tool_choice` is a
 400 on this model, so the request uses `auto` + `strict: true` + a system prompt that says to call
@@ -92,6 +97,5 @@ only the 40 in the state. Missing answers mean cold + inbox, never a crash. Judg
 - Replay skipping is time-based (events older than the worker). Proposal for A↔B: the server's
   `EventBus` honours `Last-Event-ID` (replay only ring ids above it) and `subscribeEvents` sends
   the last id it saw on reconnect; then the worker can drop the 5 s heuristic.
-- How the engine's plan reaches the dashboard: `distill.finished` is a server-emitted event and
-  `PostFactsBody` has no `plan`/`engine`/`duration_ms`. Proposal for A↔B: add them as optional
-  fields on `PostFactsBody` so the server can emit the event. Until then the plan is in the logs.
+- `PostFactsBody.distillation` now attributes extraction completion. The dashboard gets engine,
+  fact count and duration; exposing raw plans requires a future privileged console view.

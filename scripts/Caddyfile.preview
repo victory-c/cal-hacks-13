@@ -1,0 +1,10 @@
+{
+	admin off
+}
+
+{$PREVIEW_SITE} {
+	header X-Robots-Tag "noindex, nofollow"
+	reverse_proxy 127.0.0.1:4300 {
+		flush_interval -1
+	}
+}

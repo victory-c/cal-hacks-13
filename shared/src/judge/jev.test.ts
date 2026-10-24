@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { describe, test } from "node:test";
 
-import { JevJudge } from "./jev.ts";
+import { JevJudge, jevQuestions } from "./jev.ts";
 import { captureWarnings, readBody, serve, withEnv } from "../test-helpers.ts";
 import type { Question } from "../types/judge.ts";
 
@@ -35,7 +35,7 @@ describe("JevJudge", () => {
       const { result: answers, warnings } = await captureWarnings(() => judge.ask("some state", questions));
 
       assert.equal(seen?.auth, "Bearer jev-test-key");
-      assert.deepEqual(seen?.body, { model: "jev-latest", state: "some state", questions });
+      assert.deepEqual(seen?.body, { model: "jev-latest", state: "some state", questions: jevQuestions(questions) });
       assert.deepEqual(answers, [
         { id: "keep", type: "noul", p: 0.93 },
         { id: "folder", type: "choice", choice: "projects", p: 0.7, distribution: { projects: 0.7, career: 0.3 } },
@@ -69,14 +69,27 @@ describe("JevJudge", () => {
     }
   });
 
-  test("fails at construction when the key or url is missing, and reads them from env otherwise", async () => {
+  test("requires a key, defaults to the documented URL, and permits an override", async () => {
     await withEnv({ JEV_API_KEY: undefined, JEV_API_URL: undefined }, () => {
       assert.throws(() => new JevJudge(), /JEV_API_KEY is not set/);
-      assert.throws(() => new JevJudge({ apiKey: "k" }), /JEV_API_URL is not set/);
+      assert.equal(new JevJudge({ apiKey: "k" }).name, "jev");
     });
     await withEnv({ JEV_API_KEY: "from-env", JEV_API_URL: "http://127.0.0.1:9/" }, () => {
       assert.equal(new JevJudge().name, "jev");
     });
+  });
+
+  test("maps official keyed answers and uses choice probability rather than confidence", async () => {
+    const {url,close}=await serve((_req,res)=>{
+      res.writeHead(200,{"content-type":"application/json"});
+      res.end(JSON.stringify({answers:{keep:{type:"noul",noul:0.94},folder:{type:"choice",choice:"projects",confidence:0.2,probabilities:{projects:0.8,career:0.2}},quality:{type:"score",score:0.6},enough:{type:"noul",noul:0.1}}}));
+    });
+    try {
+      const result=await new JevJudge({apiKey:"k",url}).ask("state",questions);
+      assert.equal(result[0]?.type,"noul");assert.equal((result[0] as {p:number}).p,0.94);
+      assert.equal((result[1] as {p:number}).p,0.8);
+      assert.equal((result[2] as {value:number}).value,6);
+    } finally {await close();}
   });
 
   test("asks nothing when there are no questions", async () => {

@@ -38,6 +38,17 @@ npm run dev            # server :4100, distiller worker, frontend :4200
 | http://localhost:4100/health | Server health; `/events` for SSE, `/mcp` for MCP |
 | http://localhost:4173 | Team status board (`npm run status:board`) |
 
+## Shared preview
+
+See [`docs/PREVIEW.md`](docs/PREVIEW.md) for the Docker preview and sponsor-host deployment.
+`npm run preview:setup` generates local credentials in gitignored `.env.preview`;
+`npm run preview:check` checks configured provider credentials without printing values.
+The browser preview is at `http://localhost:8080`, with a visible team sign-in page.
+
+This runs the current scaffold. A shared browser password does not implement the planned
+moderator/member roles or scopes. Factory CLI and Moss embedding assets must download before
+those providers can run; a successful offline test suite does not establish live provider health.
+
 ## How it works
 
 **Canon.** Capture and ingest archive raw context. Triage and the fact writer turn it into short facts,
@@ -88,11 +99,15 @@ the work. Keep credentials in `.env`; share keys directly between teammates.
 - **Anthropic:** Claude fact writing and briefs are the product plan. Existing Claude adapters
   are in `distiller/src/engines/claude.ts`, `shared/src/judge/claude.ts` and `bench/src/responder.ts`.
 - **Factory:** the target is Droid running every agent in a sandbox folder holding only its scope,
-  with visible steps and inbox updates. The current Droid distiller adapter is a stub; headless dispatch is pending.
-- **Moss:** scope builds and in-scope handoff search are planned. `server/src/retrieval/moss.ts` is currently
-  a stub; the working local fallback is keyword retrieval.
-- **Jev:** `shared/src/judge/jev.ts` provides the adapter behind `judge()`. API access and the
-  provider contract must be verified before claiming a real integration.
+  with visible steps and inbox updates. The scaffold now has an optional headless SDK distiller
+  (`distiller/src/engines/droid.ts`) that proposes structured facts with tools disabled. Scoped
+  finance-agent dispatch is separate pending work.
+- **Moss:** scope builds and in-scope handoff search are planned. `server/src/retrieval/moss.ts` now implements
+  local hybrid retrieval over hot facts with folder metadata prefilters and canonical-ID checks.
+  Scope-based group, label and fact-ID filtering remains pending; keyword retrieval is the offline fallback.
+- **Jev:** `shared/src/judge/jev.ts` provides the adapter behind `judge()`. It uses TypeSafe's
+  documented keyed questions and answers at `https://api.typesafe.ai/v1/systemone` by default. Live
+  requests passed; this does not validate the planned scope pipeline.
 - **Hyphenate and Microsoft:** proof will come from the finance demo, audit trail and measured
   leak, missing-context, accuracy, token, latency and cost results. Existing scaffold results
   alone do not measure information barriers.

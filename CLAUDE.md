@@ -78,6 +78,11 @@ validator in `shared/src/fact-file.ts` define the exact format. Folder grants in
 are not scopes. The tiers, groups, labels, scope rules, scopes, audit events and console APIs
 described in the PRD must be added and tested before access claims are made.
 
+The scaffold worker may include optional `distillation: { session_id, engine, plan?, duration_ms }`
+in `POST /api/facts`. Only the internal `distiller` client may attribute a run; successful writes
+emit `distill.finished`. Raw plans are limited to the internal worker stream; other subscribers
+receive only extraction metadata. This is extraction telemetry, not the planned scoped-agent run contract.
+
 Batch candidate questions into one `judge.ask()` per decision. Apply thresholds in code.
 Security uncertainty means exclude: a "maybe" on an exclusion counts as yes, and a fact Jev can't
 place goes to the moderators-only `inbox` group. Quarantine suspected instructions. Never refuse or
@@ -115,7 +120,7 @@ work recorded accurately. Do not edit generated `STATUS.md` by hand. Edan mainta
 
 ## Engineering and submission rules
 
-- No secrets in Git, chat logs or tracking documents. Credentials come from `.env`.
+- No secrets in Git, chat logs or tracking documents. Credentials come from `.env` for development or gitignored `.env.preview` for the Docker preview.
 - Never invent numbers. Quote measured runs only; label estimates and simulated providers.
 - The benchmark target is 60 attacks (10 per style, including agent escalation) and 30 legitimate
   tasks across four setups defined in the PRD, measuring leak and missing-context rates. The existing

@@ -1,6 +1,6 @@
 {
   "project": "Bullwark",
-  "updated": "2026-10-24T19:26:53.515309+00:00",
+  "updated": "2026-10-24T22:46:11Z",
   "team": [
     {
       "id": "A",
@@ -118,7 +118,7 @@
       "priority": "must",
       "state": "todo",
       "title": "Moss index with group and label metadata; scope builds and handoffs filter by scope fact ids",
-      "note": "Needs Moss credentials (Q2). Handoffs filter with $in on the scope's fact ids; fall back to group/label filters plus a code check if slow."
+      "note": "B22 adds a local Moss hybrid adapter with folder prefilters. Credentials authenticated successfully; embedding-model download/live retrieval verification pending. Group/label metadata and scope fact-ID filters remain A4 work."
     },
     {
       "id": "A5",
@@ -208,7 +208,7 @@
       "priority": "must",
       "state": "todo",
       "title": "Droid agent runs: sandbox folder holding only the agent's scope as markdown, with steps and files streamed",
-      "note": "Confirm headless non-coding work by Sat 11:00 (Q1); fallback drops the Factory track. Until then, FACTORY_API_KEY makes the distiller default to the stub droid engine; set DISTILLER=claude (distiller/README.md)."
+      "note": "Scoped finance-agent runs remain pending (Q1). B22 implements an optional headless Factory extractor for the existing scaffold; this is not the scoped-agent runner. Set DISTILLER=claude for the finance fact-writer path."
     },
     {
       "id": "B4",
@@ -506,6 +506,33 @@
       "state": "done",
       "title": "Synthetic demo world: Axe Capital / Stonewall / Taylor Mason Capital items and answer key",
       "note": "fixtures/world/: 12 items in the Item shape, people, groups, scope rules, timeline and expected facts; checked by web/src/world.test.ts. Seeding Canon from it is A2."
+    },
+    {
+      "id": "B21",
+      "owner": "B",
+      "milestone": "M2",
+      "priority": "must",
+      "state": "doing",
+      "title": "Shared preview infrastructure and sponsor-host deployment",
+      "note": "Renumbered from this branch's original B17 to preserve main's Claude fact-writer task. Docker, visible login, random client tokens and persistent volumes implemented. Local scaffold HTTP checks passed; Vultr activation, credit and VM deployment remain pending."
+    },
+    {
+      "id": "B22",
+      "owner": "B",
+      "milestone": "M2",
+      "priority": "must",
+      "state": "doing",
+      "title": "Factory and Moss scaffold adapters; verified Jev contract and preview login",
+      "note": "Renumbered from this branch's original B18 to preserve main's live agent-routing task. SDK adapters implemented; offline checks pass, Jev live requests and Moss authentication verified. Factory CLI/model downloads and full live activation remain pending. Does not implement finance scopes or agent dispatch."
+    },
+    {
+      "id": "B23",
+      "owner": "B",
+      "milestone": "M2",
+      "priority": "must",
+      "state": "done",
+      "title": "Reconcile provider preview with current Bullwark main",
+      "note": "PR #27 reconciled against current Bullwark main: retained branding, PRDs and datasets; preserved B17/B18 finance tasks by moving preview work to B21/B22; removed obsolete Docker password-hash setup; restricted raw extraction plans to the internal worker stream. npm run check: 276 tests pass; browser builds, Compose configuration and fresh credential setup checks pass. Provider live-download limits remain tracked in B22."
     }
   ],
   "tracks": [
@@ -697,16 +724,16 @@
     {
       "id": "Q2",
       "owner": "C",
-      "state": "open",
+      "state": "resolved",
       "text": "Moss project credentials",
-      "answer": ""
+      "answer": "Local Moss project credentials were configured and authenticated. First embedding-model download and full live retrieval are still pending (B22); no secrets are stored here."
     },
     {
       "id": "Q3",
       "owner": "C",
-      "state": "open",
+      "state": "resolved",
       "text": "Jev access and verified API contract by Sat 09:00, or use Claude fallback",
-      "answer": ""
+      "answer": "Jev credentials and official keyed request/response contract verified with live calls. Default URL: https://api.typesafe.ai/v1/systemone. Scoped finance behavior is separate work."
     },
     {
       "id": "Q4",

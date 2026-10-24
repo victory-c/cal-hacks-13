@@ -52,7 +52,7 @@ const { result, ms } = await timed(() => judge.ask(state, questions));
 
 | `JUDGE_PROVIDER` | Class | Real? | Needs |
 |---|---|---|---|
-| `jev` | `JevJudge` | Yes. **Request/response shape unverified until TypeSafe's docs arrive (blocker Q3).** | `JEV_API_KEY`, `JEV_API_URL` |
+| `jev` | `JevJudge` | Yes. Official keyed question/answer contract; live requests verified. | `JEV_API_KEY`; optional `JEV_API_URL` (default `https://api.typesafe.ai/v1/systemone`) |
 | `claude` | `ClaudeJudge` | Yes. `claude-haiku-5-5`, one forced `answer` tool call, raw Messages API over `fetch`. | `ANTHROPIC_API_KEY` |
 | `fake` | `FakeJudge` | **No, simulated.** Deterministic keyword heuristic; logs that it is simulated. | nothing |
 
@@ -64,8 +64,7 @@ becomes a neutral default (`p` 0.5 / `options[0]` / midpoint) with one `console.
 **The one-batched-request rule (`CLAUDE.md`).** One `judge.ask()` per decision: one `state`,
 all candidates' questions in the array. Never loop `ask()` over candidates.
 
-**Sponsor integration.** Anthropic plugs in at `src/judge/claude.ts` (the fallback judge, so the
-demo keeps deciding when Jev is down). Jev plugs in at `src/judge/jev.ts`.
+**Sponsor integration.** Anthropic plugs in at `src/judge/claude.ts` (an explicitly selectable fallback judge). Jev plugs in at `src/judge/jev.ts`.
 
 ## Run and test
 
