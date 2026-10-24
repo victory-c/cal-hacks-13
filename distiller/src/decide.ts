@@ -1,6 +1,9 @@
 // Save-time Jev decisions (CLAUDE.md "Jev decisions" table). Given the engine's drafts and the
 // hot facts already in the store, ask Jev the typed questions for EVERY draft in ONE request,
 // then apply THRESHOLDS ourselves. Pure given a Judge: no I/O, no env, deterministic with FakeJudge.
+//
+// v1. The worker now runs the v2 triage (triage.ts: walls, quarantine, compliance queue), which
+// reuses this file's exact-duplicate rule through normalizeStatement().
 
 import { INBOX, THRESHOLDS, TOP_FOLDERS, newFactId, today } from "@canon/shared";
 import type { Answer, DraftFact, Fact, Folder, Judge, Question, SaveAction, SaveDecision } from "@canon/shared";
@@ -46,7 +49,7 @@ export async function decideFacts(drafts: DraftFact[], existingHot: Fact[], judg
 }
 
 /** Lowercase, letters and digits only, single spaces: "Prefer TS." equals "prefer  ts". */
-function normalizeStatement(s: string): string {
+export function normalizeStatement(s: string): string {
   return s.toLowerCase().replace(/[^\p{L}\p{N}]+/gu, " ").trim();
 }
 

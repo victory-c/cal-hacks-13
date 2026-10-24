@@ -1,19 +1,38 @@
-// Run the pipeline on one recorded session, no server needed:
-//   npm run distill -w distiller -- fixtures/session.sample.json [--engine heuristic|claude|droid] [--post]
-// Prints the plan, the drafts and Jev's decisions as a table and as JSON. --post sends the
-// decided facts to the running server (and judges against its real hot facts).
+// Run the pipeline on one recorded item, no server needed:
+//   npm run distill -w distiller -- <session.json> [--engine heuristic|claude|droid] [--deals <file>] [--lists <file>] [--post]
+// Prints the plan, the drafts and the triage (outcome, wall, Jev's answers, review items) as
+// tables and as JSON. Deals and lists come from --deals / --lists (DealsResponse / ListsResponse
+// JSON); else from the server with --post (never the fixtures then); else from
+// fixtures/world/deals.json and lists.json when those exist. Without both, nothing is labeled
+// public and every fact goes to inbox (the worker's v1 rule). --post files the result on the
+// running server exactly as the worker does: facts, review items, events.
 
 import { existsSync, readFileSync } from "node:fs";
 import { resolve } from "node:path";
+import { fileURLToPath } from "node:url";
 
 import { DEFAULT_SERVER_URL, createJudge, env, loadEnv } from "@canon/shared";
-import type { CapturedSession, DistillEngine, Fact } from "@canon/shared";
-import { createClient } from "./client.ts";
-import { decideFacts } from "./decide.ts";
+import type { CapturedSession, Deal, DistillEngine, Fact, ListsResponse } from "@canon/shared";
+import { createClient, parseDeals, parseLists } from "./client.ts";
+import type { CanonClient } from "./client.ts";
 import { createDistiller } from "./engines/index.ts";
 import { errorMessage } from "./log.ts";
+import { triage, triageJudge } from "./triage.ts";
+import type { TriageResult } from "./triage.ts";
+import { deliver, loadContext, onceWarner } from "./worker.ts";
+import type { WarnOnce } from "./worker.ts";
 
-const USAGE = "usage: npm run distill -w distiller -- <session.json> [--engine heuristic|claude|droid] [--post]";
+const USAGE = "usage: npm run distill -w distiller -- <session.json> [--engine heuristic|claude|droid] [--deals <file>] [--lists <file>] [--post]";
+const WORLD_DEALS = fileURLToPath(new URL("../fixtures/world/deals.json", import.meta.url));
+const WORLD_LISTS = fileURLToPath(new URL("../fixtures/world/lists.json", import.meta.url));
+
+interface Args {
+  file?: string;
+  engine?: DistillEngine;
+  deals?: string;
+  lists?: string;
+  post: boolean;
+}
 
 async function main(argv: string[]): Promise<number> {
   loadEnv();
@@ -25,77 +44,164 @@ async function main(argv: string[]): Promise<number> {
 
   const session = readSession(args.file);
   const distiller = createDistiller(args.engine ? { engine: args.engine } : {});
-  const judge = createJudge();
+  const judge = triageJudge(createJudge());
+  const warnOnce = onceWarner();
 
   const client = args.post
     ? createClient({ baseUrl: env("CANON_URL", DEFAULT_SERVER_URL), token: env("CANON_TOKEN_DISTILLER", "dev-distiller") })
     : undefined;
-  const existingHot: Fact[] = client ? await client.listFacts({ tier: "hot" }) : [];
+  // Silent here: the deals / lists lines below say where each came from. With --post the result
+  // is filed on that server, so its own deals and lists are the only ones that count: a server
+  // without them gets no public labels (and every fact in inbox), never the fixtures' world.
+  const server = client ? await loadContext(client, () => {}) : undefined;
+  const existing: Fact[] = server?.existing ?? [];
+  const fromServer = server?.labelPublic ? server : undefined;
+  const deals = pickSource("deals", args.deals, fromServer?.deals, client ? undefined : WORLD_DEALS, readDeals);
+  const lists = pickSource("lists", args.lists, fromServer?.lists, client ? undefined : WORLD_LISTS, readLists);
+  const labelPublic = deals.value !== undefined && lists.value !== undefined;
 
   const t0 = performance.now();
   const result = await distiller.distill(session);
   const distillMs = Math.round(performance.now() - t0);
   const t1 = performance.now();
-  const decided = await decideFacts(result.drafts, existingHot, judge);
+  const triaged = await triage({ session, drafts: result.drafts, existing, deals: deals.value ?? [], lists: lists.value ?? { restricted: [] }, labelPublic }, judge);
   const judgeMs = Math.round(performance.now() - t1);
 
-  console.log(`session   ${session.id} (${session.client}, ${session.messages.length} messages${session.ended_at ? ", ended" : ""})`);
+  const flags = [session.kind ?? "ai_session", `${session.messages.length} messages`, session.ended_at ? "ended" : "", session.external ? "external" : ""].filter(Boolean);
+  console.log(`session   ${session.id} (${session.client}, ${flags.join(", ")})`);
   console.log(`engine    ${distiller.name}${result.simulated ? " (simulated)" : ""}  ${distillMs} ms${result.usage ? `  tokens in/out ${result.usage.input_tokens}/${result.usage.output_tokens}` : ""}`);
-  console.log(`judge     ${judge.name}${judge.name === "fake" ? " (simulated)" : ""}  ${judgeMs} ms, ${existingHot.length} existing hot facts`);
+  console.log(`judge     ${judge.name}${judge.name === "fake" ? " (simulated, finance rules)" : ""}  ${judgeMs} ms, one request, ${existing.length} existing facts`);
+  console.log(`deals     ${deals.value ? `${deals.value.length} from ${deals.from}: ${deals.value.map((d) => `${d.id} (${d.status})`).join(", ") || "none"}` : `none (${deals.from})`}`);
+  console.log(`lists     ${lists.value ? `${lists.value.restricted.length} restricted, ${lists.value.watch?.length ?? 0} watch from ${lists.from}` : `none (${lists.from})`}`);
+  if (!labelPublic) console.log("          no deal list or no lists: nothing is labeled public and every fact is filed in inbox (walls may not be enforced)");
   console.log(`plan      ${result.plan ?? "(none)"}`);
+  console.log(`inject    p ${triaged.injection_p.toFixed(2)}${triaged.quarantine ? `  QUARANTINED: ${triaged.quarantine.excerpt ?? ""}` : ""}`);
 
   console.log(`\ndrafts (${result.drafts.length})`);
-  table([["#", "folder?", "statement"], ...result.drafts.map((d, i) => [String(i), d.folder ?? "-", d.statement])]);
+  table([["#", "folder?", "happened", "statement"], ...result.drafts.map((d, i) => [String(i), d.folder ?? "-", d.happened ?? "-", d.statement])]);
 
-  console.log(`\ndecisions (${decided.length})`);
+  console.log(`\ntriage (${triaged.drafts.length})`);
   table([
-    ["#", "tier", "folder", "action", "keep_p", "statement"],
-    ...decided.map((d, i) => [String(i), d.decision.tier, d.decision.folder, d.decision.action + (d.decision.supersedes ? ` ${d.decision.supersedes}` : ""), d.decision.keep_p.toFixed(2), d.fact.statement]),
+    ["#", "outcome", "wall", "keep", "conf", "deal", "relation", "action", "statement"],
+    ...triaged.drafts.map((t, i) => {
+      const d = t.decision;
+      const wall = t.fact ? (t.fact.wall ?? `unlabeled${d.outcome === "compliance" ? ` (proposed ${d.wall})` : ""}`) : `(${d.wall})`;
+      return [
+        String(i),
+        d.outcome,
+        wall,
+        d.keep_p.toFixed(2),
+        d.confidential_p.toFixed(2),
+        `${d.deal} ${d.deal_p.toFixed(2)}`,
+        d.relation + (d.relation_to ? ` ${d.relation_to}` : ""),
+        t.save ? t.save.action + (t.save.supersedes ? ` ${t.save.supersedes}` : "") : "-",
+        t.draft.statement,
+      ];
+    }),
   ]);
 
-  console.log("\njson");
-  console.log(JSON.stringify({ engine: distiller.name, simulated: result.simulated, plan: result.plan, usage: result.usage, drafts: result.drafts, facts: decided }, null, 2));
+  const reviews = [...(triaged.quarantine ? [triaged.quarantine] : []), ...triaged.drafts.flatMap((t) => (t.review ? [t.review] : []))];
+  console.log(`\nreview items (${reviews.length})`);
+  if (reviews.length) table([["kind", "proposed", "summary"], ...reviews.map((r) => [r.kind, r.proposed_wall ?? "-", r.summary])]);
 
-  if (client) {
-    const res = await client.postFacts({ facts: decided });
-    console.log(`\nposted: saved ${res.saved.length} (${res.saved.join(", ")}), retired ${res.retired.length}`);
-  }
+  console.log("\njson");
+  console.log(
+    JSON.stringify(
+      {
+        engine: distiller.name,
+        simulated: result.simulated,
+        judge: judge.name,
+        plan: result.plan,
+        usage: result.usage,
+        injection_p: triaged.injection_p,
+        quarantine: triaged.quarantine,
+        drafts: result.drafts,
+        triage: triaged.drafts.map((t) => ({ statement: t.draft.statement, decision: t.decision, fact: t.fact, save: t.save, review: t.review })),
+      },
+      null,
+      2,
+    ),
+  );
+
+  if (client) await post(client, triaged, warnOnce);
   return 0;
 }
 
-function parseArgs(argv: string[]): { file?: string; engine?: DistillEngine; post: boolean } {
-  const out: { file?: string; engine?: DistillEngine; post: boolean } = { post: false };
+async function post(client: CanonClient, triaged: TriageResult, warnOnce: WarnOnce): Promise<void> {
+  const res = await deliver(client, triaged, warnOnce);
+  console.log(`\nposted: saved ${res.saved.length} (${res.saved.join(", ") || "none"}), retired ${res.retired.length}, ${res.reviews} review items, ${res.events} events`);
+}
+
+/**
+ * --flag file, else what the server gave, else (without --post: `fixture` is undefined then) the
+ * world fixture if it exists, else nothing.
+ */
+function pickSource<T>(what: string, flag: string | undefined, fromServer: T | undefined, fixture: string | undefined, read: (path: string) => T): { value?: T; from: string } {
+  if (flag) {
+    const path = findFile(flag);
+    return { value: read(path), from: path };
+  }
+  if (fromServer !== undefined) return { value: fromServer, from: "the server" };
+  if (fixture === undefined) return { from: `the server did not give both deals and lists; --post never falls back to the fixtures` };
+  if (existsSync(fixture)) return { value: read(fixture), from: fixture };
+  return { from: `no --${what} and no ${fixture}` };
+}
+
+function parseArgs(argv: string[]): Args {
+  const out: Args = { post: false };
+  const value = (i: number, flag: string): string => {
+    const v = argv[i];
+    if (!v || v.startsWith("--")) throw new Error(`${flag} needs a value. ${USAGE}`);
+    return v;
+  };
   for (let i = 0; i < argv.length; i++) {
     const a = argv[i];
     if (a === "--post") out.post = true;
-    else if (a === "--engine") {
-      const v = argv[++i];
-      if (!v) throw new Error(`--engine needs a value. ${USAGE}`);
-      out.engine = v as DistillEngine; // createDistiller validates it
-    } else if (a.startsWith("--")) throw new Error(`unknown flag ${a}. ${USAGE}`);
+    else if (a === "--engine") out.engine = value(++i, a) as DistillEngine; // createDistiller validates it
+    else if (a === "--deals") out.deals = value(++i, a);
+    else if (a === "--lists") out.lists = value(++i, a);
+    else if (a.startsWith("--")) throw new Error(`unknown flag ${a}. ${USAGE}`);
     else out.file = a;
   }
   return out;
 }
 
-function readSession(file: string): CapturedSession {
-  // `npm run -w distiller` changes cwd to distiller/; INIT_CWD is where the user actually typed
-  // the command, so both `fixtures/x.json` (from here) and `distiller/fixtures/x.json` (from
-  // the repo root) work.
+/**
+ * `npm run -w distiller` changes cwd to distiller/; INIT_CWD is where the user actually typed
+ * the command, so both `fixtures/x.json` (from here) and `distiller/fixtures/x.json` (from the
+ * repo root) work.
+ */
+function findFile(file: string): string {
   const candidates = [...new Set([resolve(process.env.INIT_CWD ?? process.cwd(), file), resolve(file)])];
   const path = candidates.find((p) => existsSync(p));
   if (!path) throw new Error(`cannot find ${file} (looked at ${candidates.join(" and ")})`);
-  let json: unknown;
+  return path;
+}
+
+function readJson(path: string): unknown {
   try {
-    json = JSON.parse(readFileSync(path, "utf8"));
+    return JSON.parse(readFileSync(path, "utf8"));
   } catch (err) {
     throw new Error(`cannot read ${path}: ${errorMessage(err)}`);
   }
-  const s = json as Partial<CapturedSession>;
+}
+
+function readSession(file: string): CapturedSession {
+  const path = findFile(file);
+  const s = readJson(path) as Partial<CapturedSession>;
   if (typeof s?.id !== "string" || typeof s.client !== "string" || !Array.isArray(s.messages)) {
     throw new Error(`${path} is not a CapturedSession: need id, client and messages[] (see shared/src/types/session.ts)`);
   }
   return s as CapturedSession;
+}
+
+/** A DealsResponse ({ deals }) or a bare Deal[], checked the way the worker checks the server's. */
+function readDeals(path: string): Deal[] {
+  return parseDeals(readJson(path), path);
+}
+
+function readLists(path: string): ListsResponse {
+  return parseLists(readJson(path), path);
 }
 
 function table(rows: string[][]): void {
