@@ -1,0 +1,40 @@
+{
+  "id": "ses_de0001",
+  "client": "claude-code",
+  "started_at": "2026-10-23T03:12:40.000Z",
+  "ended_at": "2026-10-23T03:41:05.000Z",
+  "title": "Scaffold Canon's MCP server stub",
+  "messages": [
+    {
+      "role": "user",
+      "content": "Scaffold the Canon MCP server. Four tools, every call scoped to the client token's folders. Plain node:http, no express.",
+      "at": "2026-10-23T03:12:40.000Z"
+    },
+    {
+      "role": "assistant",
+      "content": "Plan: canon_context(task, budget_tokens) returns the relevant slice; canon_search(query, folders?) searches granted folders; canon_save(text, folder?) queues text through the cold archive and the distiller; canon_whoami() reports this client's folders so an AI can explain a refusal. Streamable HTTP at /mcp, stateless: a fresh McpServer and transport per request.",
+      "at": "2026-10-23T03:15:02.000Z"
+    },
+    {
+      "role": "user",
+      "content": "How does Jev fit into canon_context? I don't want one API call per candidate fact.",
+      "at": "2026-10-23T03:22:18.000Z"
+    },
+    {
+      "role": "assistant",
+      "content": "One judge.ask() per decision: the state is the task plus the numbered candidate list, and the questions are one noul question per candidate (relevant to this task?) plus one for whether the slice is enough to answer. Keep p > 0.7, sort by p, cut to the token budget. Jev sits behind a judge() interface with a Claude fallback, so swapping providers is a config change.",
+      "at": "2026-10-23T03:26:51.000Z"
+    },
+    {
+      "role": "user",
+      "content": "Good. Ship the stub with local files so Victor can build the hook against it, then we replace pieces one by one.",
+      "at": "2026-10-23T03:40:30.000Z"
+    }
+  ],
+  "meta": {
+    "cwd": "~/cal-hacks-13",
+    "repo": "victory-c/cal-hacks-13",
+    "branch": "a/mcp-stub",
+    "model": "claude-sonnet-5-5"
+  }
+}

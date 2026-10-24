@@ -1,6 +1,6 @@
 {
   "project": "Canon",
-  "updated": "2026-10-23T23:15:00-07:00",
+  "updated": "2026-10-24T00:53:06-07:00",
   "team": [
     {
       "id": "A",
@@ -308,6 +308,15 @@
       "state": "todo",
       "title": "Pitch: 2-min version + answers to hard questions",
       "note": "Pick interview quotes from Edan's notes (C3)"
+    },
+    {
+      "id": "B16",
+      "owner": "B",
+      "milestone": "M1",
+      "priority": "must",
+      "state": "done",
+      "title": "Repo layering: npm workspaces, shared/ contract package, lane stubs, doctor/dev scripts, CI",
+      "note": "Merged scaffold: workspaces, shared/ frozen contract, stub server, distiller worker, hook, extension, dashboard, bench runner, CI. Henry owns server/ internals from here."
     },
     {
       "id": "C1",

@@ -1,0 +1,39 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Canon · resume</title>
+  <meta name="description" content="A resume built from your Canon facts. Every line names the session it came from.">
+  <link rel="icon" href="data:,">
+  <link rel="stylesheet" href="./styles.css">
+</head>
+<body class="resume-page">
+  <header class="top">
+    <div class="brand">
+      <span class="wordmark">Canon</span>
+      <span class="tagline">resume</span>
+    </div>
+    <div class="conn">
+      <span id="server-url" class="mono meta">http://localhost:4100</span>
+      <a id="dashboard-link" class="link" href="./index.html">← dashboard</a>
+    </div>
+  </header>
+
+  <main class="resume">
+    <div class="panel-head">
+      <div>
+        <h1>Resume</h1>
+        <p class="meta">Built from your facts. Every line names the client and session it came from.</p>
+      </div>
+      <div class="actions">
+        <span id="resume-count" class="count num"></span>
+        <button id="copy-md" class="button" type="button" disabled>Copy as markdown</button>
+      </div>
+    </div>
+    <div id="resume"></div>
+  </main>
+
+  <script type="module" src="./resume.js"></script>
+</body>
+</html>

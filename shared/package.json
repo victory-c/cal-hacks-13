@@ -1,0 +1,15 @@
+{
+  "name": "@canon/shared",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Canon's A↔B contract as code: fact schema, MCP tool I/O, events, grants, judge() interface.",
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "types": "./src/index.ts",
+  "scripts": {
+    "typecheck": "tsc --noEmit -p .",
+    "test": "node --import tsx --test \"src/**/*.test.ts\""
+  }
+}

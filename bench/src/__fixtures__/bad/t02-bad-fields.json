@@ -1,0 +1,17 @@
+{
+  "id": "t02-wrong-id",
+  "title": "",
+  "from_client": "chatgpt",
+  "to_client": "chatgpt",
+  "folder": "resume",
+  "setup_sessions": [
+    {
+      "id": "session-1",
+      "client": "claude-code",
+      "started_at": "yesterday",
+      "messages": [{ "role": "human", "content": "" }]
+    }
+  ],
+  "answer_keys": { "must_include": [] },
+  "answer_key": { "must_include": [], "must_not_include": "Stripe" }
+}

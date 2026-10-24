@@ -1,0 +1,82 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://canon.dev/bench/task.schema.json",
+  "title": "Canon benchmark handoff task",
+  "description": "One handoff: context created in the from_client AI (setup_sessions), a question asked in the to_client AI, and an answer key. The runner's own checks in bench/src/tasks.ts are authoritative; this schema is for editors.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["id", "title", "from_client", "to_client", "folder", "setup_sessions", "question", "answer_key"],
+  "properties": {
+    "id": {
+      "type": "string",
+      "pattern": "^t\\d{2}-[a-z0-9]+(-[a-z0-9]+)*$",
+      "description": "Must equal the file name without .json, e.g. t01-internship-headline"
+    },
+    "title": { "type": "string", "minLength": 1, "description": "One line a judge can read" },
+    "from_client": { "$ref": "#/$defs/client", "description": "The AI where the context was created" },
+    "to_client": { "$ref": "#/$defs/client", "description": "The AI where the question is asked; must differ from from_client" },
+    "folder": {
+      "type": "string",
+      "pattern": "^((career|projects|team|private)(/[^/\\\\\\s]+)*|inbox)$",
+      "description": "Where the facts should land. The to_client must be granted it (see shared/src/types/grants.ts)"
+    },
+    "setup_sessions": {
+      "type": "array",
+      "minItems": 1,
+      "items": { "$ref": "#/$defs/session" },
+      "description": "Short transcripts from the from_client. Session ids must be unique across ALL task files"
+    },
+    "question": { "type": "string", "minLength": 1, "description": "What the user types in the to_client" },
+    "answer_key": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["must_include"],
+      "properties": {
+        "must_include": {
+          "type": "array",
+          "minItems": 1,
+          "items": { "type": "string", "minLength": 1 },
+          "description": "Every phrase must appear in the answer (case-insensitive substring)"
+        },
+        "must_not_include": {
+          "type": "array",
+          "items": { "type": "string", "minLength": 1 },
+          "description": "None may appear: off-topic details, private/ content, wrong guesses"
+        }
+      }
+    },
+    "notes": { "type": "string", "description": "Why this task exists, what it tests" }
+  },
+  "$defs": {
+    "client": {
+      "type": "string",
+      "minLength": 1,
+      "description": "Only clients with a token and grants on the demo server work in the canon baseline (shared/src/types/grants.ts DEMO_GRANTS, .env.example CANON_CLIENT_TOKENS). The validator warns about others.",
+      "examples": ["chatgpt", "claude-code", "teammate-cursor"]
+    },
+    "session": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "client", "started_at", "messages"],
+      "properties": {
+        "id": { "type": "string", "pattern": "^ses_[0-9a-f]{4,}$", "description": "ses_ + hex. Suggested: ses_<task number><counter>, e.g. ses_07000001" },
+        "client": { "$ref": "#/$defs/client", "description": "Must equal the task's from_client" },
+        "started_at": { "type": "string", "format": "date-time" },
+        "ended_at": { "type": "string", "format": "date-time" },
+        "title": { "type": "string", "minLength": 1 },
+        "messages": { "type": "array", "minItems": 1, "items": { "$ref": "#/$defs/message" } },
+        "meta": { "type": "object" }
+      }
+    },
+    "message": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["role", "content"],
+      "properties": {
+        "role": { "enum": ["user", "assistant", "system", "tool"] },
+        "content": { "type": "string", "minLength": 1 },
+        "at": { "type": "string", "format": "date-time" }
+      }
+    }
+  }
+}

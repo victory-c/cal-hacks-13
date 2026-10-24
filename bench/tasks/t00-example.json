@@ -1,0 +1,54 @@
+{
+  "id": "t00-example",
+  "title": "Internship headline: written up in ChatGPT, needed in Claude Code",
+  "from_client": "chatgpt",
+  "to_client": "claude-code",
+  "folder": "career",
+  "setup_sessions": [
+    {
+      "id": "ses_00000001",
+      "client": "chatgpt",
+      "title": "Resume bullets for my Databricks internship",
+      "started_at": "2026-09-14T19:02:00Z",
+      "ended_at": "2026-09-14T19:21:00Z",
+      "messages": [
+        {
+          "role": "user",
+          "content": "Help me write resume bullets. Last summer (June to August 2026) I was a software engineering intern at Databricks on the Spark SQL team in San Francisco. I rewrote the join reordering heuristic in the query planner and cut median planning latency by 30% on the TPC-DS suite. The change shipped to all customers in the 17.1 release."
+        },
+        {
+          "role": "assistant",
+          "content": "Here are three bullets:\n- Rewrote the join reordering heuristic in Spark SQL's query planner, cutting median planning latency 30% on TPC-DS; shipped to all customers in Databricks Runtime 17.1.\n- Profiled planner hot paths across 99 TPC-DS queries to find the regression class the heuristic missed.\n- Added planner micro-benchmarks to CI so future heuristic changes are measured, not guessed."
+        },
+        { "role": "user", "content": "Make the first one shorter, and start with the result." },
+        {
+          "role": "assistant",
+          "content": "- Cut Spark SQL planning latency 30% (median, TPC-DS) by rewriting join reordering; shipped in Databricks Runtime 17.1."
+        }
+      ]
+    },
+    {
+      "id": "ses_00000002",
+      "client": "chatgpt",
+      "title": "Which recruiting deadlines to prioritize",
+      "started_at": "2026-10-02T02:15:00Z",
+      "ended_at": "2026-10-02T02:24:00Z",
+      "messages": [
+        {
+          "role": "user",
+          "content": "I'm a junior at UC Berkeley studying CS, graduating May 2028, applying for summer 2027 software internships. Stripe's application closes October 31 and Jane Street's closes November 15. I can only do one well this week. Which should I prioritize?"
+        },
+        {
+          "role": "assistant",
+          "content": "Do Stripe this week: its deadline is two weeks earlier and its process starts with a take-home, which you can finish before Jane Street's online assessment opens. Put Jane Street on your calendar for the week of November 8."
+        }
+      ]
+    }
+  ],
+  "question": "I'm updating the About section of my portfolio site. Which company did I intern at last summer, which team was it, and what was the headline result?",
+  "answer_key": {
+    "must_include": ["Databricks", "Spark SQL", "30%"],
+    "must_not_include": ["Stripe", "Jane Street"]
+  },
+  "notes": "Baseline expectations: no-memory cannot answer; full-history answers but injects both sessions; canon should answer from the career/ facts of session 1 only. The must_not_include phrases catch a slice that is too wide (the deadlines are from an unrelated session)."
+}

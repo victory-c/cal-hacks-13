@@ -1,0 +1,21 @@
+# Lanes from CLAUDE.md. Review requests go to the folder owner.
+# Henry (A) and Edan (C): add your GitHub handles on the commented lines once you have access.
+
+# A · server & retrieval
+# /server/     @<henry>
+# /bench/      @<henry>
+
+# B · capture, distill, UI & story
+/hooks/        @victory-c
+/extension/    @victory-c
+/distiller/    @victory-c
+/web/          @victory-c
+/docs/         @victory-c
+
+# Shared contract: both builders
+/shared/       @victory-c
+/CLAUDE.md     @victory-c
+
+# C · ops & QA
+# /status/     @<edan>
+# /bench/tasks/ @<edan>

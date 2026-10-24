@@ -1,0 +1,37 @@
+{
+  "name": "canon",
+  "version": "0.1.0",
+  "private": true,
+  "description": "One place that keeps your context from every AI session, live, and gives each new chat only what it needs. Cal Hacks 13.0.",
+  "type": "module",
+  "engines": {
+    "node": ">=22"
+  },
+  "workspaces": [
+    "shared",
+    "server",
+    "distiller",
+    "hooks",
+    "extension",
+    "web",
+    "bench"
+  ],
+  "scripts": {
+    "doctor": "node scripts/doctor.mjs",
+    "dev": "node scripts/dev.mjs",
+    "typecheck": "npm run typecheck --workspaces --if-present",
+    "test": "npm test --workspaces --if-present",
+    "build": "npm run build --workspaces --if-present",
+    "status": "node status/sync.mjs",
+    "status:check": "node status/sync.mjs --check",
+    "status:board": "node status/serve.mjs",
+    "check": "npm run status:check && npm run typecheck && npm test"
+  },
+  "devDependencies": {
+    "@types/chrome": "^0.3.6",
+    "@types/node": "^22.0.0",
+    "esbuild": "^0.28.2",
+    "tsx": "^4.23.15",
+    "typescript": "^5.9.0"
+  }
+}

@@ -1,0 +1,12 @@
+{
+  "id": "t05-dupe-b",
+  "title": "B",
+  "from_client": "chatgpt",
+  "to_client": "claude-code",
+  "folder": "career",
+  "setup_sessions": [
+    { "id": "ses_04000001", "client": "chatgpt", "started_at": "2026-10-21T18:30:00Z", "messages": [{ "role": "user", "content": "hi again" }] }
+  ],
+  "question": "q",
+  "answer_key": { "must_include": ["x"] }
+}

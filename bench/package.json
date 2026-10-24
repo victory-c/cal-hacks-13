@@ -1,0 +1,17 @@
+{
+  "name": "@canon/bench",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Benchmark runner: 20 handoff tasks × 3 baselines (no memory, full history, Canon). The only source of quotable numbers. Lane A runs it; lane C writes bench/tasks/.",
+  "type": "module",
+  "scripts": {
+    "run": "tsx src/run.ts",
+    "dry": "tsx src/run.ts --dry",
+    "validate": "tsx src/validate-tasks.ts",
+    "typecheck": "tsc --noEmit -p .",
+    "test": "node --import tsx --test \"src/**/*.test.ts\""
+  },
+  "dependencies": {
+    "@canon/shared": "*"
+  }
+}
