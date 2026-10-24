@@ -11,6 +11,6 @@
     "snippet": "node claude-code/install.mjs",
     "install-hook": "node claude-code/install.mjs --write",
     "ingest": "node ingest/canon-ingest.mjs",
-    "ingest:world": "node ingest/canon-ingest.mjs fixtures/world"
+    "ingest:world": "node ingest/canon-ingest.mjs fixtures/world --principals fixtures/principals.json"
   }
 }

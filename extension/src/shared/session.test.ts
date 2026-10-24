@@ -71,26 +71,35 @@ test("toCapturedSession v2: kind ai_session, principal trimmed and lowercased, b
   assert.equal(s.kind, "ai_session");
   assert.ok(SOURCE_KINDS.includes(s.kind!));
   assert.equal("principal" in toCapturedSession(msg, "2026-10-24T03:12:00.000Z", undefined, "   "), false);
-  assert.equal(toCapturedSession(msg, "2026-10-24T03:12:00.000Z", undefined, "dan.okafor@harborlane.com").principal, "dan");
+  assert.equal("principal" in toCapturedSession(msg, "2026-10-24T03:12:00.000Z", undefined, "dan.okafor@harborlane.com"), false, "an email is not an id");
 });
 
 // The same table is in hooks/test/capture.test.mjs: the hook, the ingest CLI and the extension
-// must turn one person into one principal id.
-test("normalizePrincipal: names and emails map to the same id the hook and ingest CLI use", () => {
+// write one id the same way. Security rule: the principal decides access, so a name or an email is
+// never turned into an id (its first token made "Leo Chen" Leo Brandt, and gave Dan the ids
+// "okafor" and "d"); only an id is kept, and an agent id is kept whole.
+test("normalizePrincipal: only an id is kept; names and emails are not guessed into one", () => {
   const table: [unknown, string][] = [
     [" Dan ", "dan"],
     ["dan", "dan"],
     ["agt_research_1", "agt_research_1"],
     ["AGT_Research_1", "agt_research_1"],
-    ["Dan Okafor", "dan"],
-    ["dan.okafor@harborlane.com", "dan"],
-    ["Dan Okafor <DAN.OKAFOR@harborlane.com>", "dan"],
-    ["Maya (Compliance)", "maya"],
+    ["agt_deal-analyst", "agt_deal-analyst"],
+    ["AGT_Deal-Analyst", "agt_deal-analyst"],
+    ["agt-desk-2", ""],
+    ["Dan Okafor", ""],
+    ["dan.okafor@harborlane.com", ""],
+    ["Dan Okafor <DAN.OKAFOR@harborlane.com>", ""],
+    ["Leo Chen <leo.chen@harborlane.com>", ""],
+    ["Okafor, Dan", ""],
+    ["D. Okafor", ""],
+    ["Maya (Compliance)", ""],
     ["   ", ""],
     ["42", ""],
     [7, ""],
   ];
   for (const [input, want] of table) assert.equal(normalizePrincipal(input), want, JSON.stringify(input));
+  assert.notEqual(normalizePrincipal("agt_deal-analyst"), normalizePrincipal("agt_desk-2"), "two agents, two ids");
 });
 
 test("toCapturedSession: msg.title wins, ended_at only when ended", () => {

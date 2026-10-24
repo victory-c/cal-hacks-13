@@ -74,7 +74,7 @@ async function main() {
     const why = err?.cause?.code ?? err?.cause?.message ?? err?.name ?? String(err?.message ?? err);
     return debug(`POST ${endpoint} failed: ${why} (is the Bullwark server running?)${tokenNote}`);
   }
-  const as = session.principal ? ` as ${session.principal}` : "";
+  const as = session.principal ? ` as ${session.principal}` : principal.trim() ? ` with no principal (CANON_PRINCIPAL is not an id like dan)` : "";
   debug(`${payload.hook_event_name ?? "?"} ${session.id} ${messages.length} msgs${as} → ${res.status}${res.ok ? "" : " (server rejected)"}${tokenNote}`);
 }
 

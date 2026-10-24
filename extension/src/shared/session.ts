@@ -64,19 +64,23 @@ export function toCapturedSession(msg: TurnsMessage, startedAt: string, endedAt:
   return session;
 }
 
+/** A person's principal id: their first name, as the contract writes it (`dan`, `maya`). */
+const PERSON_ID_RE = /^[a-z][a-z0-9_]*$/;
+/** An agent's principal id: `agt_` + slug or hex, hyphens allowed (`agt_deal-analyst`). */
+const AGENT_ID_RE = /^agt_[a-z0-9][a-z0-9_-]*$/;
+
 /**
- * The principal id every capture path sends, so one person gets one id whether they typed `dan`,
- * `Dan Okafor` or `dan.okafor@harborlane.com` on the options page: " Dan " → "dan",
- * "agt_research_1" kept, a name or an email → its first token ("dan"), "Maya (Compliance)" →
- * "maya". Blank, or nothing that starts with a letter → "" (not sent).
+ * The principal id every capture path sends: trimmed and lowercased, and only when the value
+ * already is an id. " Dan " → "dan"; "AGT_Deal-Analyst" → "agt_deal-analyst" (kept whole). A name
+ * or an email address is not an id: "Dan Okafor", "Okafor, Dan", "D. Okafor",
+ * "dan.okafor@harborlane.com" → "" (not sent). The principal decides access, so an id is never
+ * guessed from a name: taking the first token gave two people one id ("Leo Chen" and "Leo
+ * Brandt" → "leo") and one person several.
  * Mirrors normalizePrincipal in hooks/claude-code/lib.mjs (the hook and the ingest CLI); keep the
  * two in step.
  */
 export function normalizePrincipal(value: unknown): string {
   if (typeof value !== "string") return "";
   const v = value.trim().toLowerCase();
-  if (/^[a-z][a-z0-9_]*$/.test(v)) return v;
-  const local = /(?<![a-z0-9._+'-])([a-z0-9._+'-]+)@[a-z0-9-]+(?:\.[a-z0-9-]+)+/.exec(v)?.[1];
-  const first = (local ?? v).split(/[^a-z0-9]+/).find(Boolean);
-  return first && /^[a-z]/.test(first) ? first : "";
+  return PERSON_ID_RE.test(v) || AGENT_ID_RE.test(v) ? v : "";
 }

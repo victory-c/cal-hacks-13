@@ -1,6 +1,6 @@
 {
   "project": "Bullwark",
-  "updated": "2026-10-24T13:34:51Z",
+  "updated": "2026-10-24T13:58:44Z",
   "team": [
     {
       "id": "A",
@@ -343,7 +343,7 @@
       "priority": "must",
       "state": "doing",
       "title": "Ingest client for synthetic memos, chat and meeting notes",
-      "note": "Built and tested on b/ingest (PR #12), updated for the scopes PRD: principal = fact author, never guessed from a chat or meeting speaker; Greptile fixes (merged lines keep their times, partial JSONL exits 1). Remaining: lane A keeping principal/kind/external on POST /api/sessions, then a run on Henry's official world."
+      "note": "Built and tested on b/ingest (PR #12), updated for the scopes PRD: principal = fact author, never guessed from a chat or meeting speaker, an email recipient or a name's first token (names and addresses only via --principals; outside mail has no author); Greptile fixes (merged lines keep their times); unreadable JSON/JSONL rows (incl. Claude text blocks, ChatGPT parts) are read or reported and exit 1. Remaining: lane A keeping principal/kind/external on POST /api/sessions, then a run on Henry's official world."
     },
     {
       "id": "B20",

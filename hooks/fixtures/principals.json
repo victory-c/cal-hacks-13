@@ -1,0 +1,9 @@
+{
+  "note": "SYNTHETIC. The sample world's principal directory for the ingest CLI (--principals). Made up for the Cal Hacks demo; see fixtures/world/README.md. Nadia Haddad and Tom Whitcombe are not principals, so their names and addresses map to none.",
+  "principals": [
+    { "id": "maya", "kind": "person", "name": "Maya Lindqvist", "tier": "moderator", "emails": ["maya.lindqvist@harborlane.com"] },
+    { "id": "dan", "kind": "person", "name": "Dan Okafor", "tier": "member", "aliases": ["D. Okafor", "Okafor, Dan"], "emails": ["dan.okafor@harborlane.com"] },
+    { "id": "priya", "kind": "person", "name": "Priya Raman", "tier": "member", "emails": ["priya.raman@harborlane.com"] },
+    { "id": "leo", "kind": "person", "name": "Leo Brandt", "tier": "member", "emails": ["leo.brandt@harborlane.com"] }
+  ]
+}

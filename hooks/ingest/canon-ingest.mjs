@@ -4,9 +4,9 @@
 // is the PRD's third capture path next to the Claude Code hook and the ChatGPT extension, and the
 // one the synthetic world (Harbor Lane, Project Falcon) arrives through.
 //
-//   node hooks/ingest/canon-ingest.mjs hooks/fixtures/world --dry-run
-//   node hooks/ingest/canon-ingest.mjs <dir|file>... [--url URL] [--only KIND] [--principal ID]
-//        [--firm-domain DOMAIN] [--root DIR] [--delay MS]
+//   node hooks/ingest/canon-ingest.mjs hooks/fixtures/world --principals hooks/fixtures/principals.json --dry-run
+//   node hooks/ingest/canon-ingest.mjs <dir|file>... [--url URL] [--only KIND] [--principals FILE]
+//        [--principal ID] [--firm-domain DOMAIN] [--root DIR] [--delay MS]
 //
 // Each file becomes a complete session (ended_at set), so the distiller triages it at once. Ids
 // are ses_ + sha1 of the file's real absolute path, so re-ingesting the same file upserts (from
@@ -16,14 +16,28 @@
 // are still tried, and the exit code says whether everything landed (0), something failed (1),
 // or the flags or paths were wrong (2), which includes two files whose ids clash. A file that
 // cannot be read or parsed is reported as `fail <path>: <reason>`, the run goes on, and the exit
-// code is 1; so is a JSONL file with lines that are not JSON (its good lines are still sent). A
-// file with nothing to ingest (no text, over the size cap) is `skip <path>: <reason>`.
+// code is 1; so is a JSON or JSONL file with rows that could not be read (its good rows are still
+// sent). A file with nothing to ingest (no text, over the size cap) is `skip <path>: <reason>`.
+// Names and email addresses become principal ids only through --principals FILE.
 
-import { existsSync, realpathSync, statSync } from "node:fs";
+import { existsSync, readFileSync, realpathSync, statSync } from "node:fs";
 import { dirname, relative, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { readDotEnv } from "../claude-code/lib.mjs";
-import { CLIENT, DEFAULT_FIRM_DOMAIN, KINDS, buildItem, isIngestible, kindFromWord, readItem, sessionIdFor, walk } from "./lib.mjs";
+import {
+  CLIENT,
+  DEFAULT_FIRM_DOMAIN,
+  KINDS,
+  buildItem,
+  countList,
+  isIngestible,
+  kindFromWord,
+  principalDirectory,
+  readItem,
+  resolvePrincipal,
+  sessionIdFor,
+  walk,
+} from "./lib.mjs";
 
 export const DEFAULT_URL = "http://localhost:4100";
 /** Dev value, not a secret: .env.example's CANON_TOKEN_INGEST. The server must list ingest=<it>. */
@@ -40,9 +54,13 @@ Options:
   --dry-run              print the sessions as JSON on stdout; no network
   --url URL              Bullwark server (default: CANON_URL, else ${DEFAULT_URL})
   --only KIND            only items of this kind: ${KINDS.join(" | ")}
-  --principal ID         principal (author of the facts) for items that name none; front-matter
-                         and an email's firm sender or recipient win. Chats and transcripts never
-                         take one from a speaker. The facts join that person's scope as their own
+  --principals FILE      who is who: JSON list of principals ({ id, name, aliases?, emails? }, or
+                         GET /api/principals' { principals }). The only way a name ("Dan Okafor")
+                         or an address becomes a principal id; without it only ids (dan) count
+  --principal ID         principal (author of the facts) for items that name no author at all.
+                         Front-matter wins; an email's author is its firm sender or nobody, never
+                         this flag. Chats and transcripts never take one from a speaker. The facts
+                         join that person's scope as their own
   --firm-domain DOMAIN   senders outside it mark an email external (default ${DEFAULT_FIRM_DOMAIN})
   --root DIR             folder names under DIR count as kind signals and meta.path is relative to
                          it (default: the dir given, or a file's folder); ids never depend on it
@@ -54,7 +72,7 @@ Token: CANON_TOKEN_INGEST (env, then .env), else "${DEV_TOKEN}".`;
 /** argv (without node and the script) → options, or { error }. */
 export function parseArgs(argv) {
   const opts = { paths: [], dryRun: false, delay: 0 };
-  const takes = new Set(["--url", "--only", "--principal", "--firm-domain", "--root", "--delay"]);
+  const takes = new Set(["--url", "--only", "--principal", "--principals", "--firm-domain", "--root", "--delay"]);
   for (let i = 0; i < argv.length; i++) {
     const arg = argv[i];
     const [flag, inline] = arg.startsWith("--") && arg.includes("=") ? [arg.slice(0, arg.indexOf("=")), arg.slice(arg.indexOf("=") + 1)] : [arg, undefined];
@@ -98,6 +116,21 @@ export function resolveConfig(opts, env = process.env) {
     token: token || DEV_TOKEN,
     devToken: !token,
   };
+}
+
+/** --principals FILE → a principal directory; throws with the file name on any problem. */
+export function loadDirectory(path) {
+  let value;
+  try {
+    value = JSON.parse(readFileSync(path, "utf8"));
+  } catch (e) {
+    throw new Error(`--principals ${path}: ${e?.code === "ENOENT" ? "no such file" : (e?.message ?? e)}`);
+  }
+  try {
+    return principalDirectory(value);
+  } catch (e) {
+    throw new Error(`--principals ${path}: ${e.message}`);
+  }
 }
 
 /**
@@ -171,7 +204,16 @@ export async function run(argv, io = {}) {
   }
 
   let items;
+  let directory;
   try {
+    if (opts.principals) directory = loadDirectory(opts.principals);
+    if (opts.principal !== undefined && !resolvePrincipal(opts.principal, directory)) {
+      throw new Error(
+        directory
+          ? `--principal ${JSON.stringify(opts.principal)} is not in ${opts.principals}`
+          : `--principal ${JSON.stringify(opts.principal)} is not a principal id (dan, agt_…); for a name or an address, pass --principals FILE`,
+      );
+    }
     items = collect(opts.paths, opts.root);
   } catch (e) {
     err(`canon-ingest: ${e.message}`);
@@ -186,7 +228,7 @@ export async function run(argv, io = {}) {
     let built;
     try {
       const read = readItem(abs);
-      built = read.skip ? read : buildItem({ relPath: rel, idKey: key, text: read.text, firmDomain: opts.firmDomain, principal: opts.principal, now: io.now });
+      built = read.skip ? read : buildItem({ relPath: rel, idKey: key, text: read.text, firmDomain: opts.firmDomain, principal: opts.principal, directory, now: io.now });
     } catch (e) {
       built = { error: `could not read or parse it (${e?.message ?? e})` };
     }
@@ -200,10 +242,10 @@ export async function run(argv, io = {}) {
       continue;
     }
     if (opts.only && built.kind !== opts.only) continue;
-    const lost = built.meta?.unparsed_lines;
-    if (lost?.length) {
+    const lost = [built.meta?.unparsed_lines?.length && countList("line", built.meta.unparsed_lines), built.meta?.unparsed_rows?.length && countList("row", built.meta.unparsed_rows)].filter(Boolean);
+    if (lost.length) {
       unreadable++;
-      err(`fail  ${rel}: ${lineList(lost)} not valid JSON and left out; the other lines are in the session`);
+      err(`fail  ${rel}: ${lost.join(" and ")} could not be read (not valid JSON, not an object, or no text we can read) and left out; the rest is in the session`);
     }
     sessions.push(built);
   }
@@ -257,12 +299,6 @@ export async function run(argv, io = {}) {
 
   err(`${posted} posted, ${failed} failed, ${sessions.length} total → ${url}${unreadNote}`);
   return failed || unreadable ? 1 : 0;
-}
-
-/** [2] → "line 2 is", [2, 5] → "lines 2, 5 are"; long lists end in "…". */
-function lineList(lines) {
-  const shown = lines.slice(0, 5).join(", ") + (lines.length > 5 ? ", …" : "");
-  return lines.length === 1 ? `line ${shown} is` : `lines ${shown} are`;
 }
 
 function hintFor(status) {

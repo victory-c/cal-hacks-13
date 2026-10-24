@@ -25,14 +25,20 @@ and the capture clients never guess it:
 |---|---|---|
 | Claude Code hook | `ai_session` | `CANON_PRINCIPAL` (process env, then `.env`) |
 | ChatGPT extension | `ai_session` | the principal field on its options page |
-| Ingest CLI | per file (below) | front-matter, else an email's firm sender or first firm recipient, else `--principal`; never a chat or meeting speaker |
+| Ingest CLI | per file (below) | front-matter, else a firm email's sender, else `--principal`. Never mail from outside the firm, an email recipient, or a chat or meeting speaker. Names and addresses go through `--principals FILE` |
 
-All three normalize the same way: `Dan`, `Dan Okafor` and `dan.okafor@harborlane.com` all become
-`dan`, and `agt_research_1` is kept. When no principal is set the field is left out, and the
-session's facts have no author, so they join a scope only by passing that scope's checks
-(exclusions in code, then Moss and Jev against the task). The hook's debug line shows the
-principal: `Stop ses_3f9a1c2b 8 msgs as dan → 200`. `external: true` (ingest only) marks text from
-outside the firm, which triage reads with extra suspicion for instructions aimed at an AI.
+All three take an **id**, trimmed and lowercased: `Dan` → `dan`, and an agent id such as
+`AGT_Deal-Analyst` is kept whole (`agt_deal-analyst`). A name or an email address is not an id
+and is never guessed into one: `Dan Okafor`, `Okafor, Dan`, `D. Okafor` and
+`dan.okafor@harborlane.com` give no principal (taking the first token made `Leo Chen` Leo Brandt,
+and gave Dan the ids `okafor` and `d`). Only the ingest CLI maps names and addresses to ids, and
+only through an explicit directory (`--principals`, below). When no principal is set the field is
+left out, and the session's facts have no author, so they join a scope only by passing that
+scope's checks (exclusions in code, then Moss and Jev against the task). The hook's debug line
+shows the principal: `Stop ses_3f9a1c2b 8 msgs as dan → 200`, or `with no principal
+(CANON_PRINCIPAL is not an id like dan)`. The extension's options page says so too. `external:
+true` (ingest only) marks text from outside the firm, which triage reads with extra suspicion for
+instructions aimed at an AI.
 
 Set your own id only. The server takes `principal` from the body today, so a wrong
 `CANON_PRINCIPAL` files your facts as someone else's memories. Binding it to the client token is
@@ -127,9 +133,10 @@ session**, posted to `POST /api/sessions` as client `ingest`, with `ended_at` se
 distiller triages it at once.
 
 ```bash
-node hooks/ingest/canon-ingest.mjs hooks/fixtures/world --dry-run   # print the 5 sessions as JSON, no network
-node hooks/ingest/canon-ingest.mjs hooks/fixtures/world             # post them to CANON_URL
-node hooks/ingest/canon-ingest.mjs <world>/email --root <world> --only email --delay 3000
+P=hooks/fixtures/principals.json
+node hooks/ingest/canon-ingest.mjs hooks/fixtures/world --principals $P --dry-run   # print the 5 sessions as JSON, no network
+node hooks/ingest/canon-ingest.mjs hooks/fixtures/world --principals $P             # post them to CANON_URL
+node hooks/ingest/canon-ingest.mjs <world>/email --root <world> --principals $P --only email --delay 3000
 npm run ingest:world -w hooks                                       # same as the second line (paths under -w are relative to hooks/)
 ```
 
@@ -138,7 +145,8 @@ npm run ingest:world -w hooks                                       # same as th
 | `--dry-run` | sessions as JSON on stdout (pipe to `jq`), one summary line each on stderr, nothing sent |
 | `--url URL` | server; default `CANON_URL`, else `http://localhost:4100` |
 | `--only KIND` | `memo`, `chat`, `transcript`, `email`, `note` or `ai_session` (plurals and aliases such as `emails`, `meetings` work) |
-| `--principal ID` | principal (the author of the facts) for items that name none. Every such item's facts join that person's scope as their own, so use it on one person's files |
+| `--principals FILE` | the principal directory (below): the only way a name (`author: Dan Okafor`) or a firm sender's address becomes a principal id. Without it only ids (`principal: dan`) count. A malformed file exits 2 |
+| `--principal ID` | principal (the author of the facts) for items that name no author at all, and are not email. Every such item's facts join that person's scope as their own, so use it on one person's files. An id, or a name in `--principals`; anything else exits 2 |
 | `--firm-domain D` | default `harborlane.com`; an email from outside it is `external: true` |
 | `--root DIR` | folder names under DIR count as kind signals, and `meta.path` is relative to it (default: the folder given, or a file's folder). Ids never depend on it |
 | `--delay MS` | wait between posts, to drip items in live during the demo |
@@ -165,8 +173,43 @@ Files read: `.md .markdown .txt .eml .json .jsonl .vtt .srt` up to 1 MB. `README
 |---|---|---|---|
 | memo, note | one message with the body; split at paragraphs past 8,000 chars, never cut | an email header block's (below), else `--principal` | front-matter, else an email header block's (below) |
 | chat, transcript | one per speaker turn (`Dan: text`, `[09:12] Dan Okafor (MD): text`, JSONL / JSON rows, VTT `<v Dan>`); consecutive lines from one speaker merge unless a line carries its own exact time (then it starts a new message, so the time is kept), unprefixed lines continue the turn, the speaker label stays in the text | an email header block's, else `--principal`. **Never a speaker**: a chat or meeting has several authors, and making whoever spoke first the author would put everyone's lines into that one person's scope. Put `principal:` in the front-matter when one person owns the record | front-matter, else an email header block's (below) |
-| email | one message: `From/To/Cc/Subject/Date` block + body; `Message-ID`, `Reply-To` and `Return-Path` go to `meta.email`, other transport headers (`Received`, `X-*`) are dropped | a firm sender, else the first firm recipient (whose inbox it is) | the sender is not at the firm domain or a subdomain of it |
+| email | one message: `From/To/Cc/Subject/Date` block + body; `Message-ID`, `Reply-To` and `Return-Path` go to `meta.email`, other transport headers (`Received`, `X-*`) are dropped | the firm sender, through `--principals`, when the body quotes or forwards no other message; else none. **Never** from outside the firm or an unreadable sender (not even with front-matter), never a recipient, never `--principal` | the sender is not at the firm domain or a subdomain of it |
 | ai_session | one per turn; `ChatGPT:` / `Claude:` / `Assistant:` are the assistant | front-matter or `--principal` (never "You") | front-matter only |
+
+**The principal is never guessed.** It is the author of every fact from the item, and a member's
+own facts join their scope without the exclusion checks, so ingest takes it only from a statement
+of who wrote the item, and the first statement found decides (one that does not resolve gives no
+principal, never the next source: a memo with `author: Nadia Haddad` is nobody's, not
+`--principal dan`'s):
+
+1. **Mail from outside the firm, or from a sender that cannot be read, has no principal**, whatever
+   the front-matter or `--principal` say. An outsider's text is nobody's own memory, so its facts
+   join a scope only through that scope's checks. Recipients never count: whose inbox an email sits
+   in does not make them its author, and an outsider would otherwise choose, by addressing it to
+   Leo, that their text joins Leo's scope past his exclusions.
+2. Front-matter `principal` / `author` / `owner` / `by`.
+3. Firm mail: its one firm sender, unless the body quotes or forwards another message (`> `
+   lines, `On … wrote:`, `-----Original Message-----`, an Outlook `From:`/`Sent:` block, a
+   forward marker), since that text has other authors.
+4. `--principal`, for an item that names no author at all.
+
+A value resolves to an id like this: an id (`dan`, `agt_deal-analyst`, `Maya (Compliance)` with
+its comment dropped) is taken as written, and must be in `--principals` when one is given; a name
+(`Dan Okafor`, or an alias such as `Okafor, Dan`) or an address resolves **only** through
+`--principals`. An address must be the value's one mailbox, so a display name cannot smuggle one in.
+
+**The principal directory** (`--principals FILE`) is a JSON list, or `GET /api/principals`'
+`{ "principals": [...] }` saved to a file, with two optional ingest-only fields per entry:
+
+```json
+{ "principals": [
+  { "id": "dan", "kind": "person", "name": "Dan Okafor", "aliases": ["D. Okafor"], "emails": ["dan.okafor@harborlane.com"] }
+] }
+```
+
+A name two principals share resolves to none. An id or address listed twice, or a malformed entry,
+stops the run (exit 2). The sample world's is `fixtures/principals.json`: Maya, Dan, Priya and Leo.
+Nadia and Tom are not principals, so their memos and emails have no author.
 
 **External never depends on the folder.** Any item whose text opens with a header block whose
 `From` names an address (or whose front-matter has `from:`) is judged by its sender, whatever its
@@ -174,7 +217,7 @@ kind. The sender is the mailbox: the `<angle-addr>`, or a bare address when ther
 brackets. Quoted display names and `(comments)` are never read as the address, and a `From` with
 no address, several mailboxes, or a different address anywhere in the display name counts as
 external. So `"dan.okafor@harborlane.com" <creyes@ashdownreyes.com>` is external and is not
-attributed to Dan. Recipients (`To`, `Cc`) are read the same way.
+attributed to Dan, or to anyone.
 
 **Times are exact or absent.** A line's stamp becomes `at` only when it resolves to an instant:
 a full date-time with an offset; a time of day on the item's `date` with a `tz:` (or an offset
@@ -198,11 +241,22 @@ If two different files' ids still clash (an 8-hex hash collision), the run stops
 before anything is sent. Ids are per checkout: the same world in another folder or on another
 machine gets other ids.
 
+**JSON and JSONL messages.** A row's text is `text`, `content`, `message` or `body`: a string, a
+list of content blocks (`[{ "type": "text", "text": … }]`, the Claude API and Claude export
+shape; OpenAI's `input_text` / `output_text` too), or a ChatGPT export's `{ "parts": [...] }`.
+Several text pieces join with a blank line. Tool and thinking blocks are skipped, as in the Claude
+Code hook, so a tool-only turn is not a loss; a blank message is skipped too. A row that **cannot
+be read** is never dropped without a word: a line or entry that is not an object, a text field
+that is not a string or text blocks (an image-only message, a number), or a row with a `role` or
+speaker and no text at all. An object with neither (export metadata) is skipped.
+
 **Failures.** A file that cannot be read or parsed (unreadable, bad JSON, a JSONL file with no
-valid line) prints `fail <path>: <reason>`; the run goes on and exits 1. A JSONL file with only
-some bad lines is still sent from its good lines, prints `fail <path>: line N is not valid JSON
-and left out…`, records the missing line numbers in `meta.unparsed_lines`, and also makes the run
-exit 1, because the import is incomplete. A file with nothing to
+valid line, a JSON or JSONL file none of whose rows can be read) prints `fail <path>: <reason>`;
+the run goes on and exits 1. A JSON or JSONL file with only some unreadable rows is still sent
+from its good rows, prints `fail <path>: line N could not be read … and left out; the rest is in
+the session` (or `row N` for a JSON list), records them in `meta.unparsed_lines` (JSONL line
+numbers) or `meta.unparsed_rows` (1-based positions in a JSON message list), and also makes the
+run exit 1, because the import is incomplete. A file with nothing to
 ingest (over 1 MB, no text, JSON with no messages or body) prints `skip <path>: <reason>` and does
 not change the exit code. Each HTTP error status is logged once with a hint (401: register the
 token; 404: not a Bullwark server) and every remaining file is still tried. A dead server stops the

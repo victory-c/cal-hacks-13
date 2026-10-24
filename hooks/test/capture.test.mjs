@@ -169,22 +169,32 @@ test("buildSession v2: kind is always ai_session; principal only when set, trimm
 });
 
 // The same table is in extension/src/shared/session.test.ts: the hook, the ingest CLI and the
-// extension must turn one person into one principal id.
-test("normalizePrincipal: names and emails map to the same id the ingest CLI uses", () => {
+// extension write one id the same way. Security rule: the principal decides access, so a name or
+// an email is never turned into an id (its first token made "Leo Chen" Leo Brandt, and gave Dan
+// the ids "okafor" and "d"); only an id is kept, and an agent id is kept whole.
+test("normalizePrincipal: only an id is kept; names and emails are not guessed into one", () => {
   const table = [
     [" Dan ", "dan"],
     ["dan", "dan"],
     ["agt_research_1", "agt_research_1"],
     ["AGT_Research_1", "agt_research_1"],
-    ["Dan Okafor", "dan"],
-    ["dan.okafor@harborlane.com", "dan"],
-    ["Dan Okafor <DAN.OKAFOR@harborlane.com>", "dan"],
-    ["Maya (Compliance)", "maya"],
+    ["agt_deal-analyst", "agt_deal-analyst"],
+    ["AGT_Deal-Analyst", "agt_deal-analyst"],
+    ["agt-desk-2", undefined],
+    ["Dan Okafor", undefined],
+    ["dan.okafor@harborlane.com", undefined],
+    ["Dan Okafor <DAN.OKAFOR@harborlane.com>", undefined],
+    ["Leo Chen <leo.chen@harborlane.com>", undefined],
+    ["Okafor, Dan", undefined],
+    ["D. Okafor", undefined],
+    ["Maya (Compliance)", undefined],
     ["   ", undefined],
     ["42", undefined],
   ];
   for (const [input, want] of table) assert.equal(normalizePrincipal(input), want, JSON.stringify(input));
-  assert.equal(buildSession({ payload: PAYLOAD, messages: [], principal: "Dan Okafor" }).principal, "dan");
+  assert.notEqual(normalizePrincipal("agt_deal-analyst"), normalizePrincipal("agt_desk-2"), "two agents, two ids");
+  assert.equal("principal" in buildSession({ payload: PAYLOAD, messages: [], principal: "Dan Okafor" }), false, "a name in CANON_PRINCIPAL sends no principal");
+  assert.equal(buildSession({ payload: PAYLOAD, messages: [], principal: "agt_deal-analyst" }).principal, "agt_deal-analyst");
 });
 
 // ---------- lib: readDotEnv, gitInfo ----------

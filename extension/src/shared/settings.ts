@@ -20,9 +20,10 @@ export interface Settings {
   token: string;
   /**
    * The person's principal id at the firm (`dan`, `priya`), normalized by normalizePrincipal
-   * (a name or email becomes its first token, as in the hook and the ingest CLI). It becomes the
-   * author of the session's facts, which then join that person's scope as their own. Empty = not
-   * set: the session goes out with no principal, so its facts have no author.
+   * (trimmed and lowercased; a name or email is not an id and becomes "", as in the hook and the
+   * ingest CLI). It becomes the author of the session's facts, which then join that person's
+   * scope as their own. Empty = not set: the session goes out with no principal, so its facts
+   * have no author.
    */
   principal: string;
 }

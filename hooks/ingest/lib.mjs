@@ -8,6 +8,10 @@
 // Security rule: `external` never depends on where a file sits. Any item whose text opens with an
 // email header block naming an address is judged by its sender, whatever its kind or folder.
 //
+// Security rule: the principal is the author of every fact from the item, and decides access. It
+// is never guessed: not from a speaker, not from an email recipient, not from the first token of a
+// name. A name or an address becomes a principal id only through an explicit directory.
+//
 // Zero dependencies and no import of @canon/shared, like the Claude Code hook next door: the
 // output mirrors shared/src/types/session.ts (CapturedSession, SOURCE_KINDS). Keep them in sync
 // by reading that file; hooks/test/ingest.test.mjs fails if SOURCE_KINDS drifts from KINDS.
@@ -420,12 +424,7 @@ export function addressesIn(value) {
 export function mailboxesIn(value) {
   if (typeof value !== "string" || !value.trim()) return [];
   if (value.length > ADDRESS_HEADER_MAX) return [undefined];
-  let v = value.replace(/"(?:[^"\\]|\\.)*"/g, " ");
-  for (let prev = ""; prev !== v; ) {
-    prev = v;
-    v = v.replace(/\([^()]*\)/g, " ");
-  }
-  return v
+  return withoutComments(value.replace(/"(?:[^"\\]|\\.)*"/g, " "))
     .replace(/;/g, ",")
     .split(",")
     .map((part) => part.trim().replace(/^[^<>@:]*:\s*/, "")) // a group label: "Deal team: a@x, b@x;"
@@ -470,14 +469,100 @@ export function isExternalSender(from, firmDomain = DEFAULT_FIRM_DOMAIN) {
   return !sender || !isFirmAddress(sender, firmDomain);
 }
 
+/** `(comments)`, nested ones included, replaced by a space. */
+function withoutComments(value) {
+  let v = String(value);
+  for (let prev = ""; prev !== v; ) {
+    prev = v;
+    v = v.replace(/\([^()]*\)/g, " ");
+  }
+  return v;
+}
+
+// Quoted or forwarded mail inside a body: "> " lines, an "On … wrote:" line (one wrap allowed),
+// Outlook's "-----Original Message-----" or its "From: … / Sent: …" block, a forward marker.
+const QUOTED_MAIL_RES = [
+  /^[ \t]*>/m,
+  /^[ \t]*-{2,}[ \t]*(?:original message|forwarded message)[ \t]*-{2,}/im,
+  /^[ \t]*begin forwarded message:/im,
+  /^[ \t]*on\b[^\n]{0,300}(?:\n[^\n]{0,300})?\bwrote:[ \t]*$/im,
+  /^[ \t]*from:[^\n]*\n[ \t]*(?:sent|date):/im,
+];
+
+/** True when an email body carries another message's text (a reply's quote, a forward). */
+export function quotesAnotherMessage(body) {
+  const text = String(body);
+  return QUOTED_MAIL_RES.some((re) => re.test(text));
+}
+
 // ---------------------------------------------------------------------------- principals
 
 /**
- * "Dan Okafor", "dan.okafor@harborlane.com", "Maya (Compliance)" → "dan" / "maya". Values that
- * already look like a principal id (`dan`, `agt_research_1`) are kept. The same rule as the
- * Claude Code hook's CANON_PRINCIPAL and the extension's options page, so one person has one id.
+ * A principal directory: which principal id each name and address belongs to, from an explicit
+ * list (the CLI's --principals FILE). It is the only way ingest turns a name ("Dan Okafor") or an
+ * address (dan.okafor@harborlane.com) into an id. Takes GET /api/principals' shape
+ * (`{ "principals": Principal[] }`) or a bare array; each entry may add `emails` (its mailboxes)
+ * and `aliases` (other spellings of its name). A name two principals share resolves to none. An id
+ * or address listed twice, or a malformed entry, throws: the file itself is then wrong.
  */
-export const toPrincipalId = normalizePrincipal;
+export function principalDirectory(value) {
+  const list = Array.isArray(value) ? value : isRecord(value) && Array.isArray(value.principals) ? value.principals : undefined;
+  if (!list) throw new Error('a principals file is a JSON array of principals, or { "principals": [...] }');
+  const ids = new Set();
+  const emails = new Map();
+  const names = new Map(); // name key → id, or null when two principals share it
+  list.forEach((p, i) => {
+    const where = `principals[${i}]`;
+    if (!isRecord(p)) throw new Error(`${where} is not an object`);
+    if (typeof p.id !== "string" || normalizePrincipal(p.id) !== p.id) throw new Error(`${where}: ${JSON.stringify(p.id)} is not a principal id (dan, agt_…)`);
+    if (ids.has(p.id)) throw new Error(`${where}: ${p.id} is listed twice`);
+    ids.add(p.id);
+    for (const e of stringList(p.emails, `${where}.emails`)) {
+      const addr = e.trim().toLowerCase();
+      if (!ADDR_SPEC_RE.test(addr)) throw new Error(`${where}: ${JSON.stringify(e)} is not an email address`);
+      if (emails.has(addr)) throw new Error(`${where}: ${addr} is already ${emails.get(addr)}'s`);
+      emails.set(addr, p.id);
+    }
+    for (const n of [...(typeof p.name === "string" ? [p.name] : []), ...stringList(p.aliases, `${where}.aliases`)]) {
+      const key = nameKey(n);
+      if (key) names.set(key, names.has(key) && names.get(key) !== p.id ? null : p.id);
+    }
+  });
+  return { ids, emails, names };
+}
+
+function stringList(v, where) {
+  if (v === undefined) return [];
+  if (!Array.isArray(v) || !v.every((s) => typeof s === "string")) throw new Error(`${where} must be a list of strings`);
+  return v;
+}
+
+/** "Dan  Okafor (MD)" → "dan okafor": comments dropped, whitespace collapsed, lowercased. */
+function nameKey(name) {
+  return withoutComments(name).replace(/\s+/g, " ").trim().toLowerCase();
+}
+
+/**
+ * Whoever an item names as its principal (front-matter `principal` / `author`, a firm sender,
+ * --principal) → their id, or undefined. Never guessed, because the principal decides access:
+ *   - an id is taken as written (`dan`, `AGT_Deal-Analyst` → `agt_deal-analyst`, `Maya (Compliance)`
+ *     → `maya`), and must be in the directory when there is one
+ *   - a name or an address maps to an id only through the directory: "Leo Chen
+ *     <leo.chen@harborlane.com>" is not Leo Brandt because both start with "leo". An address must be
+ *     the value's one mailbox (see senderOf), so a display name cannot smuggle one in.
+ */
+export function resolvePrincipal(value, directory) {
+  if (typeof value !== "string" || !value.trim()) return undefined;
+  if (value.includes("@")) {
+    const addr = senderOf(value);
+    return addr && directory ? directory.emails.get(addr) : undefined;
+  }
+  const bare = withoutComments(value).replace(/\s+/g, " ").trim();
+  if (!bare || /[()]/.test(bare)) return undefined;
+  const id = normalizePrincipal(bare);
+  if (id) return !directory || directory.ids.has(id) ? id : undefined;
+  return directory?.names.get(nameKey(bare)) ?? undefined;
+}
 
 // --------------------------------------------------------------------------------- items
 
@@ -496,23 +581,27 @@ export function sessionIdFor(key) {
 /**
  * One item → a CapturedSession for POST /api/sessions, { skip: reason } when it holds nothing to
  * ingest (no text, a JSON file with no messages), or { error: reason } when it cannot be parsed
- * (bad JSON). The CLI goes on after either, but only an error makes the run exit 1. A JSONL file
- * with some lines that are not JSON still becomes a session from the good lines, and
- * meta.unparsed_lines lists the line numbers left out (the CLI reports them and exits 1).
+ * (bad JSON, or JSON rows none of which could be read). The CLI goes on after either, but only an
+ * error makes the run exit 1. A JSONL or JSON file with some rows that could not be read (not
+ * JSON, not an object, or a message whose text is not a string or text blocks) still becomes a
+ * session from the good rows, and meta.unparsed_lines (JSONL line numbers) or meta.unparsed_rows
+ * (1-based positions in a JSON message list) records what was left out; the CLI reports it and
+ * exits 1, because the import is incomplete.
  *   relPath      path relative to the ingest root: folder-name kind signals, meta.path, title
  *   idKey        what the id is derived from (the CLI passes the real absolute path); default relPath
  *   text         file contents
  *   firmDomain   sender domains outside it mark an email external
- *   principal    fallback principal when the item names none (--principal)
+ *   principal    fallback principal for items that name no author at all (--principal)
+ *   directory    principalDirectory(): the only way a name or an address becomes a principal id
  *   now          ISO time for items that carry no date at all
  */
-export function buildItem({ relPath, idKey = relPath, text, firmDomain = DEFAULT_FIRM_DOMAIN, principal: fallback, now = new Date().toISOString() }) {
+export function buildItem({ relPath, idKey = relPath, text, firmDomain = DEFAULT_FIRM_DOMAIN, principal: fallback, directory, now = new Date().toISOString() }) {
   const rel = toPosix(relPath);
   const ext = extname(rel).toLowerCase();
   const parsed = ext === ".json" || ext === ".jsonl" ? readJsonItem(text, ext) : readTextItem(text, ext);
   if (parsed.error) return { error: parsed.error };
   if (parsed.skip) return { skip: parsed.skip };
-  const { data, body, rows, unparsed } = parsed;
+  const { data, body, rows, unparsed, unparsedRows } = parsed;
   const { kind, by } = inferKind({ data, relPath: rel, text: body });
   const clock = { ...itemClock(data), elapsed: kind === "transcript" };
 
@@ -559,7 +648,11 @@ export function buildItem({ relPath, idKey = relPath, text, firmDomain = DEFAULT
   } else {
     messages = chunk(body.trim()).map((content) => ({ role: "user", content }));
   }
-  if (messages.length === 0) return { skip: "no text" };
+  if (messages.length === 0) {
+    if (unparsed) return { error: `no readable message (${countList("line", unparsed)} could not be read)` };
+    if (unparsedRows) return { error: `no readable message (${countList("row", unparsedRows)} could not be read)` };
+    return { skip: "no text" };
+  }
 
   // The item's date, when it names an instant: an exact start, a bare day (midnight at `tz:`, else
   // UTC, as exactIso reads a bare date), or a date string with its own zone. A date-time with no
@@ -572,16 +665,29 @@ export function buildItem({ relPath, idKey = relPath, text, firmDomain = DEFAULT
   const lastAt = [...messages].reverse().find((m) => m.at)?.at;
   const endedAt = lastAt && Date.parse(lastAt) >= Date.parse(startedAt) ? lastAt : startedAt;
 
-  // The principal is the author of every fact distilled from this item, and a member's own facts
-  // join their scope without the exclusion checks (PRD, living scopes). So it is never guessed
-  // from a speaker: a chat or meeting has many people in it, and naming whoever spoke first would
-  // put everyone's lines (a Falcon slip in #general, say) into that one person's scope. A chat or
-  // transcript gets a principal only from front-matter or --principal; with none, its facts have
-  // no author and join scopes only through the checks. AI sessions likewise: "You" is not a principal.
-  const principal =
-    toPrincipalId(firstString(data.principal, data.author, data.owner, data.by)) ??
-    (mailish ? emailPrincipal(headers, firmDomain) : undefined) ??
-    toPrincipalId(fallback);
+  // Security rule: the principal is the author of every fact distilled from this item, and a
+  // member's own facts join their scope without the exclusion checks (PRD, living scopes). So it
+  // comes only from a statement of who wrote the item, resolved by resolvePrincipal, and the
+  // first statement found decides (an unresolved one gives none, never the next source):
+  //   0. mail from outside the firm, or from a sender we cannot read: none, whatever else the
+  //      file says. An outsider's text is nobody's own memory, so its facts pass each scope's
+  //      checks. Never a recipient: whose inbox it sits in does not make them its author, and an
+  //      outsider would otherwise choose, by addressing it, whose scope it joins.
+  //   1. front-matter `principal` / `author` / `owner` / `by`. A memo by Nadia (not a principal)
+  //      is nobody's own memory, not --principal dan's.
+  //   2. firm mail: its one firm sender, when the body quotes or forwards no other message (that
+  //      text has other authors). Never --principal.
+  //   3. --principal, for items that name no author at all.
+  // Never a speaker: a chat or meeting has many people in it, and naming whoever spoke first would
+  // put everyone's lines (a Falcon slip in #general, say) into that one person's scope. AI
+  // sessions likewise: "You" is not a principal.
+  const named = firstString(data.principal, data.author, data.owner, data.by);
+  const sender = mailish ? senderOf(headers.from) : undefined;
+  let principal;
+  if (mailish && !(sender && isFirmAddress(sender, firmDomain))) principal = undefined;
+  else if (named !== undefined) principal = resolvePrincipal(named, directory);
+  else if (mailish) principal = quotesAnotherMessage(parsedEmail.body) ? undefined : resolvePrincipal(sender, directory);
+  else principal = resolvePrincipal(fallback, directory);
 
   let external;
   if (typeof data.external === "boolean") external = data.external;
@@ -596,23 +702,12 @@ export function buildItem({ relPath, idKey = relPath, text, firmDomain = DEFAULT
     ended_at: endedAt,
     title: makeTitle(firstString(data.title, email?.subject, firstHeading(body)) ?? humanize(rel)),
     messages,
-    meta: compact({ path: rel, kind_from: by, source: firstString(data.source), participants, email, date: fromItem ? undefined : dated, unparsed_lines: unparsed }),
+    meta: compact({ path: rel, kind_from: by, source: firstString(data.source), participants, email, date: fromItem ? undefined : dated, unparsed_lines: unparsed, unparsed_rows: unparsedRows }),
     kind,
   };
   if (principal) session.principal = principal;
   if (external !== undefined) session.external = external;
   return session;
-}
-
-/**
- * Sender at the firm → them; otherwise the first firm recipient (whose inbox it is). Addresses
- * come from mailboxes only (see mailboxesIn), never from display names.
- */
-function emailPrincipal(headers, firmDomain) {
-  const sender = senderOf(headers.from);
-  if (sender && isFirmAddress(sender, firmDomain)) return toPrincipalId(sender);
-  const recipient = [...mailboxesIn(headers.to), ...mailboxesIn(headers.cc)].find((a) => a && isFirmAddress(a, firmDomain));
-  return recipient ? toPrincipalId(recipient) : undefined;
 }
 
 function readTextItem(text, ext) {
@@ -633,31 +728,86 @@ const SPEAKER_KEYS = ["speaker", "from", "user", "author", "name", "sender", "us
 const TEXT_KEYS = ["text", "content", "message", "body"];
 const TIME_KEYS = ["at", "ts", "timestamp", "time", "date"];
 
+// Content blocks that are not conversation text; skipped, as the Claude Code hook skips them.
+const NON_TEXT_BLOCKS = new Set(["tool_use", "tool_result", "server_tool_use", "thinking", "redacted_thinking"]);
+// Text blocks: Claude's `text`, OpenAI's `input_text` / `output_text`.
+const TEXT_BLOCK_RE = /^(?:input_|output_)?text$/;
+
 /**
- * JSONL: one message object per line. A line that is not valid JSON is left out and its line
- * number is returned in `unparsed` (the CLI reports it and exits 1, since the import is
- * incomplete); no good line at all is an error. JSON: an array of message objects, an object
- * with `messages`, or an object with a text `body` / `text` / `content`. Top-level keys of an
- * object act as front-matter (kind, principal, title, date, from, …). Unparseable JSON →
- * { error }; valid JSON that holds no item → { skip }.
+ * One text field of a JSON row → { text }, { none } when it deliberately holds no text (blank, or
+ * only tool and thinking blocks), or { unreadable } when it holds something we cannot read (an
+ * image block, a number, an object of unknown shape). Reads a string, a list of content blocks
+ * (`[{ type: "text", text }]`, the Claude API and Claude export shape) and a ChatGPT export's
+ * `{ content_type, parts: [...] }`; several text pieces join with a blank line.
+ */
+function readText(v) {
+  if (typeof v === "string") return v.trim() ? { text: v.trim() } : { none: true };
+  const parts = Array.isArray(v) ? v : isRecord(v) && Array.isArray(v.parts) ? v.parts : isRecord(v) && typeof v.text === "string" ? [v] : undefined;
+  if (!parts) return { unreadable: true };
+  const texts = [];
+  let unreadable = false;
+  for (const p of parts) {
+    const t = typeof p === "string" ? p : isRecord(p) && typeof p.text === "string" && (p.type === undefined || TEXT_BLOCK_RE.test(p.type)) ? p.text : undefined;
+    if (t !== undefined) {
+      if (t.trim()) texts.push(t.trim());
+    } else if (!(isRecord(p) && NON_TEXT_BLOCKS.has(p.type))) unreadable = true;
+  }
+  if (texts.length) return { text: texts.join("\n\n") };
+  return unreadable ? { unreadable: true } : { none: true };
+}
+
+/**
+ * Message objects → rows, plus the positions (0-based) of entries that could not be read: not an
+ * object, a text field we cannot read, or a speaker or role with no text field at all. A row
+ * whose text is blank or only tool calls, or an object that names no speaker and carries no text
+ * (export metadata), is left out silently: nothing is lost.
+ */
+function readRows(list) {
+  const rows = [];
+  const bad = [];
+  list.forEach((o, i) => {
+    if (!isRecord(o)) return void bad.push(i);
+    const speaker = firstString(...SPEAKER_KEYS.map((k) => o[k]));
+    const role = typeof o.role === "string" ? o.role : undefined;
+    const reads = TEXT_KEYS.filter((k) => o[k] !== undefined && o[k] !== null).map((k) => readText(o[k]));
+    const hit = reads.find((r) => r.text);
+    if (hit) {
+      const at = TIME_KEYS.map((k) => o[k]).find((v) => typeof v === "string" || typeof v === "number");
+      rows.push({ speaker, label: speaker, role, at, text: hit.text });
+    } else if (reads.some((r) => r.unreadable) || (reads.length === 0 && (speaker || role))) bad.push(i);
+  });
+  return { rows, bad };
+}
+
+/**
+ * JSONL: one message object per line. JSON: an array of message objects, an object with
+ * `messages`, or an object with a text `body` / `text` / `content`. Top-level keys of an object
+ * act as front-matter (kind, principal, title, date, from, …). An entry that could not be read
+ * (see readRows; for JSONL also a line that is not valid JSON) is left out and its JSONL line
+ * number goes in `unparsed`, its 1-based position in a JSON list in `unparsedRows`; the CLI
+ * reports either and exits 1, since the import is incomplete. Unparseable JSON, or JSONL with no
+ * valid line → { error }; valid JSON that holds no item → { skip }.
  */
 function readJsonItem(text, ext) {
   let data = {};
   let list;
-  const unparsed = [];
+  let lineOf; // JSONL: list index → line number
+  const badLines = [];
   if (ext === ".jsonl") {
     list = [];
+    lineOf = [];
     String(text)
       .split(/\r?\n/)
       .forEach((line, i) => {
         if (!line.trim()) return;
         try {
           list.push(JSON.parse(line));
+          lineOf.push(i + 1);
         } catch {
-          unparsed.push(i + 1);
+          badLines.push(i + 1);
         }
       });
-    if (unparsed.length > 0 && list.length === 0) return { error: "bad JSONL (no line is valid JSON)" };
+    if (badLines.length > 0 && list.length === 0) return { error: "bad JSONL (no line is valid JSON)" };
   } else {
     let value;
     try {
@@ -670,20 +820,24 @@ function readJsonItem(text, ext) {
       data = Object.fromEntries(Object.entries(value).filter(([, v]) => typeof v !== "object" || Array.isArray(v)).map(([k, v]) => [k.toLowerCase(), v]));
       if (Array.isArray(value.messages)) list = value.messages;
       else {
-        const body = firstString(...TEXT_KEYS.map((k) => value[k]));
-        return body ? { data, body } : { skip: "JSON object with no messages or body" };
+        const reads = TEXT_KEYS.filter((k) => value[k] !== undefined && value[k] !== null).map((k) => readText(value[k]));
+        const hit = reads.find((r) => r.text);
+        if (hit) return { data, body: hit.text };
+        if (reads.some((r) => r.unreadable)) return { error: "JSON object whose text is not a string or text blocks" };
+        return { skip: "JSON object with no messages or body" };
       }
     } else return { skip: "JSON is not an object or array" };
   }
-  const rows = list.filter(isRecord).flatMap((o) => {
-    const text = firstString(...TEXT_KEYS.map((k) => o[k]));
-    if (!text || !text.trim()) return [];
-    const speaker = firstString(...SPEAKER_KEYS.map((k) => o[k]));
-    const role = typeof o.role === "string" ? o.role : undefined;
-    const at = TIME_KEYS.map((k) => o[k]).find((v) => typeof v === "string" || typeof v === "number");
-    return [{ speaker, label: speaker, role, at, text: text.trim() }];
-  });
-  return { data, body: rows.map((r) => (r.label ? `${r.label}: ${r.text}` : r.text)).join("\n"), rows, unparsed: unparsed.length ? unparsed : undefined };
+  const { rows, bad } = readRows(list);
+  const unparsed = lineOf ? [...badLines, ...bad.map((i) => lineOf[i])].sort((a, b) => a - b) : [];
+  const unparsedRows = lineOf ? [] : bad.map((i) => i + 1);
+  return {
+    data,
+    body: rows.map((r) => (r.label ? `${r.label}: ${r.text}` : r.text)).join("\n"),
+    rows,
+    unparsed: unparsed.length ? unparsed : undefined,
+    unparsedRows: unparsedRows.length ? unparsedRows : undefined,
+  };
 }
 
 // ------------------------------------------------------------------------------- disk
@@ -769,6 +923,12 @@ function toPosix(p) {
 function isoOrUndefined(v) {
   const d = new Date(typeof v === "number" ? v : Date.parse(v));
   return Number.isNaN(d.getTime()) ? undefined : d.toISOString();
+}
+
+/** ("line", [2]) → "line 2", ("row", [2, 5]) → "rows 2, 5"; long lists end in "…". */
+export function countList(word, nums) {
+  const shown = nums.slice(0, 5).join(", ") + (nums.length > 5 ? ", …" : "");
+  return `${word}${nums.length === 1 ? "" : "s"} ${shown}`;
 }
 
 function withAt(msg, at) {

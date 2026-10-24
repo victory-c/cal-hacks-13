@@ -25,9 +25,11 @@ simulated. (The server downstream may run its judge/distiller in simulated mode 
 `principal` (e.g. `dan`) when one is set on the options page. In Bullwark's scopes model the
 principal is the author of every fact distilled from the chat: those facts are that person's
 memories and join their scope as their own (unless triage quarantines them or files them to
-`inbox`). So set your own id only. The value is normalized the same way as in the Claude Code
-hook and the ingest CLI (`Dan`, `Dan Okafor` and `dan.okafor@harborlane.com` all become `dan`;
-`agt_research_1` is kept), so one person has one id. Blank means the field is left out: the
+`inbox`). So set your own id only. The value is an **id**, trimmed and lowercased as in the
+Claude Code hook and the ingest CLI (`Dan` → `dan`; `agt_research_1` is kept whole). A name or an
+email address is not an id and is never guessed into one, because the principal decides access
+(`Leo Chen` must not become Leo Brandt's `leo`): typing `Dan Okafor` or `dan.okafor@harborlane.com`
+saves no principal, and the options page says so. Blank means the field is left out: the
 facts have no author and join a scope only by passing that scope's checks. Today's server
 accepts and drops both fields until lane A's server keeps them, and it does not yet bind the
 principal to the client token; nothing else changes. See
