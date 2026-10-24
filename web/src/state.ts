@@ -27,6 +27,7 @@ export const EVENT_TYPES = [
   "deal.status_changed",
   "entitlement.changed",
   "audit.logged",
+  "dispatch.requested",
   "agent.run",
   "agent.step",
   "agent.inbox",
@@ -188,6 +189,7 @@ export function reduce(state: State, e: CanonEvent): State {
     case "deal.status_changed":
     case "entitlement.changed":
     case "audit.logged":
+    case "dispatch.requested":
     case "agent.run":
     case "agent.step":
     case "agent.inbox":

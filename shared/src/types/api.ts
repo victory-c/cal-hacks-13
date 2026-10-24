@@ -46,6 +46,8 @@ export const ROUTES = {
   audit: "/api/audit",
   /** POST PublishEventBody (internal): re-broadcast one RELAYED_EVENTS event on /events. */
   publish: "/api/events",
+  /** POST DispatchRequest (dashboard) → { id }. The server emits dispatch.requested; lane B's dispatcher picks it up. */
+  dispatch: "/api/dispatch",
 } as const;
 
 export type PostSessionBody = CapturedSession;

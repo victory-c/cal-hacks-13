@@ -2,7 +2,7 @@
 // distiller worker and benchmark runner consume them. Plain SSE (SpacetimeDB only if there's
 // slack on Saturday). Every event carries `at` (ISO 8601).
 
-import type { AgentRun, AgentStep, InboxItem } from "./agents.ts";
+import type { AgentRun, AgentStep, DispatchRequest, InboxItem } from "./agents.ts";
 import type { HandoffCandidate } from "./api.ts";
 import type { ClientId, Fact, Folder } from "./fact.ts";
 import type { SaveDecision, TriageDecision } from "./judge.ts";
@@ -106,6 +106,12 @@ export type CanonEvent =
     })
   | (Base & { type: "entitlement.changed"; entitlement: Entitlement; granted: boolean })
   | (Base & { type: "audit.logged"; entry: AuditEvent })
+  | (Base & {
+      /** A person typed a task in the dashboard (POST /api/dispatch). The dispatcher splits it into agent runs. */
+      type: "dispatch.requested";
+      id: string;
+      request: DispatchRequest;
+    })
   | (Base & { /** relayed (dispatcher) */ type: "agent.run"; run: AgentRun })
   | (Base & { /** relayed (dispatcher) */ type: "agent.step"; step: AgentStep })
   | (Base & { /** relayed (dispatcher) */ type: "agent.inbox"; item: InboxItem })

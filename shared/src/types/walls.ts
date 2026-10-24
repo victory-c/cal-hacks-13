@@ -53,6 +53,11 @@ export interface Principal {
   desk: Desk;
   /** Agents only: the person it works for. An agent is never cleared for more than them. */
   acts_for?: string;
+  /**
+   * Agents only: the one wall it works behind (`deal_falcon`), or `public`. Its clearance is
+   * this side intersected with `acts_for`'s live entitlements, so no grant is ever made for it.
+   */
+  side?: Wall;
 }
 
 /** Who is over which wall. Deny by default: no live entitlement, no deal facts. */
