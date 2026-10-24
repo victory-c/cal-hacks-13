@@ -1,18 +1,20 @@
-# Bullwark + Canon
+# Bullwark
 
 Scoped AI memory for small finance teams. Moderators see everything; every other person and agent
 gets a memory that holds only what their task needs, and anything else simply isn't there.
 Built at Cal Hacks 13.0.
 
-| | Bullwark | Canon |
+| | Console | Backend |
 |---|---|---|
-| **Is** | The control room people use | The agentic backend that does the work |
+| **Is** | The control room people use | The agentic engine that does the work |
 | **Does** | Moderator console, member view, finance wording, the demo | Capture, facts and groups, tiers and scopes, handoffs, agents, MCP, audit |
 | **Spec** | [`docs/BULLWARK-PRD.md`](docs/BULLWARK-PRD.md) | [`docs/CANON-PRD.md`](docs/CANON-PRD.md) |
 | **Code** | `web/` | `server/`, `distiller/`, `hooks/`, `extension/`, `shared/` |
 
-Bullwark decides what to show; Canon decides who may see what. They meet only through
+The console decides what to show; the backend decides who may see what. They meet only through
 [`docs/INTEGRATION.md`](docs/INTEGRATION.md): REST, server-sent events and one token per person or agent.
+"Canon", the project's earlier name, survives only in code identifiers (`canon_*` MCP tools,
+`@canon/shared`, `CANON_*` settings) and the backend spec's file name.
 
 - **Owners and build order:** [`docs/WORK_SPLIT.md`](docs/WORK_SPLIT.md)
 - **Working agreement:** [`CLAUDE.md`](CLAUDE.md)
@@ -40,7 +42,7 @@ npm run dev            # server :4100, distiller worker, frontend :4200
 
 ## How it works
 
-**Canon.** Capture and ingest archive raw context. Triage and the fact writer turn it into short facts,
+**Backend.** Capture and ingest archive raw context. Triage and the fact writer turn it into short facts,
 each linked to its source and author and filed into one group. A moderator gives each member a
 scope rule (a task in plain language plus optional exclusions): code removes excluded groups,
 Moss finds candidates and Jev answers yes or no, and the result is the member's scope. Scopes
@@ -48,21 +50,21 @@ stay current as new facts arrive. Each handoff searches only inside the requeste
 what helps, fits a token budget and is logged. Agents a member creates get the same scope or less.
 It keeps the existing file store and plain SSE.
 
-**Bullwark.** A moderator console (people and tiers, scope builder, scope inspector, feed, agent
-lanes, handoff inspector) and a member view (my agents, create an agent, my memory), reading Canon
-only through the integration contract. See the PRDs for the full design and the work split for
+**Console.** A moderator console (people and tiers, scope builder, scope inspector, feed, agent
+lanes, handoff inspector) and a member view (my agents, create an agent, my memory), reading the
+backend only through the integration contract. See the PRDs for the full design and the work split for
 implementation ownership.
 
 ## Layout
 
 | Folder | Part | Owner | Purpose |
 |---|---|---|---|
-| [`shared/`](shared/) | Canon | A + B | Contract types, validation, grants, events and `judge()` |
-| [`server/`](server/) | Canon | A · Henry | Store, archive, MCP, REST, SSE, retrieval; planned scopes, scope builder and audit |
-| [`distiller/`](distiller/) | Canon | B · Victor | Capture-to-facts worker; planned triage, grouping, fact writing and agent runs |
-| [`hooks/`](hooks/) | Canon | B · Victor | Claude Code capture hook |
-| [`extension/`](extension/) | Canon | B · Victor | ChatGPT web capture |
-| [`web/`](web/) | Bullwark | C · Edan | Dashboard, moderator console and member view |
+| [`shared/`](shared/) | Backend | A + B | Contract types, validation, grants, events and `judge()` |
+| [`server/`](server/) | Backend | A · Henry | Store, archive, MCP, REST, SSE, retrieval; planned scopes, scope builder and audit |
+| [`distiller/`](distiller/) | Backend | B · Victor | Capture-to-facts worker; planned triage, grouping, fact writing and agent runs |
+| [`hooks/`](hooks/) | Backend | B · Victor | Claude Code capture hook |
+| [`extension/`](extension/) | Backend | B · Victor | ChatGPT web capture |
+| [`web/`](web/) | Console | C · Edan | Dashboard, moderator console and member view |
 | [`bench/`](bench/) | Both | A runs, C writes tasks | Measured results; target attack and legitimate-task evaluation |
 | [`status/`](status/) | Team | Everyone; C maintains blockers | Progress source, generated board and sync script |
 | [`scripts/`](scripts/) | Team | Root | Preflight and local process launcher |
