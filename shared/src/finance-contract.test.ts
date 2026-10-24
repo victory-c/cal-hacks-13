@@ -1,4 +1,4 @@
-// Contract v2 type checks. Most of this file is checked by `tsc` (npm run typecheck): each
+// Finance contract type checks. Most of this file is checked by `tsc` (npm run typecheck): each
 // expect-error directive fails the typecheck if the contract stops rejecting that shape.
 
 import assert from "node:assert/strict";

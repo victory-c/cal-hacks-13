@@ -25,7 +25,7 @@ export const ROUTES = {
   /** GET the grants table, for the dashboard. */
   grants: "/api/grants",
 
-  // ---- v2 (PRD v2). Auth as above. "internal" = INTERNAL_CLIENTS only (distiller, dispatcher).
+  // ---- Finance contract (A1). Auth as above. "internal" = INTERNAL_CLIENTS only (distiller, dispatcher).
   /** GET Deal[]. POST /api/deals/:id/status { status } changes it (compliance; emits deal.status_changed). */
   deals: "/api/deals",
   /** GET Principal[] (people and agents). POST registers an agent principal (dispatcher). */
@@ -82,7 +82,7 @@ export interface GrantsResponse {
   grants: Grant[];
 }
 
-// ---- v2
+// ---- Finance contract (A1)
 
 export interface DealsResponse {
   deals: Deal[];

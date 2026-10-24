@@ -29,7 +29,7 @@ export interface ContextFact {
   /** Jev's P(relevant to this task). */
   relevance: number;
   detail?: string;
-  /** v2: the fact's wall. Facts reach agents quoted with this label, as data, never instructions. */
+  /** The fact's wall. Facts reach agents quoted with this label, as data, never instructions. */
   wall?: Wall;
 }
 

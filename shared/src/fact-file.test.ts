@@ -187,7 +187,7 @@ test("factPath is facts/<folder>/<id>.md", () => {
   assert.equal(factPath({ id: "fct_1", folder: "inbox" }), "facts/inbox/fct_1.md");
 });
 
-describe("v2 wall fields", () => {
+describe("finance wall fields", () => {
   test("wall, wall_reason and happened roundtrip; a fact without them stays unlabeled", () => {
     const walled: Fact = { ...base, wall: "deal_falcon", wall_reason: "code name Falcon", happened: "2026-10-20" };
     const text = serializeFactFile(walled);

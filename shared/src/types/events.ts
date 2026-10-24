@@ -50,7 +50,7 @@ export type CanonEvent =
       enough: boolean;
     })
   | (Base & { type: "access.denied"; client: ClientId; tool: string; folder: Folder })
-  // ---- v2 (PRD v2). Server-emitted unless marked "relayed": those come from lane B's internal
+  // ---- Finance contract (A1). Server-emitted unless marked "relayed": those come from lane B's internal
   // workers through POST /api/events (see RELAYED_EVENTS) and the server re-broadcasts them.
   | (Base & {
       /** relayed (distiller): one per draft fact, including the ones that never became facts. */
