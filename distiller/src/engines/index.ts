@@ -1,9 +1,9 @@
 // Distiller engines: session in, draft facts out. Jev decides what happens to the drafts
-// (decide.ts); an engine only proposes. Pick one with createDistiller(); swapping is config
-// (DISTILLER), never a code change.
+// (decide.ts); an engine only proposes, including each draft's group and labels. Pick one with
+// createDistiller(); swapping is config (DISTILLER), never a code change.
 
 import { env } from "@canon/shared";
-import type { CapturedSession, DistillEngine, DraftFact } from "@canon/shared";
+import type { CapturedSession, DistillEngine, DraftFact, Group } from "@canon/shared";
 import { ClaudeDistiller } from "./claude.ts";
 import { DroidDistiller, NotConfiguredError } from "./droid.ts";
 import { HeuristicDistiller } from "./heuristic.ts";
@@ -20,9 +20,19 @@ export interface DistillResult {
   usage?: { input_tokens: number; output_tokens: number };
 }
 
+/** What comes in with each item besides the item itself. */
+export interface DistillOptions {
+  /**
+   * The groups a draft may be filed into (GroupsResponse.groups from GET /api/groups; offline,
+   * fixtures/world/groups.json). Passed per call, never baked into a prompt. Missing or empty:
+   * no draft carries a group, and triage decides. See groups.ts.
+   */
+  groups?: readonly Group[];
+}
+
 export interface Distiller {
   readonly name: DistillEngine;
-  distill(session: CapturedSession): Promise<DistillResult>;
+  distill(session: CapturedSession, opts?: DistillOptions): Promise<DistillResult>;
 }
 
 const ENGINES: readonly DistillEngine[] = ["droid", "claude", "heuristic"];

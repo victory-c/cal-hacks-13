@@ -2,12 +2,16 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { describe, test } from "node:test";
 
-import type { CapturedSession } from "@canon/shared";
-import { HeuristicDistiller, asDay, attribute, guessFolder, isoDayIn, principalName, senderName } from "./heuristic.ts";
+import type { CapturedSession, Group, GroupsResponse } from "@canon/shared";
+import { HeuristicDistiller, asDay, attribute, isoDayIn, principalName, senderName } from "./heuristic.ts";
 import { loadFixture } from "../test-helpers.ts";
 
 function world(name: string): CapturedSession {
   return JSON.parse(readFileSync(new URL(`../../fixtures/world/${name}`, import.meta.url), "utf8")) as CapturedSession;
+}
+
+function worldGroups(): Group[] {
+  return (JSON.parse(readFileSync(new URL("../../fixtures/world/groups.json", import.meta.url), "utf8")) as GroupsResponse).groups;
 }
 
 /** Plain-text email style: every line broken at `width` columns, blank lines kept. */
@@ -33,18 +37,15 @@ function hardWrap(text: string, width: number): string {
 const PLANTED_RE = /public|ignore|priya@|research@|compliance|valuation|exclusivity|announced/i;
 
 describe("HeuristicDistiller", () => {
-  test("the fixture yields at least two drafts with folders, labelled simulated", async () => {
+  test("the fixture yields at least two drafts, labelled simulated; with no group list none carries a group or labels", async () => {
     const session = loadFixture();
     const result = await new HeuristicDistiller().distill(session);
 
     assert.equal(result.simulated, true);
-    assert.match(result.plan ?? "", /^heuristic: \d+ candidate sentences from 8 messages \(simulated\)$/);
+    assert.match(result.plan ?? "", /^heuristic: \d+ candidate sentences from 8 messages \(simulated\)$/, "no group list, so the plan says nothing about groups");
     assert.ok(result.drafts.length >= 2, `expected >= 2 drafts, got ${result.drafts.length}`);
     assert.ok(result.drafts.length <= 8);
-    const withFolder = result.drafts.filter((d) => d.folder);
-    assert.ok(withFolder.length >= 2, "at least two drafts carry a folder guess");
-    assert.ok(result.drafts.some((d) => d.folder === "career"), "the internship line lands in career");
-    assert.ok(result.drafts.some((d) => d.folder === "projects"), "the hook/PR lines land in projects");
+    assert.ok(result.drafts.every((d) => d.folder === undefined && d.labels === undefined), "the scaffold's keyword folders are gone; no list, no suggestion");
     for (const d of result.drafts) {
       assert.deepEqual(d.source, { client: "claude-code", session: "ses_b2f1c9a4", pr: "https://github.com/victory-c/cal-hacks-13/pull/7" });
       assert.ok(d.statement.length <= 200);
@@ -93,20 +94,48 @@ describe("HeuristicDistiller", () => {
         { role: "user", content: "Priya: Diligence kickoff is 2026-13-45 per the calendar invite." },
       ],
     };
-    const result = await new HeuristicDistiller().distill(session);
+    const result = await new HeuristicDistiller().distill(session, { groups: worldGroups() });
     assert.equal(result.simulated, true);
     assert.deepEqual(
-      result.drafts.map((d) => [d.statement, d.happened]),
+      result.drafts.map((d) => [d.statement, d.happened, d.folder]),
       [
-        ["Dan proposed a 9.5x EBITDA multiple for Project Falcon.", undefined],
-        ["Dan's team agreed the LOI goes to the Nimbus board by 2026-10-28.", "2026-10-28"],
-        ["Maya: Round the offer to 38.50/sh for NMBL holders.", undefined],
-        ["Priya: Diligence kickoff is 2026-13-45 per the calendar invite.", undefined],
+        ["Dan proposed a 9.5x EBITDA multiple for Project Falcon.", undefined, "deal/falcon"],
+        ["Dan's team agreed the LOI goes to the Nimbus board by 2026-10-28.", "2026-10-28", "deal/falcon"],
+        ["Maya: Round the offer to 38.50/sh for NMBL holders.", undefined, "deal/falcon"],
+        ["Priya: Diligence kickoff is 2026-13-45 per the calendar invite.", undefined, undefined],
       ],
-      "code names and tickers verbatim; a question and a line with no signal are skipped; a non-date is not a happened",
+      "code names and tickers verbatim; a question and a line with no signal are skipped; a non-date is not a happened; a line naming no alias gets no group",
     );
     assert.ok(result.drafts.every((d) => d.source.client === "ingest" && d.source.session === "ses_0000f1a0"));
-    assert.equal(result.drafts[0].folder, "team", "deal work guesses the team folder");
+    assert.equal(result.plan, "heuristic: 4 candidate sentences from 5 messages, 3 of 4 drafts grouped by alias (simulated)");
+  });
+
+  test("groups: a sentence naming two groups' aliases, or none, gets no suggestion; the group list is read per call", async () => {
+    const session: CapturedSession = {
+      id: "ses_0000f1a5",
+      client: "ingest",
+      kind: "chat",
+      started_at: "2026-10-21T15:00:00.000Z",
+      messages: [
+        { role: "user", content: "Leo: We agreed to trim LKSP into the print." },
+        { role: "user", content: "Leo: We agreed to trim LKSP and NMBL into the print." },
+        { role: "user", content: "Maya: We agreed attestations are due Friday." },
+      ],
+    };
+    const distiller = new HeuristicDistiller();
+    const withGroups = await distiller.distill(session, { groups: worldGroups() });
+    assert.deepEqual(
+      withGroups.drafts.map((d) => [d.statement, d.folder]),
+      [
+        ["Leo's team agreed to trim LKSP into the print.", "desk/trading"],
+        ["Leo's team agreed to trim LKSP and NMBL into the print.", undefined],
+        ["Maya's team agreed attestations are due Friday.", undefined],
+      ],
+    );
+    const without = await distiller.distill(session);
+    assert.ok(without.drafts.every((d) => d.folder === undefined), "the same engine with no list suggests nothing");
+    const inboxOnly = await distiller.distill(session, { groups: [{ id: "inbox", description: "x", aliases: ["LKSP"] }] });
+    assert.ok(inboxOnly.drafts.every((d) => d.folder === undefined), "the inbox is never a suggestion, whatever its aliases");
   });
 
   test("an AI session's user turns belong to its principal; an email's belong to its sender; header lines are skipped", async () => {
@@ -265,12 +294,30 @@ describe("HeuristicDistiller", () => {
     assert.equal(principalName(undefined), undefined);
   });
 
-  test("folder guess: career before projects before team, else undefined", () => {
-    assert.equal(guessFolder("Applied to a backend internship through the recruiter"), "career");
-    assert.equal(guessFolder("Merged the hook PR into the repo"), "projects");
-    assert.equal(guessFolder("We decided on plain SSE"), "team");
-    assert.equal(guessFolder("Dan proposed a 9.5x EBITDA multiple for Project Falcon"), "team");
-    assert.equal(guessFolder("Prefers TypeScript over Python"), undefined);
-    assert.equal(guessFolder("Updated my resume with the server PR"), "career", "career keywords win");
+  test("world: deal lines that name Falcon, Nimbus or NMBL get the deal/falcon hint; the chat's indirect line gets none", async () => {
+    const groups = worldGroups();
+    const memo = await new HeuristicDistiller().distill(world("falcon-process-memo.json"), { groups });
+    const byStatement = new Map(memo.drafts.map((d) => [d.statement, d.folder]));
+    assert.equal(byStatement.get("Dan: Price: $38.50 per NMBL share in cash, a ~24% premium to the 2026-10-21 close of $31.05."), "deal/falcon");
+    assert.equal(byStatement.get("Dan: LOI to the Nimbus board by 2026-10-28 (their board meets 2026-10-29)."), "deal/falcon");
+    assert.equal(byStatement.get("Dan: Exclusivity: 45 days from LOI signing."), undefined, "a deal line that names no alias is triage's to place");
+    assert.match(memo.plan ?? "", /, 2 of 8 drafts grouped by alias \(simulated\)$/);
+
+    const chat = await new HeuristicDistiller().distill(world("hl-floor-chat-week.json"), { groups });
+    const logistics = chat.drafts.find((d) => d.statement.includes("the logistics thing"));
+    assert.ok(logistics, chat.drafts.map((d) => d.statement).join("\n"));
+    assert.equal(logistics.folder, undefined, "the indirect case names no alias: only Jev can place it");
+    assert.ok(chat.drafts.every((d) => d.folder === undefined), "no chat line the engine keeps names an alias");
+  });
+
+  test("world: offline, Priya's public Nimbus note gets the deal/falcon hint too (simulated; triage must weigh it, never file on it)", async () => {
+    // The case the PRD's grouping is for: public news that names the deal's target company. An
+    // alias match cannot tell it from a deal memo, which is why the engine only suggests and
+    // triage (Jev, reading the whole item) files it in market/public. Pinned so a change shows up.
+    const result = await new HeuristicDistiller().distill(world("nimbus-public-news.json"), { groups: worldGroups() });
+    const grouped = result.drafts.filter((d) => d.folder);
+    assert.ok(grouped.length > 0 && grouped.every((d) => d.folder === "deal/falcon" && /\b(?:Nimbus|NMBL)\b/.test(d.statement)), grouped.map((d) => d.statement).join("\n"));
+    assert.ok(result.drafts.some((d) => !d.folder), "lines that name no alias get no group");
+    assert.match(result.plan ?? "", / drafts grouped by alias \(simulated\)$/);
   });
 });

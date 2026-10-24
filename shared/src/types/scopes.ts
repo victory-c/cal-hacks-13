@@ -17,7 +17,10 @@ export interface Principal {
   name: string;
   /** People only. An agent is never a moderator and never holds more than its creator. */
   tier?: PrincipalTier;
-  /** Agents only: who created it. Its scope is built from, and stays inside, theirs. */
+  /**
+   * Agents only: who created it. Its scope is built from, and stays inside, theirs. An agent's
+   * scope never includes `inbox` or quarantined facts, even when its creator is a moderator.
+   */
   created_by?: string;
 }
 
@@ -33,7 +36,9 @@ export interface Group {
   description: string;
   /**
    * Names that point at the group (code names, companies, tickers). Triage matches them in code
-   * as a filing hint next to Jev's pick. Moderators only: never shown to members or agents.
+   * as a filing hint next to Jev's pick. A deal group's code name is always one of them
+   * ("Project Falcon" and "Falcon" for deal/falcon). Moderators and internal clients only: never
+   * shown to members or agents.
    */
   aliases?: string[];
 }

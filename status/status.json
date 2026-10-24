@@ -1,6 +1,6 @@
 {
   "project": "Bullwark",
-  "updated": "2026-10-24T13:35:06Z",
+  "updated": "2026-10-24T14:27:51Z",
   "team": [
     {
       "id": "A",
@@ -325,7 +325,7 @@
       "priority": "must",
       "state": "doing",
       "title": "Claude fact writer with source, author, dates and history",
-      "note": "Merged into b/contract-v2 (#11). Follow-up for the scopes PRD: suggest a group and labels instead of folders."
+      "note": "Scopes follow-up on b/writer-scopes: the writer suggests a group from the list passed with each item (ids only, schema enum, never invented) and labels made of the item's own words; drafts naming an alias or group id the item never mentions are dropped; the heuristic guesses a group from aliases (simulated); world README rewritten. Remaining: the worker and CLI must pass GET /api/groups (fixtures/world/groups.json offline) into distill(); triage must weigh the alias hint."
     },
     {
       "id": "B18",
