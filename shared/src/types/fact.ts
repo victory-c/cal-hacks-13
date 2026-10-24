@@ -28,7 +28,7 @@ export const KNOWN_CLIENTS = [
   "gemini-web",
   "gemini-cli",
   "teammate-cursor",
-  // v2: the ingest client (memos, team chat, meeting notes, email) and internal workers.
+  // Finance: the ingest client (memos, team chat, meeting notes, email) and internal workers.
   "ingest",
   "dispatcher",
   "compliance",
@@ -59,7 +59,7 @@ export interface Fact {
   /** YYYY-MM-DD: when it happened, from the source. The second of the PRD's two dates. */
   happened?: string;
   /**
-   * v2. `public` or a deal id. Deny by default: a fact with no wall is unlabeled and reaches
+   * `public` or a deal id. Deny by default: a fact with no wall is unlabeled and reaches
    * nobody but compliance until it gets one. Content can only raise it; only compliance or a
    * deal-status change lowers it.
    */
@@ -77,7 +77,7 @@ export interface DraftFact {
   folder?: Folder;
   detail?: string;
   source: FactSource;
-  /** v2: YYYY-MM-DD the writer read off the source, when it says. */
+  /** YYYY-MM-DD the writer read off the source, when it says. */
   happened?: string;
 }
 

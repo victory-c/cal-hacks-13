@@ -1,6 +1,9 @@
 # `@canon/distiller` — captured item in, walled facts out
 
-**Owner:** lane B, Victor Chun. A worker process on the server's event stream. It never imports
+**Owner:** lane B, Victor Chun. This README describes the implemented worker. Finance triage,
+wall labels, Claude fact writing and Droid agent dispatch are tracked in `../docs/WORK_SPLIT.md`.
+
+A worker process on the server's event stream. It never imports
 server code: everything goes over HTTP as the `distiller` client (`CANON_TOKEN_DISTILLER`).
 
 ```
@@ -23,13 +26,13 @@ logged and skipped; the loop never dies.
 |---|---|
 | `src/index.ts` | Entrypoint: `loadEnv()`, picks engine + judge (`triageJudge()`), subscribes to `/events`, clean SIGINT. |
 | `src/worker.ts` | `createHandler({ client, distiller, judge, live })`: the flow above, testable with fakes. Also `loadContext()` and `deliver()`, shared with the CLI. |
-| `src/client.ts` | Typed fetch client: `getSession`, `listFacts`, `postFacts`; v2 `getDeals`, `getLists` (checked by `parseDeals` / `parseLists`: a body they cannot use throws), `postReview`, `publishEvent` (RELAYED_EVENTS only). Bearer auth, 10 s timeout, errors say status + body. |
-| `src/triage.ts` | v2 save-time triage: one batched `judge.ask()`, thresholds and wall rules applied by us. Pure given a `Judge`. Also `financeFakeJudge()`, the offline judge. |
+| `src/client.ts` | Typed fetch client: `getSession`, `listFacts`, `postFacts`; the finance routes `getDeals`, `getLists` (checked by `parseDeals` / `parseLists`: a body they cannot use throws), `postReview`, `publishEvent` (RELAYED_EVENTS only). Bearer auth, 10 s timeout, errors say status + body. |
+| `src/triage.ts` | Finance save-time triage: one batched `judge.ask()`, thresholds and wall rules applied by us. Pure given a `Judge`. Also `financeFakeJudge()`, the offline judge. |
 | `src/walls.ts` | `codeWall()` (deal names and listed companies, in code, on folded text) and `raiseWall()` (public < deal < unlabeled, never lowers). Pure. |
 | `src/engines/` | `Distiller` interface, `createDistiller()`, the three engines (below). |
-| `src/decide.ts` | v1 save-time decisions (tier, folder, dedupe). The worker no longer calls it; triage reuses its exact-duplicate rule. |
+| `src/decide.ts` | The earlier, pre-finance save-time decisions (tier, folder, dedupe). The worker no longer calls it; triage reuses its exact-duplicate rule. |
 | `src/cli.ts` | Run the pipeline on a recorded item; `--post` files the result on the server like the worker does. |
-| `fixtures/session.sample.json` | A Claude Code session: ships the capture hook, decides folders, targets backend internships. |
+| `fixtures/session.sample.json` | A Claude Code session (ships the capture hook, decides folders, targets backend internships). An existing compatibility transcript, not the finance demo world. |
 
 ## Run and test
 
@@ -56,18 +59,22 @@ its output are real measurements (`usage` from the API, wall clock); nothing is 
 when it is. The worker never switches engine on its own: a failing engine is a logged error, not
 a silent downgrade.
 
+**Until B2 wires the Droid SDK, set `DISTILLER=claude` (or `heuristic`) whenever `FACTORY_API_KEY`
+is in `.env`.** Otherwise the worker picks the `droid` engine, which throws `NotConfiguredError` on
+every session, and no facts are written. In the product plan Claude writes facts and Droid runs
+dispatched agents (B2), so adding the Factory key for agent work must not switch the distiller.
+
 | Engine | Real? | Needs | Where it plugs in |
 |---|---|---|---|
 | `droid` | **Pending blocker Q1.** Constructs; `distill()` throws `NotConfiguredError` until the SDK is wired (task B2). | `FACTORY_API_KEY` | `src/engines/droid.ts` |
 | `claude` | Yes. `claude-sonnet-5-5`, one strict `emit_facts` tool, raw Messages API over `fetch` (no SDK dependency). | `ANTHROPIC_API_KEY` | `src/engines/claude.ts` |
 | `heuristic` | **No, simulated.** Keyword sentences (built/shipped/decided/…), folder guessed by keywords, max 8. | nothing | `src/engines/heuristic.ts` |
 
-**Factory Droid track (design, SDK wiring pending Q1).** Droid is the distiller, not a chatbot:
-it runs headless on *our* trigger (every captured session), gets the session + the fact-file
-format + the folder list, and may only write the fact store, through our `POST /api/facts`.
-Jev still answers the save-time questions on every draft, so Droid cannot bypass them. It returns
-a plan and drafts; the plan and the fact diffs go on the dashboard as the proof of work. The
-intended contract is written out at the top of `src/engines/droid.ts`.
+**Factory integration:** `src/engines/droid.ts` is a distiller adapter stub, not an implemented
+agent runner. The current product target is headless finance-agent dispatch with isolated
+context, work steps, inbox updates and checked outputs (B2 and B18). Confirm headless finance
+work at the Factory gate before claiming the integration. The existing Claude and heuristic
+engines remain usable for development.
 
 **Anthropic track.** `claude-sonnet-5-5` follows the claude-api skill: forced `tool_choice` is a
 400 on this model, so the request uses `auto` + `strict: true` + a system prompt that says to call
@@ -89,7 +96,7 @@ instructions. The questions:
 | Id | Type | Question | What code does (`TRIAGE_THRESHOLDS`) |
 |---|---|---|---|
 | `inject` | noul, once per item | Instructions aimed at an AI? | `>= 0.3`: the **whole item** is quarantined. Every draft's outcome is `quarantine`, nothing is written, one `quarantine` review item (with the sentence that tripped it). |
-| `keep:i` | noul | Worth remembering? | `< 0.35`: `archive_only` (the raw item stays in the cold archive). Kept facts are hot above 0.6, else cold (v1 `KEEP_HOT`). |
+| `keep:i` | noul | Worth remembering? | `< 0.35`: `archive_only` (the raw item stays in the cold archive). Kept facts are hot above 0.6, else cold (the existing `KEEP_HOT` rule). |
 | `conf:i` | noul | Looks like confidential deal information, including indirect references? | `>= 0.2` with no deal wall: `compliance`. |
 | `deal:i` | choice: `unsure`, each deal id, `public` | Which deal? | A pick below 0.6 counts as `unsure`. A confident deal raises the wall. |
 | `rel:i` | choice over `RELATIONS` (`unrelated` first) | Relation to the closest fact? | `same` → merge, `replaces` → supersede, the rest → add. Needs p > 0.5 to merge or supersede. |
@@ -136,13 +143,13 @@ still holds: a draft that repeats a stored fact word for word merges into it.
 ones, and one `quarantine.flagged` per quarantined item, carrying the id the review queue gave
 back. An item with no drafts still gets the `inject` question.
 
-**Against a v1 server** (`/api/deals`, `/api/lists`, `/api/review` or `/api/events` answer 404):
-**walls are not enforced there.** A v1 server checks folder grants only, so an unlabeled or
-deal-walled fact in `team/` would reach every client that reads `team/`. The worker warns once per
-route for its whole life, triages with an empty deal list, **labels nothing public** (a public
+**Against a server without the finance routes** (`/api/deals`, `/api/lists`, `/api/review` or
+`/api/events` answer 404): **walls are not enforced there.** Such a server (today's) checks folder
+grants only, so an unlabeled or deal-walled fact in `team/` would reach every client that reads
+`team/`. The worker warns once per route for its whole life, triages with an empty deal list, **labels nothing public** (a public
 result is written unlabeled) and **files every fact in `inbox`**, which no AI client reads under
 `DEMO_GRANTS` (`wall_reason` says why). It skips the review items and events and keeps running.
-Facts still go to `POST /api/facts`, which v1 accepts. The same holds when either route fails
+Facts still go to `POST /api/facts`, which it accepts. The same holds when either route fails
 or returns a body the client cannot use (not `{ deals }` / `Deal[]`, a deal without a
 `deal_…` id or code name, `restricted` not a list): `labelPublic` is false.
 
@@ -162,13 +169,13 @@ simulation; logs and the CLI say "simulated".
 `CANON_URL` · `CANON_TOKEN_DISTILLER` (dev default `dev-distiller`) · `DISTILLER` · `FACTORY_API_KEY`
 · `ANTHROPIC_API_KEY` · `DISTILL_LIVE` · `JUDGE_PROVIDER` / `JEV_API_KEY` / `JEV_API_URL`.
 
-## Assumptions (B19, written down while Victor slept)
+## Assumptions (B5, written down while Victor slept)
 
-- **Folder:** v2 asks no folder question. A fact goes to the engine's `folder`, else `team`, or
+- **Folder:** finance triage asks no folder question. A fact goes to the engine's `folder`, else `team`, or
   `team/<deal>` (e.g. `team/falcon`) for a deal-walled fact. Unlabeled facts stay in plain `team`
   so the path hints at nothing. Without the server's deals and lists every fact goes to `inbox`
   (fail closed by folder). `SaveDecision.folder_p` is 1 because code chose the folder.
-- **Tier:** kept facts keep the v1 rule (hot above `KEEP_HOT` 0.6, else cold).
+- **Tier:** kept facts keep the existing rule (hot above `KEEP_HOT` 0.6, else cold).
 - **The floor covers every relation but `unrelated`**, not only replaces and same: a detail added
   to a Falcon fact is Falcon information.
 - **The code rule walls by the draft and backstops by the item.** A name in the draft walls the
