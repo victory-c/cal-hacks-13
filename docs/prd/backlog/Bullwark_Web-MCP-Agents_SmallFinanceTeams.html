@@ -396,11 +396,12 @@ footer.end { margin-top: 56px; padding-top: 18px; border-top: 1px solid var(--bo
   <h3>Core logic 2: keeping a scope current <span class="tag tent">tentative</span></h3>
   <p class="dim">For every new fact and every scope, in this order. The first rule that decides wins.</p>
   <div class="tree-d">
-    <div class="q"><span class="i">1</span><span><b>Is it the owner's own memory?</b> <span class="who">code</span><br><span class="dim" style="font-size:13px">Written by the member, or by one of their agents.</span></span><span class="out"><b>yes → joins</b></span></div>
-    <div class="q"><span class="i">2</span><span><b>Agent scope: is it in the creator's scope?</b> <span class="who">code</span></span><span class="out"><i>no → stays out</i></span></div>
-    <div class="q"><span class="i">3</span><span><b>Is its group or a label excluded?</b> <span class="who">code</span></span><span class="out"><i>yes → stays out</i></span></div>
-    <div class="q"><span class="i">4</span><span><b>Does it match the scope's task by meaning?</b> <span class="who">Moss</span></span><span class="out"><i>below the bar → stays out</i></span></div>
-    <div class="q"><span class="i">5</span><span><b>Jev: falls under the exclusion? helps with the task?</b> <span class="who">Jev</span></span><span class="out"><b>no + yes → joins</b> · otherwise out</span></div>
+    <div class="q"><span class="i">1</span><span><b>Is it in <code>inbox</code> or quarantine?</b> <span class="who">code</span><br><span class="dim" style="font-size:13px">Applies to the owner's own facts too, until a moderator files or releases it.</span></span><span class="out"><i>yes → stays out</i></span></div>
+    <div class="q"><span class="i">2</span><span><b>Is it the owner's own memory?</b> <span class="who">code</span><br><span class="dim" style="font-size:13px">Written by the member, or by one of their agents.</span></span><span class="out"><b>yes → joins</b></span></div>
+    <div class="q"><span class="i">3</span><span><b>Agent scope: is it in the creator's scope?</b> <span class="who">code</span></span><span class="out"><i>no → stays out</i></span></div>
+    <div class="q"><span class="i">4</span><span><b>Is its group or a label excluded?</b> <span class="who">code</span></span><span class="out"><i>yes → stays out</i></span></div>
+    <div class="q"><span class="i">5</span><span><b>Does it match the scope's task by meaning?</b> <span class="who">Moss</span></span><span class="out"><i>below the bar → stays out</i></span></div>
+    <div class="q"><span class="i">6</span><span><b>Jev: falls under the exclusion? helps with the task?</b> <span class="who">Jev</span></span><span class="out"><b>no + yes → joins</b> · otherwise out</span></div>
   </div>
   <p class="meta" style="margin-top:8px">Moderators see every fact, so they're skipped. When a fact joins a scope, the owner's running agents get it at their next step if Jev says they need it. When a moderator edits a rule, the scope is rebuilt with Core logic 1 and removed facts disappear from the owner's agents too.</p>
 
@@ -764,6 +765,7 @@ footer.end { margin-top: 56px; padding-top: 18px; border-top: 1px solid var(--bo
     <div class="req"><h4>Requirements · A1</h4><ul>
       <li><b>Sandbox:</b> one folder per run holding only the agent's scope as markdown files. <code>droid exec</code> runs headless at a low permission level: create and edit files in its folder, nothing else. No network beyond Bullwark's MCP server.</li>
       <li><b>Live routing:</b> each task is a few short Droid runs (plan, then steps). Between runs, Bullwark checks the inbox: new in-scope facts are added to the next brief, and facts removed by a rule change are deleted from the folder first.</li>
+      <li><b>Narrowed scope:</b> when a rule change removes any fact from an agent's scope, its run folder is discarded, not cleaned. Drafts, plans and briefs written while the fact was in scope may carry it, so the run restarts from the plan step in a fresh folder built from the new scope. The discarded folder is kept in the audit record only.</li>
       <li><b>Output:</b> files and facts the agent writes are its creator's memory, so they join the creator's scope.</li>
       <li><b>Gate:</b> Droid runs finance tasks headless by 11:00 Sat, otherwise switch to a Claude Agent SDK runner (this drops the Factory track).</li>
     </ul></div>
@@ -788,7 +790,7 @@ footer.end { margin-top: 56px; padding-top: 18px; border-top: 1px solid var(--bo
 <!-- ===================================================== 5 UX -->
 <section class="top" id="ux">
   <h2 class="sec"><span class="n">05</span>User Experience</h2>
-  <p class="reader">For the product owner: five acceptance stories that follow the demo script, each tied to a screen above.</p>
+  <p class="reader">For the product owner: six acceptance stories that follow the demo script, each tied to a screen above.</p>
 
   <div class="story"><div class="sn">01</div><div>
     <h4>Nothing to break into</h4>
@@ -828,6 +830,14 @@ footer.end { margin-top: 56px; padding-top: 18px; border-top: 1px solid var(--bo
       <dt>User need</dt><dd>Dan becomes deal lead and needs to manage the deal team's access himself.</dd>
       <dt>Flow</dt><dd><ol><li>Maya opens Dan (W3) and clicks <b>Promote to moderator</b>, then confirms.</li></ol></dd>
       <dt>Expected</dt><dd>Dan's chip changes to <b>moderator</b> in People. Dan's next session opens the console (W1) with all memory and the <b>+ Add person</b> button.</dd>
+    </dl></div></div>
+
+  <div class="story"><div class="sn">06</div><div>
+    <h4>A narrowed scope leaves nothing behind</h4>
+    <dl>
+      <dt>User need</dt><dd><b>Maya</b> narrows Priya's rule while Priya's research analyst is mid-task, and needs the removed facts gone from its work too.</dd>
+      <dt>Flow</dt><dd><ol><li>The research analyst has written a plan and <code>sector_note.md</code> draft 1 (A1).</li><li>Maya opens Priya (W3), clicks <b>Edit rule</b>, and adds an exclusion that removes facts the draft used.</li></ol></dd>
+      <dt>Expected</dt><dd>Before its next step, the agent's run folder is discarded and the run restarts from the plan in a fresh folder. The new plan and draft contain none of the removed facts, and the lane shows the restart.</dd>
     </dl></div></div>
 
   <footer class="end">

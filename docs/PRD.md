@@ -75,7 +75,7 @@ There are two tiers. **Moderators** have full access and decide everyone else's 
 8. **Two tiers:** moderators (full access) and members (their scope only).
 9. **Groups and labels at save:** every fact gets one group from the memory system's classification; labels are added where a group is too coarse. A fact Jev can't place goes to the `inbox` group, which only moderators see until one files it.
 10. **Scope builder:** task + optional exclusions → excluded groups and labels removed in code → Moss candidates → Jev yes/no per fact → scope. The builder shows each stage, with its timing, as it runs.
-11. **Living scopes:** a member's own facts always join their scope; other facts join only if they clear the exclusions, the semantic match and Jev's yes/no against the member's original rule. When a moderator edits a rule, the scope is rebuilt and the change reaches the member's agents.
+11. **Living scopes:** facts in `inbox` or quarantine join no member scope, not even their author's, until a moderator files or releases them. Otherwise a member's own facts always join their scope; other facts join only if they clear the exclusions, the semantic match and Jev's yes/no against the member's original rule. When a moderator edits a rule, the scope is rebuilt and the change reaches the member's agents.
 12. **Agent profiles:** anyone can create one with the same form. Its scope is built from, and stays inside, its creator's scope.
 13. **People and tiers:** moderators add people, edit any scope, and promote members to moderator. Members can't add people, only agent profiles.
 14. **No refusals, no existence signals:** nothing outside a scope is ever mentioned, counted or named to the member or their agents. `canon_whoami` and the pinned profile show the task, never the exclusions.
@@ -198,7 +198,7 @@ Exclusions are applied in code before Moss and Jev run. A scope is a fixed list 
 
 - Each agent task runs as a few short Droid runs (plan, then steps). Between runs, Bullwark checks the agent's inbox and adds newly in-scope facts to the next run's brief.
 - If Droid can take new messages mid-run, use that too; if not, the step design still works.
-- **Rule changes take effect before the next step.** If a moderator narrows a creator's scope, the creator's agents lose the same facts, and their sandbox files are removed before they run again.
+- **Rule changes take effect before the next step.** If a moderator narrows a creator's scope, the creator's agents lose the same facts, and their sandbox files are removed before they run again. Because drafts, plans and briefs may already carry removed facts, a narrowed scope discards the agent's run folder and restarts the run from the plan step in a fresh folder built from the new scope.
 
 **Why not separate tools per agent:** one runtime keeps the build small, makes every agent's work visible the same way, and gives the Factory track one clear story: Bullwark controls exactly what each Droid can see and touch.
 
