@@ -32,6 +32,25 @@ use, bad `JUDGE_PROVIDER`, broken `CANON_GRANTS_FILE`) are one `[server] ...` li
 | `GET /api/sessions/:id` | bearer | One archived session. **Only the client that captured it and the internal `distiller` may read it** (403 otherwise): raw transcripts have no folder scoping |
 | `POST /api/facts` | bearer | Distiller files decided facts (`PostFactsBody`). Needs write grant on the folder (403 + `access.denied`). Each `decision` is validated (action, `supersedes` id, tier/folder equal to the fact's, probabilities in [0, 1], judge name) and rebuilt before it is broadcast. `supersede`/`merge` re-writes the old fact as `cold` (never deletes) and emits `fact.retired` |
 | `POST\|GET\|DELETE /mcp` | bearer | MCP Streamable HTTP, stateless: fresh `McpServer` per request, scoped to the token's grant |
+| `GET /api/groups` | moderator, internal | `GroupsResponse` (triage reads it to file facts) |
+| `GET\|POST /api/principals`, `POST /api/principals/:id/tier` | moderator | People, tiers and agents. Adding a member takes a `rule` and builds their scope (exclusions applied in code) |
+| `GET\|PUT /api/scope-rules/:principal` | moderator; the creator for their own agents | A member never reads their own rule (the exclusions are never shown). `PUT` rebuilds the scope — **stub: removal only** until the Moss + Jev builder lands |
+| `GET /api/scopes/:principal`, `GET /api/scopes/:principal/facts` | moderator, internal | The fixed fact-id list, and the facts themselves (an agent's sandbox) |
+| `POST /api/agents`, `DELETE /api/agents/:id` | any person for themselves; delete also moderator | The agent's scope is built from its creator's scope only and checked in code to be a subset |
+| `GET\|POST /api/quarantine`, `POST /api/quarantine/:id/release` | GET + release moderator; POST internal | Held captures; release is 409 when already released |
+| `GET /api/audit?principal=&since=` | moderator | `AuditResponse` |
+| `POST /api/handoff` | internal | `HandoffBody` → `HandoffResult`: candidates only ever come from inside the fixed scope, budget cut, pinned profile (never the exclusions), audit row + `handoff.served`. **Stub relevance: keyword overlap, not Moss + Jev** |
+| `POST /api/dispatch` | the agent's creator or a moderator | `DispatchRequest` → `{ id }`, emits `dispatch.requested`; `by` must be the caller |
+| `POST /api/events` | internal | Re-broadcast one `RELAYED_EVENTS` event on `/events` (the server stamps `at`) |
+
+**Scopes tier enforcement (A2, `src/scopes.ts`).** The caller's principal is its grant's `principal`
+or the client id itself (`maya=dev-maya` → `maya`). Moderator routes answer every non-moderator with
+one constant `403 { "error": "moderators only" }` **before anything is looked up**, so the same bytes
+come back whether the target exists or not — no refusals that reveal, no existence signals. World
+state (people, rules, scopes, quarantine, audit) loads from `../distiller/fixtures/world/` into
+memory per server; facts come from the regular store. Scope membership is fixture-seeded and a
+rebuild only removes facts; the real scope builder (exclusions → Moss → Jev) is a later task, so
+**do not claim measured barrier performance from these stubs**.
 
 Auth is `Authorization: Bearer <token>`; tokens map to clients via `CANON_CLIENT_TOKENS`. A missing or
 unknown token is `401 { error }` (on the two "optional" routes a *missing* token gives the public view

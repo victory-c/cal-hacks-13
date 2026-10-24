@@ -13,6 +13,8 @@ import { EventBus } from "./events.ts";
 import { createRetriever } from "./retrieval/index.ts";
 import type { Retriever } from "./retrieval/index.ts";
 import { createRouter } from "./router.ts";
+import { ScopeState, loadWorldFixtures } from "./scopes.ts";
+import type { WorldFixtures } from "./scopes.ts";
 import { FileStore } from "./store.ts";
 
 export interface StartOptions {
@@ -25,6 +27,8 @@ export interface StartOptions {
   tokens?: Map<string, string>;
   judge?: Judge;
   retriever?: Retriever;
+  /** Scopes world state; defaults to the fixtures in distiller/fixtures/world/. */
+  world?: WorldFixtures;
   log?: (line: string) => void;
 }
 
@@ -38,6 +42,7 @@ export interface RunningServer {
   retriever: Retriever;
   tokens: Map<string, string>;
   grants: Grant[];
+  world: ScopeState;
   dataDir: string;
 }
 
@@ -65,7 +70,9 @@ export async function startServer(opts: StartOptions = {}): Promise<RunningServe
     if (e.type === "fact.saved" || e.type === "fact.retired") void reindex();
   });
 
-  const router = createRouter({ store, bus, grants, judge, retriever, tokens, startedAt: Date.now(), log: opts.log });
+  const world = new ScopeState(opts.world ?? loadWorldFixtures());
+
+  const router = createRouter({ store, bus, grants, judge, retriever, tokens, world, startedAt: Date.now(), log: opts.log });
   const server = createServer((req, res) => void router(req, res));
   const host = opts.host ?? "127.0.0.1";
   await new Promise<void>((resolve, reject) => {
@@ -83,6 +90,7 @@ export async function startServer(opts: StartOptions = {}): Promise<RunningServe
     retriever,
     tokens,
     grants,
+    world,
     dataDir: dir,
     close: () =>
       new Promise<void>((resolve, reject) => {

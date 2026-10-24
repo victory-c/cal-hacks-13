@@ -1,0 +1,9 @@
+{
+  "principals": [
+    { "id": "maya", "kind": "person", "name": "Maya", "tier": "moderator" },
+    { "id": "dan", "kind": "person", "name": "Dan", "tier": "member" },
+    { "id": "priya", "kind": "person", "name": "Priya", "tier": "member" },
+    { "id": "leo", "kind": "person", "name": "Leo", "tier": "member" },
+    { "id": "agt_leodesk", "kind": "agent", "name": "Leo's desk assistant", "created_by": "leo" }
+  ]
+}

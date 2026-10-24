@@ -14,9 +14,12 @@ import { authenticate } from "./auth.ts";
 import { attachSse } from "./events.ts";
 import { HttpError, applyCors, readJsonBody, sendJson } from "./http.ts";
 import { createMcpServer } from "./mcp.ts";
+import { handleScopesRoute } from "./scopes.ts";
+import type { ScopeState } from "./scopes.ts";
 
 export interface RouterDeps extends ApiDeps {
   tokens: Map<string, string>;
+  world: ScopeState;
   log?: (line: string) => void;
 }
 
@@ -70,6 +73,9 @@ export function createRouter(deps: RouterDeps): Handler {
         const auth = authenticate(req, deps.tokens);
         if (!auth) return sendJson(res, 401, UNKNOWN_TOKEN);
         const { client } = auth;
+
+        // Scopes surface (A2): tiers, rules, scopes, agents, quarantine, audit, handoff, dispatch.
+        if (await handleScopesRoute(deps, client, method, path, url, req, res)) return;
 
         if (method === "POST" && path === ROUTES.sessions) return sendJson(res, 200, await api.postSession(deps, client, await readJsonBody(req)));
         if (method === "GET" && path.startsWith(`${ROUTES.sessions}/`)) {

@@ -1,6 +1,6 @@
 {
   "project": "Bullwark",
-  "updated": "2026-10-24T15:52:03Z",
+  "updated": "2026-10-24T15:52:47Z",
   "team": [
     {
       "id": "A",
@@ -98,9 +98,9 @@
       "owner": "A",
       "milestone": "M1",
       "priority": "must",
-      "state": "todo",
+      "state": "done",
       "title": "Fixture-backed REST and MCP stubs for the finance control room",
-      "note": "Publish agreed responses early so B and C can build independently."
+      "note": "server/src/scopes.ts: all scopes routes live with real tier gates (neutral 403 before any lookup), code-level exclusion filtering, agent-subset check, audit + events. World state in distiller/fixtures/world/, 12 world facts in server/fixtures/. Stubs: fixture-seeded scopes, removal-only rebuilds, keyword handoff relevance — Moss/Jev builder still open (A4/A7)."
     },
     {
       "id": "A3",

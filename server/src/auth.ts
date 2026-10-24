@@ -10,7 +10,10 @@ import { DEMO_GRANTS, REPO_ROOT, env, parseClientTokens } from "@canon/shared";
 import type { Grant } from "@canon/shared";
 
 /** Same values as .env.example, so the stack runs with no .env at all (dev only). */
-export const DEV_CLIENT_TOKENS = "claude-code=dev-claude-code,chatgpt=dev-chatgpt,teammate-cursor=dev-teammate-cursor,distiller=dev-distiller";
+export const DEV_CLIENT_TOKENS =
+  "claude-code=dev-claude-code,chatgpt=dev-chatgpt,teammate-cursor=dev-teammate-cursor,distiller=dev-distiller," +
+  // Scopes (A2): the second internal worker and one client per synthetic-world person.
+  "dispatcher=dev-dispatcher,maya=dev-maya,dan=dev-dan,priya=dev-priya,leo=dev-leo";
 
 /** `Authorization: Bearer <token>` → the client it belongs to, or null. */
 export function authenticate(req: IncomingMessage, tokens: Map<string, string>): { client: string } | null {
