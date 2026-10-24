@@ -17,6 +17,9 @@
     "bench"
   ],
   "scripts": {
+    "preview": "node scripts/preview.mjs",
+    "preview:setup": "node scripts/setup-preview.mjs",
+    "preview:check": "node scripts/setup-preview.mjs --check",
     "doctor": "node scripts/doctor.mjs",
     "dev": "node scripts/dev.mjs",
     "typecheck": "npm run typecheck --workspaces --if-present",

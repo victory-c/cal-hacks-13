@@ -1,0 +1,53 @@
+{
+	admin off
+}
+
+{$PREVIEW_SITE} {
+	header X-Robots-Tag "noindex, nofollow"
+
+	@api path /api/* /mcp /mcp/* /events /health
+	handle @api {
+		@preflight method OPTIONS
+		handle @preflight {
+			reverse_proxy 127.0.0.1:4100
+		}
+		# Machine clients use Canon's own per-client bearer tokens and folder grants.
+		@bearer {
+			header Authorization "Bearer *"
+			not path /health
+		}
+		handle @bearer {
+			reverse_proxy 127.0.0.1:4100 {
+				flush_interval -1
+			}
+		}
+		handle {
+			route {
+				basic_auth {
+					team {$PREVIEW_PASSWORD_HASH}
+				}
+				# The dashboard has the server's public read view, behind the team login.
+				request_header -Authorization
+				reverse_proxy 127.0.0.1:4100 {
+					flush_interval -1
+				}
+			}
+		}
+	}
+
+	handle {
+		route {
+			basic_auth {
+				team {$PREVIEW_PASSWORD_HASH}
+			}
+			@dashboard {
+				path / /index.html /resume.html
+				not query server=*
+			}
+			# The existing dashboard remembers this URL instead of the visitor's localhost.
+			redir @dashboard {path}?{query}&server={$PREVIEW_PUBLIC_URL} 302
+			request_header -Authorization
+			reverse_proxy 127.0.0.1:4200
+		}
+	}
+}

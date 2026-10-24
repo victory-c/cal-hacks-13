@@ -1,6 +1,6 @@
 {
   "project": "Canon",
-  "updated": "2026-10-24T01:05:45-07:00",
+  "updated": "2026-10-24T18:40:43.452Z",
   "team": [
     {
       "id": "A",
@@ -425,6 +425,15 @@
       "state": "todo",
       "title": "Timekeeping: call cuts when a deadline slips, enforce sleep rotation",
       "note": ""
+    },
+    {
+      "id": "B17",
+      "owner": "B",
+      "milestone": "M2",
+      "priority": "must",
+      "state": "doing",
+      "title": "Sponsor credentials and shared preview deployment",
+      "note": "Vultr MLH selected. Docker preview package, random local credentials and sponsor checklist prepared; npm run check and simulated container login/SSE/capture/MCP/persistence checks passed. Not deployed: awaiting Vultr login/credit/spending limit and ANTHROPIC_API_KEY."
     }
   ],
   "tracks": [

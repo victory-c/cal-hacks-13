@@ -31,6 +31,10 @@ npm run dev            # server :4100 + distiller worker + dashboard :4200
 
 Before every PR: `npm run check` (status.json valid → typecheck → tests).
 
+For a shared preview on a sponsor VM, see [sponsor accounts and preview deployment](docs/PREVIEW.md).
+`npm run preview:setup` creates a separate gitignored secret file with random team/client credentials;
+`npm run preview:check` reports missing provider credentials without printing their values.
+
 ## How it fits together
 
 ```
