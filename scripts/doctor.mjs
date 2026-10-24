@@ -16,7 +16,7 @@ const bad = (m) => {
   console.log(`  FAIL  ${m}`);
 };
 
-console.log("Canon doctor\n");
+console.log("Bullwark doctor\n");
 
 // Node version
 const major = Number(process.versions.node.split(".")[0]);

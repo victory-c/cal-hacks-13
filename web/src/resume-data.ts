@@ -50,7 +50,7 @@ export function sessionUrl(server: string, sessionId: string): string {
 }
 
 export function resumeMarkdown(groups: readonly ResumeGroup[]): string {
-  const lines = ["# Resume", "", "_Built from your Canon facts. Each line names the client and session it came from._", ""];
+  const lines = ["# Resume", "", "_Built from your Bullwark facts. Each line names the client and session it came from._", ""];
   for (const g of groups) {
     lines.push(`## ${g.title}`, "");
     for (const f of g.facts) {

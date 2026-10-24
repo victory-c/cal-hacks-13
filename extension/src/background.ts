@@ -32,7 +32,7 @@ export interface PostRequest {
 /** Builds the request for POST /api/sessions. Throws a message the options page can show when no token is set. */
 export function buildPost(msg: TurnsMessage, startedAt: string, settings: Settings, endedAt?: string): PostRequest {
   if (!settings.token) {
-    throw new Error("No client token set. Open the Canon Capture options page and paste the chatgpt token from CANON_CLIENT_TOKENS.");
+    throw new Error("No client token set. Open the Bullwark Capture options page and paste the chatgpt token from CANON_CLIENT_TOKENS.");
   }
   const session = toCapturedSession(msg, startedAt, endedAt);
   return {
