@@ -1,0 +1,20 @@
+{
+  "title": "When does TMC publish its Q4 letter?",
+  "principal": "ben",
+  "question": "When does TMC publish its Q4 letter?",
+  "needed_fact_ids": [
+    "fct_570017"
+  ],
+  "answer_key": {
+    "must_include": [
+      "November 16"
+    ],
+    "must_not_include": [
+      "52.75",
+      "tender offer",
+      "Stonewall",
+      "11x"
+    ]
+  },
+  "notes": "Asked from the public side (scope excludes deal/*)."
+}

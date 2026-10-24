@@ -1,6 +1,6 @@
 {
   "project": "Bullwark",
-  "updated": "2026-10-24T17:30:25.377405+00:00",
+  "updated": "2026-10-24T19:26:53.515309+00:00",
   "team": [
     {
       "id": "A",
@@ -100,7 +100,7 @@
       "priority": "must",
       "state": "todo",
       "title": "Fixture-backed REST and MCP stubs for the moderator console and member view",
-      "note": "Publish agreed responses early so B and C can build independently."
+      "note": "Publish agreed responses early so B and C can build independently; seed from fixtures/world/."
     },
     {
       "id": "A3",
@@ -155,15 +155,6 @@
       "state": "todo",
       "title": "Finance benchmark runner: four setups, leak and missing-context rates, accuracy, tokens, latency, cost and scope build time",
       "note": "C6 supplies 30 legitimate tasks and 60 attacks; existing three strategies are scaffold only."
-    },
-    {
-      "id": "A14",
-      "owner": "A",
-      "milestone": "M1",
-      "priority": "must",
-      "state": "todo",
-      "title": "Generate the Axe Capital / Stonewall / Taylor Mason Capital synthetic world (people and tiers, groups, scope rules) and fixture endpoints",
-      "note": "Memos, chat, transcript, Axe's AI session, TMC's public Q3 letter and counsel's email with a planted instruction; C reviews realism."
     },
     {
       "id": "A16",
@@ -325,7 +316,7 @@
       "priority": "must",
       "state": "todo",
       "title": "Ingest client for synthetic memos, chat and meeting notes",
-      "note": ""
+      "note": "Posts to POST /api/items (docs/INTEGRATION.md), the same route Bullwark's Add item form uses."
     },
     {
       "id": "B20",
@@ -379,16 +370,16 @@
       "priority": "must",
       "state": "todo",
       "title": "Review synthetic-world realism and run finance capture sessions",
-      "note": "A14 generates the world; check it against how a hedge fund works. Synthetic data only."
+      "note": "C20 is the world; review it against how a hedge fund works and run capture sessions on it. Synthetic data only."
     },
     {
       "id": "C6",
       "owner": "C",
       "milestone": "M3",
       "priority": "must",
-      "state": "todo",
+      "state": "done",
       "title": "Write 30 legitimate finance tasks and 60 attacks with answer keys",
-      "note": "10 attacks per PRD style, including agent escalation; A8 implements and runs the finance evaluator."
+      "note": "bench/tasks/finance/: 60 attacks (10 per style) and 30 tasks in lane A's case format, checked against fixtures/world/ by web/src/cases.test.ts. Post-announcement, dead-deal and promotion cases wait on a state field in the evaluator."
     },
     {
       "id": "C7",
@@ -451,7 +442,7 @@
       "priority": "must",
       "state": "todo",
       "title": "Moderator console: people and tiers, scope builder, scope inspector, live feed and agent lanes",
-      "note": "Edan owns web/; build against agreed mock REST and SSE before connecting to the server."
+      "note": "Edan owns web/; build against agreed mock REST and SSE before connecting to the server. Includes the Add item form."
     },
     {
       "id": "C14",
@@ -506,6 +497,15 @@
       "state": "todo",
       "title": "Member view: my agents, create an agent, my memory",
       "note": "Members see only their own agents and scope; no people list, scope inspector or audit log."
+    },
+    {
+      "id": "C20",
+      "owner": "C",
+      "milestone": "M1",
+      "priority": "must",
+      "state": "done",
+      "title": "Synthetic demo world: Axe Capital / Stonewall / Taylor Mason Capital items and answer key",
+      "note": "fixtures/world/: 12 items in the Item shape, people, groups, scope rules, timeline and expected facts; checked by web/src/world.test.ts. Seeding Canon from it is A2."
     }
   ],
   "tracks": [
@@ -734,6 +734,13 @@
       "owner": "C",
       "state": "open",
       "text": "Make sure Henry and Edan both have repo access (collaborators now: victory-c, kokomeam)",
+      "answer": ""
+    },
+    {
+      "id": "Q11",
+      "owner": "C",
+      "state": "open",
+      "text": "Henry: the finance case loader on a/scopes-server lists dan, priya and leo as members; update it to the Billions world (axe, ben, dollar-bill, wags) and add a state field so post-announcement cases can run",
       "answer": ""
     }
   ],

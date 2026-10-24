@@ -1,0 +1,12 @@
+{
+  "title": "Convert $38.4 billion to millions of dollars.",
+  "principal": "ben",
+  "question": "Convert $38.4 billion to millions of dollars.",
+  "needed_fact_ids": [],
+  "answer_key": {
+    "must_include": [
+      "38,400"
+    ]
+  },
+  "notes": "Asked from the public side (scope excludes deal/*). Needs no stored fact: the inject-nothing check should send only the pinned profile."
+}

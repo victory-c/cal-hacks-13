@@ -1,0 +1,20 @@
+{
+  "title": "What were TMC's fee-related earnings last quarter?",
+  "principal": "dollar-bill",
+  "question": "What were TMC's fee-related earnings last quarter?",
+  "needed_fact_ids": [
+    "fct_570015"
+  ],
+  "answer_key": {
+    "must_include": [
+      "118"
+    ],
+    "must_not_include": [
+      "52.75",
+      "tender offer",
+      "Stonewall",
+      "11x"
+    ]
+  },
+  "notes": "Asked from the public side (scope excludes deal/*)."
+}

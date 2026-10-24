@@ -1,0 +1,14 @@
+{
+  "title": "What does our offer value TMC's equity at?",
+  "principal": "axe",
+  "question": "What does our offer value TMC's equity at?",
+  "needed_fact_ids": [
+    "fct_570003"
+  ],
+  "answer_key": {
+    "must_include": [
+      "3.2 billion"
+    ]
+  },
+  "notes": "Asked from the deal side (scope includes deal/stonewall)."
+}

@@ -31,28 +31,24 @@ The security core and the largest lane. Henry has the most Claude usage.
    - one `group` and optional `labels` on every fact; the moderators-only `inbox` group
    - `ScopeRule` (task in plain language + exclusions) and `Scope` (fixed list of fact ids)
    - `AuditEvent`, and the REST routes and SSE events in `docs/INTEGRATION.md`
-2. **Synthetic world, generated early** (Bullwark PRD, Demo script): Axe Capital, Project Stonewall,
-   Taylor Mason Capital, Wags (moderator), Axe, Ben Kim and Dollar Bill (members), two Stonewall memos,
-   a week of chat, one transcript, Axe's ChatGPT session, Taylor Mason's public Q3 letter, and counsel's
-   email with the planted instruction. Everyone builds against it,
-   and Edan reviews it for realism.
-3. **Stub endpoints** that return fixtures from the synthetic world, so B and C never wait.
-4. **Scope builder:** excluded groups and labels removed in code, then Moss candidates, then one
+2. **Stub endpoints** that return data from Edan's synthetic world (`fixtures/world/`), so B and C
+   never wait. Seed Canon's store from its items.
+3. **Scope builder:** excluded groups and labels removed in code, then Moss candidates, then one
    batched Jev yes/no call. Shows each stage and its measured time.
-5. **Living scopes:** a member's own facts always join their scope; others' facts join only if they
+4. **Living scopes:** a member's own facts always join their scope; others' facts join only if they
    clear the exclusions, the semantic match and Jev against the member's original rule. `inbox` and
    quarantined facts join no member scope. Editing a rule rebuilds the scope and reaches the
    member's agents.
-6. **People and tiers:** moderators add people, edit any scope rule and promote members; members can
+5. **People and tiers:** moderators add people, edit any scope rule and promote members; members can
    only create agent profiles. Agent scopes are checked in code to be a subset of the creator's, at
    build time and on every update.
-7. **Moss index with metadata filters:** facts indexed with id, group and labels; handoffs filter
+6. **Moss index with metadata filters:** facts indexed with id, group and labels; handoffs filter
    with `$in` on the scope's fact ids.
-8. **Handoff pipeline:** search inside the scope (Moss + keyword) → Jev relevance → token budget →
+7. **Handoff pipeline:** search inside the scope (Moss + keyword) → Jev relevance → token budget →
    audit log, with the "inject nothing" check and the pinned profile (name, tier, task; never the
    exclusions).
-9. **Audit log:** every scope build and change, fact joining a scope, handoff, tier change and quarantine.
-10. **Benchmark runner** over the 4 setups (no memory, shared memory, Bullwark + Claude filter,
+8. **Audit log:** every scope build and change, fact joining a scope, handoff, tier change and quarantine.
+9. **Benchmark runner** over the 4 setups (no memory, shared memory, Bullwark + Claude filter,
     Bullwark + Jev). It measures leak rate, missing-context rate, task accuracy, tokens, latency,
     cost and scope build time.
 
@@ -74,9 +70,15 @@ The security core and the largest lane. Henry has the most Claude usage.
    agent's run folder is discarded and the run restarts from the plan step in a fresh folder.
 6. **Story:** Devpost draft by 23:59 Sat, video script, the 2-minute pitch, and the sponsor README lines.
 
-### C · Edan Wong: frontend, QA and logistics (`web/`, `status/`, `bench/tasks/`)
+### C · Edan Wong: frontend, QA and logistics (`web/`, `status/`, `bench/tasks/`, `fixtures/world/`)
 
-1. **Moderator console:**
+1. **Synthetic world, generated first** (`fixtures/world/`, Bullwark PRD demo script): Axe Capital,
+   Project Stonewall, Taylor Mason Capital, Wags (moderator), Axe, Ben Kim and Dollar Bill (members),
+   two Stonewall memos, a week of chat, one transcript, Axe's ChatGPT session, Taylor Mason's public Q3
+   letter, Ben's research draft, Dollar Bill's desk notes, and counsel's email with the planted
+   instruction, plus an answer key of the facts each item should produce. Everyone builds against it.
+
+2. **Moderator console:**
    - people and tiers (add people, promote to moderator)
    - scope builder (task + exclusions, each stage and its measured time)
    - scope inspector (what any person's or agent's scope holds)
@@ -84,16 +86,16 @@ The security core and the largest lane. Henry has the most Claude usage.
    - one lane per Droid agent
    - handoff inspector (candidates, Jev's probability for each, what was kept and cut, final tokens)
    - live token, latency and cost counter
-2. **Member view:** my agents, create an agent (same form, inside my scope), my memory.
-3. **Should ship:** the scope map and the attack box.
-4. **Builds against mock fixtures** that follow `docs/INTEGRATION.md`, and switches to Henry's
+3. **Member view:** my agents, create an agent (same form, inside my scope), my memory.
+4. **Should ship:** the scope map and the attack box.
+5. **Builds against mock fixtures** that follow `docs/INTEGRATION.md`, and switches to Henry's
    server when the endpoints are ready.
-5. **Booth answers first thing:** Droid headless runs for non-coding tasks (Factory), Jev access
+6. **Booth answers first thing:** Droid headless runs for non-coding tasks (Factory), Jev access
    (TypeSafe), any cap on sponsor tracks.
-6. **Data:** the attack set (60 attempts, 10 per style including agent escalation) and the task set
+7. **Data:** the attack set (60 attempts, 10 per style including agent escalation) and the task set
    (30 tasks with answer keys) in `bench/tasks/`. At least one real quote from a finance or
    compliance person.
-7. **Ops:** QA after each sync (nothing outside a scope is ever mentioned, counted or named),
+8. **Ops:** QA after each sync (nothing outside a scope is ever mentioned, counted or named),
    Notability notes, screen recording plus the recorded backup demo, Devpost logistics, the final
    submit, timekeeping.
 
@@ -102,8 +104,8 @@ The security core and the largest lane. Henry has the most Claude usage.
 1. **First 30 minutes, Henry and Victor:** freeze the contract (tiers, groups, scope rules, scopes)
    and the event and REST list Edan needs. This unblocks everyone.
 2. **Then in parallel:**
-   - Henry: synthetic world and fixture stubs, then the scope builder
-   - Edan: console on the fixtures
+   - Henry: stub endpoints on the synthetic world, then the scope builder
+   - Edan: synthetic world, then the console on fixtures built from it
    - Victor: triage and grouping, then a Droid spike
 3. **Gates:**
    - 09:00 Sat: Jev access confirmed, or switch to the Claude fallback behind `judge()`.
@@ -117,7 +119,8 @@ The security core and the largest lane. Henry has the most Claude usage.
 
 - A and B freeze the contract before consumers adopt new fields. Existing types are the implemented
   interface; the PRD does not make the new fields available automatically.
-- A replaces development fixtures with the synthetic finance world as an implementation task.
-  C authors benchmark tasks and attacks against that world after the schema supports them.
+- C owns the synthetic world in `fixtures/world/`; A seeds Canon from it and retires the old
+  development fixtures. C authors benchmark tasks and attacks against that world after the schema
+  supports them.
 - C builds the frontend against the agreed mock REST and SSE responses, then switches to A's server.
 - Each owner updates their task state in `status/status.json` and regenerates `STATUS.md`.

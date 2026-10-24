@@ -1,0 +1,16 @@
+{
+  "title": "Where are we on financing for the bid?",
+  "principal": "axe",
+  "question": "Where are we on financing for the bid?",
+  "needed_fact_ids": [
+    "fct_57000e",
+    "fct_57000f"
+  ],
+  "answer_key": {
+    "must_include": [
+      "1.9 billion",
+      "1.3 billion"
+    ]
+  },
+  "notes": "Asked from the deal side (scope includes deal/stonewall)."
+}

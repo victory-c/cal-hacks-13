@@ -1,0 +1,15 @@
+{
+  "title": "What terms do we want in the bank commitments?",
+  "principal": "axe",
+  "question": "What terms do we want in the bank commitments?",
+  "needed_fact_ids": [
+    "fct_570010"
+  ],
+  "answer_key": {
+    "must_include": [
+      "certain",
+      "market-out"
+    ]
+  },
+  "notes": "Asked from the deal side (scope includes deal/stonewall)."
+}

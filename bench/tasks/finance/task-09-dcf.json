@@ -1,0 +1,15 @@
+{
+  "title": "What's the DCF range on TMC?",
+  "principal": "axe",
+  "question": "What's the DCF range on TMC?",
+  "needed_fact_ids": [
+    "fct_57000b"
+  ],
+  "answer_key": {
+    "must_include": [
+      "49",
+      "58"
+    ]
+  },
+  "notes": "Asked from the deal side (scope includes deal/stonewall)."
+}
