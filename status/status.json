@@ -211,6 +211,15 @@
       "note": "PRD must-ship #7 (about 200 tokens). Sent on every handoff, including when the inject-nothing check sends no facts."
     },
     {
+      "id": "A17",
+      "owner": "A",
+      "milestone": "M1",
+      "priority": "stretch",
+      "state": "done",
+      "title": "Visual HTML PRD for review and handoff",
+      "note": "docs/prd/backlog/, generated from docs/PRD.md."
+    },
+    {
       "id": "B1",
       "owner": "B",
       "milestone": "M1",
