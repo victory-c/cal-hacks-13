@@ -21,7 +21,7 @@
 // every lane, so it never carries runtime stderr or a quoted fact; the worker log has the detail.
 
 import { randomBytes } from "node:crypto";
-import { readFileSync, rmSync, statSync } from "node:fs";
+import { lstatSync, readFileSync, rmSync } from "node:fs";
 import { join } from "node:path";
 
 import { DEFAULT_BUDGET_TOKENS, PUBLIC_WALL, env, nowIso } from "@canon/shared";
@@ -37,6 +37,7 @@ import { isActive } from "./routing.ts";
 import { CancelledError, StepError } from "./runners/types.ts";
 import type { Runner, StepEvent } from "./runners/types.ts";
 import {
+  SandboxEscapeError,
   archiveSandbox,
   createSandbox,
   freeze,
@@ -52,6 +53,8 @@ import type { Sandbox } from "./sandbox.ts";
 
 export const DEFAULT_MAX_STEPS = 4;
 export const DEFAULT_STEP_TIMEOUT_MS = 300_000;
+/** Ended runs kept in memory for list() and get(); their locked record and events keep the rest. */
+export const DEFAULT_MAX_ENDED_RUNS = 200;
 /** Outputs bigger than this, or with NUL bytes, do not leave: the exit check reads text only. */
 const MAX_OUTPUT_BYTES = 256_000;
 
@@ -87,6 +90,8 @@ export interface DispatcherOptions {
   recordsRoot?: string | false;
   /** Local listener for every event the dispatcher publishes (the CLI prints them). */
   onEvent?: (e: RelayedEvent) => void;
+  /** Ended runs kept in memory (the oldest started go first). Default DEFAULT_MAX_ENDED_RUNS. */
+  maxEndedRuns?: number;
 }
 
 interface RunRecord {
@@ -121,19 +126,35 @@ export class Dispatcher {
   private readonly maxSteps: number;
   private readonly stepTimeoutMs: number;
   private readonly records: string | false;
+  private readonly maxEndedRuns: number;
   private outbox: Promise<void> = Promise.resolve();
   private publishFailures = 0;
+  /** Bumped by noteWallChange(). Planning reads the walls again when it moved during a read. */
+  private wallEpoch = 0;
 
   constructor(private readonly opts: DispatcherOptions) {
     this.maxSteps = opts.maxSteps ?? maxStepsFromEnv();
     const envTimeout = Number(env("DISPATCH_STEP_TIMEOUT_MS", String(DEFAULT_STEP_TIMEOUT_MS)));
     this.stepTimeoutMs = opts.stepTimeoutMs ?? (Number.isFinite(envTimeout) && envTimeout > 0 ? envTimeout : DEFAULT_STEP_TIMEOUT_MS);
     this.records = opts.recordsRoot ?? (opts.root ? false : defaultRecordsRoot());
+    this.maxEndedRuns = Math.max(0, opts.maxEndedRuns ?? DEFAULT_MAX_ENDED_RUNS);
   }
 
-  /** Plans the request and starts one run per planned agent. Resolves once they have started. */
+  /**
+   * The worker heard a wall change (deal status, entitlement). A plan whose walls read overlapped
+   * it reads them again, so sides are never decided on the state from before the change.
+   */
+  noteWallChange(): void {
+    this.wallEpoch++;
+  }
+
+  /**
+   * Plans the request and starts one run per planned agent. Resolves once they have started.
+   * Sides come from a walls read made after the planner returned, and the runs are registered
+   * with no await after that read, so a wall change heard later finds them and cancels them.
+   */
   async dispatch(req: DispatchRequest): Promise<AgentRun[]> {
-    const plan = await planDispatch(req, { client: this.opts.client, planner: this.opts.planner });
+    const plan = await planDispatch(req, { client: this.opts.client, planner: this.opts.planner, wallEpoch: () => this.wallEpoch });
     log(
       `dispatch by ${req.by}: ${plan.planner} planned ${plan.runs.length} run(s)${plan.simulated ? " (simulated)" : ""}: ` +
         plan.runs.map((r) => `${r.role}@${r.side} (${r.side_reason})`).join(", "),
@@ -169,12 +190,16 @@ export class Dispatcher {
     return { ...run };
   }
 
-  /** Live routing hands inbox items here. Urgent cancels stop the run at once (a step in flight is killed). */
+  /**
+   * Live routing hands inbox items here. Urgent cancels stop the run at once (a step in flight is
+   * killed). A run already being cancelled takes nothing more: it will never read it, and its lane
+   * must not show an update routed before the wall that stopped it went up.
+   */
   deliver(items: readonly InboxItem[]): number {
     let accepted = 0;
     for (const item of items) {
       const rec = this.runs.get(item.run_id);
-      if (!rec || !isActive(rec.run)) continue;
+      if (!rec || !isActive(rec.run) || rec.cancelReason) continue;
       accepted++;
       if (item.kind === "cancel" && item.urgent) {
         const delivered = { ...item, delivered_at: nowIso() };
@@ -220,11 +245,14 @@ export class Dispatcher {
 
   /** Resolves when every run has ended and every event has been sent. */
   async settle(): Promise<void> {
-    // Loop while runs keep appearing (a dispatch that lands while we wait).
-    let seen = -1;
-    while (seen !== this.runs.size) {
-      seen = this.runs.size;
-      await Promise.allSettled([...this.runs.values()].map((r) => r.done));
+    // Loop while runs keep appearing (a dispatch that lands while we wait). By identity, not by
+    // count: ended runs are forgotten meanwhile, so an unchanged count can hide a new run.
+    const awaited = new Set<Promise<void> | undefined>();
+    for (;;) {
+      const pending = [...this.runs.values()].map((r) => r.done).filter((p) => !awaited.has(p));
+      if (pending.length === 0) break;
+      for (const p of pending) awaited.add(p);
+      await Promise.allSettled(pending);
     }
     await this.outbox;
   }
@@ -387,7 +415,7 @@ export class Dispatcher {
     // File names are the agent's words too: no held reason names one.
     for (const file of files) {
       const abs = join(sandbox.dir, file);
-      if (statSync(abs).size > MAX_OUTPUT_BYTES) return this.endFailed(rec, "Output held: a file in out/ is too large for the exit check.");
+      if (lstatSync(abs).size > MAX_OUTPUT_BYTES) return this.endFailed(rec, "Output held: a file in out/ is too large for the exit check.");
       const buf = readFileSync(abs);
       if (buf.includes(0)) return this.endFailed(rec, "Output held: a file in out/ is not text.");
       const verdict = await this.exitCheck(rec, buf.toString("utf8"));
@@ -452,8 +480,26 @@ export class Dispatcher {
     rec.run.state = state;
     rec.run.ended_at = nowIso();
     if (reason) rec.run.reason = reason;
+    // Working data an ended run never uses again: held words that did not pass the exit check
+    // (they must now never be shown) and inbox items it will never read.
+    rec.inbox = [];
+    rec.held = [];
+    rec.lastFactIds = undefined;
     log(`run ${rec.run.id} (${rec.run.agent}@${rec.run.side}): ${state} after ${rec.run.steps} step(s)${reason ? `: ${reason}` : ""}`);
     this.publishRun(rec);
+    this.forgetEndedRuns();
+  }
+
+  /** Keeps at most maxEndedRuns ended runs in memory, so a long-lived worker does not grow with every run it ran. */
+  private forgetEndedRuns(): void {
+    let excess = -this.maxEndedRuns;
+    for (const rec of this.runs.values()) if (!isActive(rec.run)) excess++;
+    for (const [id, rec] of this.runs) {
+      if (excess <= 0) break;
+      if (isActive(rec.run)) continue;
+      this.runs.delete(id); // a Map iterates oldest first
+      excess--;
+    }
   }
 
   /** Copies the locked folder to the records root, then removes the live one (it would sit next to later runs). */
@@ -522,6 +568,8 @@ export function cancelReasonOf(item: InboxItem): string {
 
 /** One line for the lane: what failed, never the error's text (stderr, server bodies). */
 function failureReason(phase: Phase, runtime: AgentRuntime, n: number, err: unknown): string {
+  // The worker refused to follow a link the agent left where it reads or writes its own files.
+  if (err instanceof SandboxEscapeError) return `Stopped: the agent left a link where the worker reads or writes its files. ${LOG_HINT}`;
   switch (phase) {
     case "register":
       return `Could not register the agent with the server. ${LOG_HINT}`;

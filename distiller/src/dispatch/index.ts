@@ -4,17 +4,20 @@
 // running agents' inboxes. With arguments it is the offline CLI (see cli.ts):
 //   npm run dispatch -w distiller -- --by dan "Prep Falcon board materials and update our logistics sector note"
 
+import { join } from "node:path";
+
 import { DEFAULT_SERVER_URL, FakeJudge, ROUTES, createJudge, env, loadEnv } from "@canon/shared";
 import type { Judge } from "@canon/shared";
 import { createBriefWriter } from "./brief.ts";
 import { cliErrorMessage, runCli } from "./cli.ts";
 import { createDispatchClient, subscribe } from "./client.ts";
 import { Dispatcher } from "./dispatcher.ts";
-import { createDispatchHandler } from "./handler.ts";
+import { createDispatchHandler, fileLedger } from "./handler.ts";
 import { errorMessage, log, warn } from "./log.ts";
 import { createPlanner } from "./plan.ts";
 import { simulatedRoutingAnswer } from "./routing.ts";
 import { createRunner, resolveRuntime } from "./runners/index.ts";
+import { recordsRoot } from "./sandbox.ts";
 
 loadEnv();
 const argv = process.argv.slice(2);
@@ -50,7 +53,9 @@ function startWorker(): void {
     if (judge.name === "fake") judge = new FakeJudge({ override: simulatedRoutingAnswer });
     const client = createDispatchClient({ baseUrl, token });
     const dispatcher = new Dispatcher({ client, runner, planner: createPlanner(), briefWriter: createBriefWriter() });
-    const handler = createDispatchHandler({ dispatcher, client, judge });
+    // The request ids this worker ran, next to the runs' records: a restart inside the replay
+    // grace does not run a request again.
+    const handler = createDispatchHandler({ dispatcher, client, judge, ledger: fileLedger(join(recordsRoot(), "dispatched.log")) });
 
     log(`dispatcher worker: runtime ${runner.name}, judge ${judge.name}, listening on ${baseUrl}${ROUTES.events}`);
     const stop = subscribe({ baseUrl, token }, (event) => void handler(event), {

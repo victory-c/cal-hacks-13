@@ -72,9 +72,10 @@ export function createDispatchClient(opts: { baseUrl: string; token: string }): 
     const key = `${method} ${path}`;
     if (warned.has(key)) return;
     warned.add(key);
+    // Never the token's value: worker logs are read by people who should not hold it.
     const why =
       status === 401
-        ? `the server does not know the dispatcher token (add dispatcher=${opts.token} to CANON_CLIENT_TOKENS)`
+        ? "the server does not know the dispatcher token (the server's CANON_CLIENT_TOKENS needs a dispatcher=<token> pair matching CANON_TOKEN_DISPATCHER)"
         : "the server has no such route yet (v1 server?)";
     warn(`${key}: HTTP ${status}, ${why}; degrading and carrying on (logged once)`);
   };

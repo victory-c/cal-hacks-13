@@ -6,15 +6,17 @@
 //   - a run gets a deal side only when the requester holds a live entitlement for that deal
 //     (GET /api/entitlements) and the deal is not terminated; otherwise it runs public.
 // The planner only ever sees the deals the requester is cleared for, so it cannot name others.
+// Sides are decided from a second walls read made after the planner returns, so a termination or
+// a revoked grant that lands while it thinks is honoured.
 //
 // Demo: "Prep Falcon board materials and update our logistics sector note", by dan (cleared for
 // deal_falcon) -> deal_analyst on deal_falcon + research_analyst on public.
 
 import { AGENT_ROLES, PUBLIC_WALL, isDealWall } from "@canon/shared";
-import type { AgentRole, Deal, DispatchRequest, Wall } from "@canon/shared";
+import type { AgentRole, Deal, DispatchRequest, Entitlement, Wall } from "@canon/shared";
 import { SONNET, createMessage, hasAnthropicKey, isRecord, toolCalls, usageOf } from "./anthropic.ts";
 import type { DispatchClient } from "./client.ts";
-import { hasLiveEntitlement } from "./routing.ts";
+import { MAX_WALL_READS, hasLiveEntitlement } from "./routing.ts";
 
 /** What a planner proposes. `deal` is a deal id or null; code checks it. */
 export interface ProposedRun {
@@ -53,26 +55,52 @@ export function createPlanner(): Planner {
   return hasAnthropicKey() ? new ClaudePlanner() : new HeuristicPlanner();
 }
 
-export async function planDispatch(
-  req: DispatchRequest,
-  deps: { client: Pick<DispatchClient, "getDeals" | "getEntitlements">; planner: Planner; now?: Date },
-): Promise<Plan> {
-  const now = deps.now ?? new Date();
-  const [deals, entitlements] = await Promise.all([deps.client.getDeals(), deps.client.getEntitlements()]);
-  const cleared = (dealId: string) => hasLiveEntitlement(entitlements, req.by, dealId, now);
+export interface PlanDeps {
+  client: Pick<DispatchClient, "getDeals" | "getEntitlements">;
+  planner: Planner;
+  now?: Date;
+  /** Moves on every wall change the worker hears (Dispatcher.noteWallChange). A walls read it overlaps is read again. */
+  wallEpoch?: () => number;
+}
+
+export async function planDispatch(req: DispatchRequest, deps: PlanDeps): Promise<Plan> {
+  const before = await readWalls(deps);
+  const clearedIn = (walls: Walls, now: Date) => (dealId: string) => hasLiveEntitlement(walls.entitlements, req.by, dealId, now);
+  const clearedBefore = clearedIn(before, deps.now ?? new Date());
   // Announced deals are public; confidential ones only when the requester is over that wall.
-  const visible = deals.filter((d) => d.status === "announced" || (d.status === "confidential" && cleared(d.id)));
+  const visible = before.deals.filter((d) => d.status === "announced" || (d.status === "confidential" && clearedBefore(d.id)));
 
   const proposed = await deps.planner.propose(req.task, visible);
+
+  // Sides come from the walls as they are AFTER the planner returned (it may think for seconds):
+  // a deal terminated, or a grant revoked, meanwhile must not get a deal-side run.
+  const after = await readWalls(deps);
+  const cleared = clearedIn(after, deps.now ?? new Date());
   const runs: PlannedRun[] = [];
   for (const p of proposed.runs.slice(0, MAX_RUNS)) {
     const task = p.task.trim() || req.task;
-    runs.push({ role: p.role, task, ...decideSide(p, req.by, deals, cleared) });
+    runs.push({ role: p.role, task, ...decideSide(p, req.by, after.deals, cleared) });
   }
   if (runs.length === 0) runs.push({ role: "research_analyst", task: req.task, side: PUBLIC_WALL, side_reason: "planner proposed nothing; one public-side run" });
   const plan: Plan = { runs, planner: deps.planner.name, simulated: deps.planner.simulated };
   if (proposed.tokens) plan.tokens = proposed.tokens;
   return plan;
+}
+
+type Walls = { deals: Deal[]; entitlements: Entitlement[] };
+
+/**
+ * Deals and entitlements. A read that a wall change overtook (heard while it was in flight) may
+ * hold the state from before the change, so it is read again (MAX_WALL_READS in all, then throw:
+ * nothing is planned on a view that keeps moving).
+ */
+async function readWalls(deps: PlanDeps): Promise<Walls> {
+  for (let attempt = 1; ; attempt++) {
+    const epoch = deps.wallEpoch?.();
+    const [deals, entitlements] = await Promise.all([deps.client.getDeals(), deps.client.getEntitlements()]);
+    if (epoch === deps.wallEpoch?.()) return { deals, entitlements };
+    if (attempt >= MAX_WALL_READS) throw new Error(`the walls changed during ${MAX_WALL_READS} reads in a row; not planning on a view that keeps moving`);
+  }
 }
 
 function decideSide(p: ProposedRun, by: string, deals: readonly Deal[], cleared: (deal: string) => boolean): { side: Wall; side_reason: string } {

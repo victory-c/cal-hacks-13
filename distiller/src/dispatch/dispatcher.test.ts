@@ -1,19 +1,34 @@
 import assert from "node:assert/strict";
-import { existsSync, mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
+import { existsSync, mkdtempSync, readFileSync, rmSync, statSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, test } from "node:test";
 
 import { FakeJudge, NEUTRAL_REFUSALS } from "@canon/shared";
-import type { AgentRun, ContextFact, ExitCheckBody, ExitCheckResult, HandoffBody, HandoffResult, InboxItem, Principal } from "@canon/shared";
+import type {
+  AgentRun,
+  CanonEvent,
+  ContextFact,
+  Deal,
+  DealStatus,
+  Entitlement,
+  ExitCheckBody,
+  ExitCheckResult,
+  HandoffBody,
+  HandoffResult,
+  InboxItem,
+  Judge,
+  Principal,
+} from "@canon/shared";
 import { quiet } from "../test-helpers.ts";
 import { TemplateBriefWriter } from "./brief.ts";
 import type { DispatchClient, RelayedEvent } from "./client.ts";
 import { Dispatcher, EXIT_BLOCKED_REASON, EXIT_UNAVAILABLE_REASON, HELD_STEP_TEXT, stepPrompt } from "./dispatcher.ts";
-import { createDispatchHandler } from "./handler.ts";
+import { createDispatchHandler, fileLedger } from "./handler.ts";
 import { OfflineClient } from "./offline.ts";
 import { HeuristicPlanner } from "./plan.ts";
 import { routeDealStatus, simulatedRoutingAnswer } from "./routing.ts";
+import type { RoutableRun } from "./routing.ts";
 import { FakeRunner } from "./runners/fake.ts";
 import { CancelledError, StepError } from "./runners/types.ts";
 import type { Runner, StepRequest, StepResult } from "./runners/types.ts";
@@ -299,6 +314,66 @@ describe("dispatcher: a run's life", () => {
     assert.equal(readFileSync(join(dir, "out", "sector-note.md"), "utf8"), calls.exitCheck[0].text, "the released bytes are the checked bytes");
   });
 
+  test("an agent that swaps out/ for a link to an outside folder releases nothing from it", async () => {
+    const outside = mkdtempSync(join(tmpdir(), "canon-outside-"));
+    try {
+      writeFileSync(join(outside, "secret.md"), "Outside the sandbox: Nimbus Logistics terms.\n");
+      const { client, calls } = fakeClient();
+      const runner = new ScriptedRunner((req) => {
+        rmSync(join(req.dir, "out"), { recursive: true, force: true });
+        symlinkSync(outside, join(req.dir, "out"));
+        return { done: true, summary: "DONE" };
+      });
+      const d = make(client, runner);
+      const run = d.start({ role: "deal_analyst", side: "deal_falcon", task: "Prep Falcon board materials" }, "dan");
+      await quiet(() => d.settle());
+      assert.equal(d.get(run.id)!.state, "failed");
+      assert.equal(d.get(run.id)!.reason, "Output held: out/ contains a link or a special file.");
+      assert.equal(calls.exitCheck.length, 0, "the worker never read the outside folder as output");
+      assert.ok(!calls.events.some((e) => /secret\.md|Nimbus/.test(JSON.stringify(e))));
+      if (process.getuid?.() !== 0) assert.notEqual(statSync(join(outside, "secret.md")).mode & 0o200, 0, "lock did not follow the link either");
+    } finally {
+      rmSync(outside, { recursive: true, force: true });
+    }
+  });
+
+  test("an agent that swaps facts.md for a link cannot make the slice refresh write outside its folder", async () => {
+    const outside = mkdtempSync(join(tmpdir(), "canon-outside-"));
+    try {
+      const target = join(outside, "target.md");
+      writeFileSync(target, "original\n");
+      const { client } = fakeClient();
+      const runner = new ScriptedRunner((req) => {
+        rmSync(join(req.dir, "facts.md"));
+        symlinkSync(target, join(req.dir, "facts.md"));
+        return { done: false, summary: "CONTINUE" };
+      });
+      const d = make(client, runner);
+      const run = d.start({ role: "research_analyst", side: "public", task: "Update our logistics sector note" }, "dan");
+      await quiet(() => d.settle());
+      assert.equal(readFileSync(target, "utf8"), "original\n", "the step-2 slice was not written through the link");
+      assert.equal(runner.prompts.length, 1, "no step ran after the link was found");
+      assert.equal(d.get(run.id)!.state, "failed");
+      assert.equal(d.get(run.id)!.reason, "Stopped: the agent left a link where the worker reads or writes its files. The worker log has the details.");
+    } finally {
+      rmSync(outside, { recursive: true, force: true });
+    }
+  });
+
+  test("ended runs beyond maxEndedRuns are forgotten; settle still waits for every run", async () => {
+    const { client } = fakeClient();
+    const runner = new ScriptedRunner((req) => (writeOut(req, "deal-memo.md", "Falcon memo.\n"), { done: true, summary: "DONE" }));
+    const d = new Dispatcher({ client, runner, planner: new HeuristicPlanner(), briefWriter: new TemplateBriefWriter(), maxSteps: 1, root, maxEndedRuns: 1 });
+    const runs = [1, 2, 3].map(() => d.start({ role: "deal_analyst", side: "deal_falcon", task: "Prep Falcon board materials" }, "dan"));
+    await quiet(() => d.settle());
+    assert.equal(runner.prompts.length, 3, "every run ran");
+    assert.deepEqual(
+      d.list().map((r) => r.state),
+      ["done"],
+    );
+    assert.equal(runs.filter((r) => d.get(r.id) === undefined).length, 2);
+  });
+
   test("no exit check on the server (v1, 404) fails closed", async () => {
     const { client } = fakeClient({ exitCheck: async () => null });
     const d = make(client, new ScriptedRunner((req) => (writeOut(req), { done: true, summary: "DONE" })));
@@ -516,6 +591,7 @@ describe("worker handler", () => {
       dispatch: async (req: { by: string; task: string }) => (dispatched.push(req.task), []),
       deliver: () => 0,
       routable: () => [],
+      noteWallChange: () => {},
     };
     const judge = (await quiet(() => new FakeJudge({ override: simulatedRoutingAnswer }))).result;
     const handler = createDispatchHandler({ dispatcher, client: offline, judge });
@@ -527,6 +603,107 @@ describe("worker handler", () => {
       await handler.settle();
     });
     assert.deepEqual(dispatched, ["task dsp_1"]);
+  });
+
+  test("a worker restarted inside the replay grace does not run a request it already ran (the ledger is on disk)", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "canon-ledger-"));
+    try {
+      const path = join(dir, "agents", "dispatched.log");
+      const dispatched: string[] = [];
+      const dispatcher = { dispatch: async (req: { task: string }) => (dispatched.push(req.task), []), deliver: () => 0, routable: () => [], noteWallChange: () => {} };
+      const judge = (await quiet(() => new FakeJudge({ override: simulatedRoutingAnswer }))).result;
+      const ev = (id: string) => ({ type: "dispatch.requested" as const, at: new Date().toISOString(), id, request: { by: "dan", task: `task ${id}` } });
+      await quiet(async () => {
+        const first = createDispatchHandler({ dispatcher, client: new OfflineClient(), judge, ledger: fileLedger(path) });
+        await first(ev("dsp_10"));
+        await first.settle();
+        // The restart: a new handler and a new ledger read from the same file; the server replays dsp_10.
+        const second = createDispatchHandler({ dispatcher, client: new OfflineClient(), judge, ledger: fileLedger(path) });
+        await second(ev("dsp_10"));
+        await second(ev("dsp_11"));
+        await second.settle();
+      });
+      assert.deepEqual(dispatched, ["task dsp_10", "task dsp_11"]);
+      assert.equal(fileLedger(path).has("dsp_11"), true);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  /** A handler over a fake dispatcher that records what it is handed; runs: Falcon's deal agent and a public agent. */
+  function wallRaceSetup(client: Pick<DispatchClient, "getDeals" | "getEntitlements">, judge: Judge) {
+    const delivered: InboxItem[] = [];
+    const runs: RoutableRun[] = [
+      { run_id: "run_0000dea1", agent: "agt_deal_0000dea1", role: "deal_analyst", acts_for: "dan", side: "deal_falcon", task: "Prep Falcon board materials", state: "running" },
+      { run_id: "run_00005e51", agent: "agt_research_00005e51", role: "research_analyst", acts_for: "dan", side: "public", task: "Update our logistics sector note", state: "running" },
+    ];
+    const dispatcher = { dispatch: async () => [], deliver: (items: readonly InboxItem[]) => (delivered.push(...items), items.length), routable: () => runs, noteWallChange: () => {} };
+    const handler = createDispatchHandler({ dispatcher, client, judge });
+    const factEvent = (id: string): CanonEvent => ({
+      type: "fact.saved",
+      at: new Date().toISOString(),
+      fact: { id, statement: "Falcon buyer for the logistics sector named at 41.50 a share", folder: "team", tier: "hot", jev_keep: 0.9, source: { client: "ingest", session: "ses_00000050" }, updated: "2026-10-24", wall: "deal_falcon" },
+      decision: { tier: "hot", folder: "team", action: "add", keep_p: 0.9, folder_p: 0.9, judge: "fake" },
+    });
+    const backUp: CanonEvent = { type: "deal.status_changed", at: new Date().toISOString(), deal: "deal_falcon", from: "announced", to: "confidential", by: "maya" };
+    const publicGot = (factId: string) => delivered.some((i) => i.run_id === "run_00005e51" && i.fact_id === factId);
+    return { handler, factEvent, backUp, publicGot };
+  }
+
+  const falconDeal: Deal = { id: "deal_falcon", code_name: "Project Falcon", aliases: ["Falcon"], companies: ["Nimbus Logistics"], status: "announced", status_changed_at: "2026-10-20T09:00:00Z" };
+  /** Says yes to every needs:k, no to every cancels:k. Waits for `gate` when given. */
+  const yesJudge = (gate?: Promise<void>): Judge => ({
+    name: "fake",
+    async ask(_state, questions) {
+      await gate;
+      return questions.map((q) => ({ id: q.id, type: "noul" as const, p: q.id.startsWith("needs:") ? 0.9 : 0.01 }));
+    },
+  });
+
+  test("a walls read that a wall change overtook is never used: an old 'announced' read cannot reopen the wall", async () => {
+    // The server's deal state when each read is served; the first read is held until we let it go.
+    let status: DealStatus = "announced";
+    let release!: () => void;
+    const held = new Promise<void>((r) => (release = r));
+    let reads = 0;
+    const client = {
+      getDeals: async (): Promise<Deal[]> => {
+        const snapshot = [{ ...falconDeal, status }];
+        if (++reads === 1) await held;
+        return snapshot;
+      },
+      getEntitlements: async (): Promise<Entitlement[]> => [{ principal: "dan", deal: "deal_falcon", granted_by: "maya", granted_at: "2026-10-20T09:00:00Z", reason: "Banker on Falcon" }],
+    };
+    const { handler, factEvent, backUp, publicGot } = wallRaceSetup(client, yesJudge());
+    await quiet(async () => {
+      const first = handler(factEvent("fct_fa1c0050")); // its walls read is served while Falcon is announced, then held
+      status = "confidential";
+      await handler(backUp); // the wall goes back up while that read is in flight
+      release(); // the old 'announced' read lands last
+      await first;
+      await handler(factEvent("fct_fa1c0051")); // a later fact: from the cache, which must not be the old read
+      await handler.settle();
+    });
+    assert.equal(publicGot("fct_fa1c0050"), false, "the fact routed during the race stays behind the wall");
+    assert.equal(publicGot("fct_fa1c0051"), false, "the cache was not reset to the old announced state");
+  });
+
+  test("a wall that goes back up during the judge call is checked again in code before anything is delivered", async () => {
+    let status: DealStatus = "announced";
+    let answer!: () => void;
+    const judging = new Promise<void>((r) => (answer = r));
+    const client = { getDeals: async (): Promise<Deal[]> => [{ ...falconDeal, status }], getEntitlements: async (): Promise<Entitlement[]> => [] };
+    const { handler, factEvent, backUp, publicGot } = wallRaceSetup(client, yesJudge(judging));
+    await quiet(async () => {
+      const routing = handler(factEvent("fct_fa1c0052")); // announced: the public agent is eligible and asked about
+      await new Promise((r) => setImmediate(r));
+      status = "confidential";
+      await handler(backUp);
+      answer(); // the judge says the public agent needs it
+      await routing;
+      await handler.settle();
+    });
+    assert.equal(publicGot("fct_fa1c0052"), false);
   });
 
   test("fact.saved and deal.status_changed are routed into running agents' inboxes", async () => {

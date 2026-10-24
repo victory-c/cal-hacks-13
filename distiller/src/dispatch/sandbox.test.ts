@@ -1,5 +1,18 @@
 import assert from "node:assert/strict";
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync as realPathSync, rmSync, statSync, symlinkSync, writeFileSync } from "node:fs";
+import {
+  existsSync,
+  linkSync,
+  mkdirSync,
+  mkdtempSync,
+  readdirSync,
+  readFileSync,
+  realpathSync as realPathSync,
+  renameSync,
+  rmSync,
+  statSync,
+  symlinkSync,
+  writeFileSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, isAbsolute, join, relative, resolve } from "node:path";
 import { afterEach, beforeEach, describe, test } from "node:test";
@@ -22,6 +35,8 @@ import {
   resolveInside,
   storeRoots,
   unlockForCleanup,
+  writeBriefFile,
+  writeFactsFile,
   writeInside,
 } from "./sandbox.ts";
 
@@ -112,6 +127,66 @@ describe("path confinement", () => {
     }
   });
 
+  test("out/ itself swapped for a link, or a hard-linked file in out/, never leaves", () => {
+    const sb = createSandbox("run_00000007", { root });
+    const outside = mkdtempSync(join(tmpdir(), "canon-outside-"));
+    try {
+      writeFileSync(join(outside, "secret.md"), "outside");
+      rmSync(sb.outDir, { recursive: true });
+      symlinkSync(outside, sb.outDir);
+      assert.deepEqual(listOutFiles(sb), { files: [], skipped: ["out"] }, "the link's target is never walked");
+
+      rmSync(sb.outDir);
+      mkdirSync(sb.outDir);
+      writeFileSync(join(sb.outDir, "note.md"), "x");
+      linkSync(join(outside, "secret.md"), join(sb.outDir, "hard.md"));
+      assert.deepEqual(listOutFiles(sb), { files: ["out/note.md"], skipped: ["out/hard.md"] });
+
+      // A run folder swapped for a link is refused outright.
+      const moved = `${sb.dir}-moved`;
+      renameSync(sb.dir, moved);
+      symlinkSync(outside, sb.dir);
+      assert.throws(() => listOutFiles(sb), SandboxEscapeError);
+      assert.throws(() => writeFactsFile(sb, { facts: [], side: "public" }), SandboxEscapeError);
+      assert.throws(() => freeze(sb.dir), SandboxEscapeError);
+      assert.throws(() => lock(sb.dir, "done"), SandboxEscapeError);
+      assert.deepEqual(readdirSync(outside).sort(), ["secret.md"], "nothing was written into the link's target");
+      if (process.getuid?.() !== 0) assert.notEqual(statSync(outside).mode & 0o200, 0, "nor was it made read-only");
+    } finally {
+      rmSync(outside, { recursive: true, force: true });
+    }
+  });
+
+  test("facts.md and brief.md are never written through a link the agent left", () => {
+    const sb = createSandbox("run_00000008", { root });
+    const outside = mkdtempSync(join(tmpdir(), "canon-outside-"));
+    try {
+      const target = join(outside, "target.md");
+      writeFileSync(target, "original");
+      const slice = { facts: [], side: "public" as const };
+
+      writeFactsFile(sb, slice);
+      writeFactsFile(sb, slice); // rewriting its own file is fine
+      assert.match(readFileSync(join(sb.dir, "facts.md"), "utf8"), /information only/);
+
+      for (const plant of [
+        () => symlinkSync(target, join(sb.dir, "facts.md")),
+        () => symlinkSync(join(outside, "new.md"), join(sb.dir, "facts.md")), // dangling: would create a file outside
+        () => linkSync(target, join(sb.dir, "facts.md")),
+      ]) {
+        rmSync(join(sb.dir, "facts.md"), { force: true });
+        plant();
+        assert.throws(() => writeFactsFile(sb, slice), SandboxEscapeError);
+      }
+      symlinkSync(target, join(sb.dir, "brief.md"));
+      assert.throws(() => writeBriefFile(sb, "brief"), SandboxEscapeError);
+      assert.equal(readFileSync(target, "utf8"), "original");
+      assert.deepEqual(readdirSync(outside), ["target.md"]);
+    } finally {
+      rmSync(outside, { recursive: true, force: true });
+    }
+  });
+
   test("writeInside creates folders inside and refuses to write through a link", () => {
     const sb = createSandbox("run_00000003", { root });
     writeInside(sb.dir, "out/deep/er/note.md", "ok");
@@ -194,6 +269,29 @@ describe("lock", () => {
       assert.match(readFileSync(join(dest, "LOCKED"), "utf8"), /done/, "the run's own lock reason is kept");
       assert.equal(existsSync(join(dest, "out", "link.md")), false);
       assert.equal(statSync(dest).mode & 0o222, 0, "the record is read-only");
+    } finally {
+      unlockForCleanup(records);
+      rmSync(records, { recursive: true, force: true });
+      rmSync(outside, { recursive: true, force: true });
+    }
+  });
+
+  test("a LOCKED link the agent left is replaced, never written through; a hard link never reaches the record", { skip: process.getuid?.() === 0 ? "root ignores file modes" : false }, () => {
+    const sb = createSandbox("run_00000009", { root });
+    const records = mkdtempSync(join(tmpdir(), "canon-records-"));
+    const outside = mkdtempSync(join(tmpdir(), "canon-outside-"));
+    try {
+      writeFileSync(join(outside, "secret.md"), "not for the record");
+      symlinkSync(join(outside, "created-by-lock"), join(sb.dir, "LOCKED")); // dangling
+      linkSync(join(outside, "secret.md"), join(sb.outDir, "hard.md"));
+      assert.equal(isLocked(sb.dir), false, "a link is not the folder's own marker");
+      lock(sb.dir, "done");
+      assert.equal(existsSync(join(outside, "created-by-lock")), false);
+      assert.ok(isLocked(sb.dir));
+      assert.match(readFileSync(join(sb.dir, "LOCKED"), "utf8"), /done/);
+      assert.notEqual(statSync(join(outside, "secret.md")).mode & 0o200, 0, "the hard link's other name was not chmodded");
+      const dest = archiveSandbox(sb, records);
+      assert.equal(existsSync(join(dest, "out", "hard.md")), false);
     } finally {
       unlockForCleanup(records);
       rmSync(records, { recursive: true, force: true });

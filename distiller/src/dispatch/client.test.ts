@@ -64,16 +64,18 @@ describe("dispatch client", () => {
     }
   });
 
-  test("an unknown token (401) says how to fix it; a 500 throws", async () => {
+  test("an unknown token (401) says how to fix it without printing the token; a 500 throws", async () => {
     const srv = await serve((req, res) => {
       const status = req.url === ROUTES.deals ? 401 : 500;
       res.writeHead(status, { "content-type": "application/json" });
       res.end(JSON.stringify({ error: "nope" }));
     });
     try {
-      const c = createDispatchClient({ baseUrl: srv.url, token: "dev-dispatcher" });
+      const token = "tok-secret-7f3a9c";
+      const c = createDispatchClient({ baseUrl: srv.url, token });
       const { lines } = await quiet(() => c.getDeals());
-      assert.match(lines[0], /add dispatcher=dev-dispatcher to CANON_CLIENT_TOKENS/);
+      assert.match(lines[0], /CANON_CLIENT_TOKENS needs a dispatcher=<token> pair matching CANON_TOKEN_DISPATCHER/);
+      assert.ok(!lines.some((l) => l.includes(token)), "the token's value never reaches the log");
       await assert.rejects(c.getEntitlements(), (err: unknown) => err instanceof DispatchApiError && err.status === 500);
     } finally {
       await srv.close();

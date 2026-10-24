@@ -64,6 +64,11 @@ say reads stay inside `--cwd`. So code adds the boundary:
   folder is carved back out. A test proves the repo and a sibling run read as `EPERM`.
 - When a run ends, its folder is locked and copied to `data/agents/<run_id>/` as the record, and
   the live folder is removed, so it never sits next to a later run.
+- The worker's own file work in the folder runs outside Droid's OS sandbox, so it never follows a
+  link the agent left: `facts.md`, `brief.md` and `LOCKED` are never written through a symlink or
+  a hard link (created exclusively; a link at `facts.md` fails the run), an `out/` that is itself
+  a link and any hard-linked file are never read as output, and a run folder swapped for a link
+  is never chmodded, locked or copied.
 
 The live folder holds exactly:
 
@@ -88,6 +93,9 @@ is always a fixed line: never Droid's stderr, never a quoted fact (the worker lo
 - **Sides (plan.ts).** The planner only sees deals the requester is cleared for. Code then decides:
   research and desk agents are always public; a deal side needs a live entitlement for the person
   the agent acts for (`GET /api/entitlements`), and a terminated or unknown deal means public.
+  Sides come from a second read of the walls made after the planner returns (read again if a wall
+  change is heard while it is in flight), and the runs start with no await after it, so a
+  termination or revoked grant during planning is honoured, and one heard later cancels them.
 - **Slices (dispatcher.ts).** Every step re-fetches the slice as the agent principal, so the
   server's permission filter runs every time, and an announced deal's facts reach public-side
   agents at their next step with no special case.
@@ -97,11 +105,15 @@ is always a fixed line: never Droid's stderr, never a quoted fact (the worker lo
   remaining agents (`needs:k`, `cancels:k`); `ROUTE_NEEDS` 0.6 writes a `new_fact`, `ROUTE_CANCELS`
   0.5 an urgent `cancel`. `deal.status_changed` needs no judge: terminated cancels that deal's
   runs, announced sends public-side runs an urgent `wall_change`, and any move away from
-  announced (back to confidential, or to terminated) puts the wall back up and cancels
-  public-side runs, which may hold the deal's facts or a queued update. A revoked entitlement
-  cancels the runs relying on it. Wall changes are routed from the event itself, before the
-  worker re-reads deals and entitlements, so a failed refresh never loses a cancel (it only
-  makes the next fact re-read the walls, and route nothing if that fails too).
+  announced (back to confidential, or to terminated) puts the wall back up and cancels every
+  run outside that deal (the public side and other deals' sides: while it was announced, every
+  side could see its facts), which may hold the deal's facts or a queued update. A revoked
+  entitlement cancels the runs relying on it. Wall changes are routed from the event itself,
+  before the worker re-reads deals and entitlements, so a failed refresh never loses a cancel (it
+  only makes the next fact re-read the walls, and route nothing if that fails too). Handlers run
+  concurrently, so every wall change bumps a generation first: a walls read it overtook is never
+  kept or used (it is read again), and a fact whose judge call it overtook is checked against the
+  walls again, in code, before delivery. A run being cancelled takes no further inbox items.
 - **Cancels are urgent.** An urgent cancel aborts the step in flight (kills Droid's process
   group and waits for it to exit), locks the folder and sets the run `cancelled` before any next
   step. Nothing queued behind a cancel is delivered.
@@ -118,12 +130,12 @@ is always a fixed line: never Droid's stderr, never a quoted fact (the worker lo
 |---|---|
 | `index.ts` | Entrypoint. No arguments: the worker (`/events` → `handler.ts`). With arguments: the CLI. |
 | `cli.ts` | Offline demo and one-shot dispatch: prints every lane line, then one row per run. |
-| `handler.ts` | `dispatch.requested` / `fact.saved` / `deal.status_changed` / `entitlement.changed`; skips the server's SSE replay. |
+| `handler.ts` | `dispatch.requested` / `fact.saved` / `deal.status_changed` / `entitlement.changed`; skips the server's SSE replay, and requests it already ran (ids kept in `data/agents/dispatched.log`, so a quick restart does not run one twice). |
 | `dispatcher.ts` | Run registry and step loop: inbox, slice, brief, step, exit check, lock, events. |
 | `plan.ts` | Claude or heuristic planner; code-side checks. |
 | `brief.ts` | Claude Sonnet or the offline template; code-written rules. |
 | `routing.ts` | Pure given a `Judge`: `routeFact`, `routeDealStatus`, `routeEntitlementChange`, `canSee`. |
-| `sandbox.ts` | Where sandboxes may sit (never in the repo or data dir), folder layout, `facts.md` rendering, path confinement (`..`, absolute, NUL, symlinks), `freeze()`, `lock()`, the record copy. |
+| `sandbox.ts` | Where sandboxes may sit (never in the repo or data dir), folder layout, `facts.md` rendering, path confinement (`..`, absolute, NUL, symlinks), link-proof writes of the worker's own files, `freeze()`, `lock()`, the record copy. |
 | `runners/` | `droid.ts` (real), `claude.ts` (fallback tool loop: list/read/write under out/, finish), `fake.ts` (offline, simulated). |
 | `client.ts` | The finance-contract routes over raw fetch; 404/401 degrade once per route. |
 | `offline.ts` | A tiny synthetic Harbor Lane world with a simulated permission filter and code-only exit check, for the CLI. |

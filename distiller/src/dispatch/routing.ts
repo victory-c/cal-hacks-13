@@ -33,6 +33,12 @@ export interface WallView {
 
 export const ACTIVE_STATES: readonly RunState[] = ["queued", "running", "waiting"];
 
+/**
+ * A read of the walls that a wall change overtook (the event arrived while it was in flight) is
+ * read again, at most this many times in all; then the caller fails closed (routes or plans nothing).
+ */
+export const MAX_WALL_READS = 3;
+
 export function isActive(run: { state: RunState }): boolean {
   return ACTIVE_STATES.includes(run.state);
 }
@@ -139,9 +145,10 @@ export async function routeFact(fact: Fact, runs: readonly RoutableRun[], judge:
  * deal.status_changed, no judge: terminated cancels every run on that deal's side (urgent);
  * announced sends an urgent wall_change to every public-side run, whose next handoff now
  * includes the lifted facts. Any move away from announced (back to confidential, or to
- * terminated) puts the wall back up (canSee reads only announced as public), and public-side
- * runs may already hold the deal's facts in facts.md, out/ or a queued new_fact item, so they
- * are cancelled.
+ * terminated) puts the wall back up (canSee reads only announced as public). While it was down,
+ * canSee let EVERY side see the deal's facts, so every run outside that deal (public side and
+ * other deals' sides alike) may already hold them in facts.md, out/ or a queued new_fact item:
+ * all of them are cancelled.
  */
 export function routeDealStatus(
   change: { deal: string; from: DealStatus; to: DealStatus },
@@ -165,8 +172,8 @@ export function routeDealStatus(
   if (change.from === "announced") {
     items.push(
       ...active
-        .filter((r) => r.side === PUBLIC_WALL)
-        .map((r) => item(r, "cancel", "A wall went back up. Public-side work stops so nothing restricted is used; dispatch again to restart.")),
+        .filter((r) => r.side !== change.deal)
+        .map((r) => item(r, "cancel", "A wall went back up. Work that may hold its facts stops so nothing restricted is used; dispatch again to restart.")),
     );
   }
   return items;

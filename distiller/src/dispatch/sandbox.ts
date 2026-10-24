@@ -16,17 +16,27 @@
 // Path confinement for the runners that touch files on the agent's behalf (the Claude fallback
 // runner's tools): resolveInside() rejects absolute paths, `..`, NUL bytes and symlinks that lead
 // out of the folder.
+//
+// The worker's own file work in the folder runs OUTSIDE Droid's OS sandbox, after the agent has had
+// the folder to itself, so it never follows a link the agent may have planted: brief.md, facts.md
+// and LOCKED are written with writeOwnFile() (no symlink, no hard link, created exclusively),
+// listOutFiles() refuses an out/ that is itself a link and any hard-linked file, and freeze(),
+// lock() and archiveSandbox() refuse a run folder that was swapped for a link.
 
 import {
   chmodSync,
+  closeSync,
+  constants,
   copyFileSync,
   existsSync,
   lstatSync,
   mkdirSync,
+  openSync,
   readdirSync,
   readFileSync,
   realpathSync,
   statSync,
+  unlinkSync,
   writeFileSync,
 } from "node:fs";
 import { tmpdir } from "node:os";
@@ -195,21 +205,60 @@ export function listInside(root: string, p = "."): string[] {
     .sort();
 }
 
-/** Regular files under out/, relative to the sandbox (`out/note.md`). Symlinks never leave. */
+/**
+ * Regular files under out/, relative to the sandbox (`out/note.md`). Links never leave: a symlink
+ * at any depth, out/ itself swapped for a link (walking it would read wherever it points), and a
+ * hard-linked file (its other name may be outside the folder) are all `skipped`.
+ */
 export function listOutFiles(sb: Sandbox): { files: string[]; skipped: string[] } {
+  assertRealDir(sb.dir);
   const files: string[] = [];
   const skipped: string[] = [];
   const walk = (absDir: string, relDir: string) => {
     for (const d of readdirSync(absDir, { withFileTypes: true })) {
       const rel = `${relDir}/${d.name}`;
+      const abs = join(absDir, d.name);
       if (d.isSymbolicLink()) skipped.push(rel);
-      else if (d.isDirectory()) walk(join(absDir, d.name), rel);
-      else if (d.isFile()) files.push(rel);
+      else if (d.isDirectory()) walk(abs, rel);
+      else if (d.isFile() && lstatSync(abs).nlink === 1) files.push(rel);
       else skipped.push(rel);
     }
   };
-  if (existsSync(sb.outDir)) walk(sb.outDir, SANDBOX_FILES.out);
+  const out = lstatSync(sb.outDir, { throwIfNoEntry: false });
+  if (out?.isDirectory()) walk(sb.outDir, SANDBOX_FILES.out);
+  else if (out) skipped.push(SANDBOX_FILES.out);
   return { files: files.sort(), skipped: skipped.sort() };
+}
+
+/** Throws SandboxEscapeError unless `dir` is a real folder, not a link swapped in for it. */
+function assertRealDir(dir: string): void {
+  const st = lstatSync(dir, { throwIfNoEntry: false });
+  if (!st || st.isSymbolicLink() || !st.isDirectory()) throw new SandboxEscapeError(`${dir} is missing, a link or not a folder`);
+}
+
+/** O_NOFOLLOW where the platform has it (not Windows). */
+const NOFOLLOW = (constants as { O_NOFOLLOW?: number }).O_NOFOLLOW ?? 0;
+
+/**
+ * Writes a file the worker owns (brief.md, facts.md, LOCKED) directly in `dir`, never through a
+ * link the agent left there. A symlink, a hard link or a folder at that name is refused with
+ * SandboxEscapeError. A regular file is removed and the new one created exclusively, so a link
+ * planted in between fails the write (EEXIST) instead of being followed out of the folder.
+ */
+export function writeOwnFile(dir: string, name: string, content: string): void {
+  assertRealDir(dir);
+  const p = join(dir, name);
+  const st = lstatSync(p, { throwIfNoEntry: false });
+  if (st) {
+    if (!st.isFile() || st.nlink > 1) throw new SandboxEscapeError(`${name} is a link or not a regular file; will not write through it`);
+    unlinkSync(p);
+  }
+  const fd = openSync(p, constants.O_WRONLY | constants.O_CREAT | constants.O_EXCL | NOFOLLOW, 0o644);
+  try {
+    writeFileSync(fd, content, "utf8");
+  } finally {
+    closeSync(fd);
+  }
 }
 
 // ---------------------------------------------------------------------------------------------
@@ -267,19 +316,22 @@ export function renderFacts(slice: SliceForFile): string {
   return `${parts.join("\n")}\n`;
 }
 
+/** Rewritten before every step, after the agent has had the folder: never through a link it left (writeOwnFile). */
 export function writeFactsFile(sb: Sandbox, slice: SliceForFile): void {
-  writeFileSync(join(sb.dir, SANDBOX_FILES.facts), renderFacts(slice), "utf8");
+  writeOwnFile(sb.dir, SANDBOX_FILES.facts, renderFacts(slice));
 }
 
 export function writeBriefFile(sb: Sandbox, text: string): void {
-  writeFileSync(join(sb.dir, SANDBOX_FILES.brief), text.endsWith("\n") ? text : `${text}\n`, "utf8");
+  writeOwnFile(sb.dir, SANDBOX_FILES.brief, text.endsWith("\n") ? text : `${text}\n`);
 }
 
 // ---------------------------------------------------------------------------------------------
 // lock
 
+/** True when LOCKED is a regular file of the folder's own (a link the agent left does not count). */
 export function isLocked(dir: string): boolean {
-  return existsSync(join(dir, SANDBOX_FILES.locked));
+  const st = lstatSync(join(dir, SANDBOX_FILES.locked), { throwIfNoEntry: false });
+  return st !== undefined && st.isFile() && st.nlink === 1;
 }
 
 /**
@@ -296,28 +348,46 @@ export function freeze(dir: string): void {
  * deepest first. Idempotent; works on a frozen folder too. The first reason stays.
  */
 export function lock(dir: string, reason: string): void {
+  assertRealDir(dir);
+  let markerError: unknown;
   if (!isLocked(dir)) {
     const mode = statSync(dir).mode & 0o777;
     if ((mode & 0o200) === 0) chmodSync(dir, mode | 0o200); // frozen: open the top just for the marker
-    writeFileSync(join(dir, SANDBOX_FILES.locked), `${JSON.stringify({ locked_at: new Date().toISOString(), reason })}\n`, "utf8");
+    const marker = join(dir, SANDBOX_FILES.locked);
+    try {
+      // A link the agent left at LOCKED is removed (that never touches what it points to), then
+      // the marker is written fresh.
+      const st = lstatSync(marker, { throwIfNoEntry: false });
+      if (st && (st.isSymbolicLink() || (st.isFile() && st.nlink > 1))) unlinkSync(marker);
+      writeOwnFile(dir, SANDBOX_FILES.locked, `${JSON.stringify({ locked_at: new Date().toISOString(), reason })}\n`);
+    } catch (err) {
+      markerError = err;
+    }
   }
+  // Read-only even when the marker could not be written.
   chmodTree(dir, 0o444, 0o555);
+  if (markerError) throw markerError;
 }
 
 /**
  * Copies a locked sandbox to `<recordsRoot>/<run_id>` as the run's audit record, then locks the
- * copy. Regular files and folders only: links are never followed, and a file over `maxFileBytes`
- * is left out. Returns the copy's path. A copy that already exists is left alone.
+ * copy. Regular files and folders only: links are never followed (symlinks and hard-linked files
+ * are left out), and a file over `maxFileBytes` is left out. Returns the copy's path. A copy that
+ * already exists is left alone.
  */
 export function archiveSandbox(sb: Sandbox, recordsDir: string, maxFileBytes = 1_000_000): string {
   const dest = join(recordsDir, sb.runId);
   if (existsSync(dest)) return dest;
+  assertRealDir(sb.dir);
   const copy = (from: string, to: string) => {
     mkdirSync(to, { recursive: true });
     for (const d of readdirSync(from, { withFileTypes: true })) {
       const src = join(from, d.name);
       if (d.isDirectory()) copy(src, join(to, d.name));
-      else if (d.isFile() && lstatSync(src).size <= maxFileBytes) copyFileSync(src, join(to, d.name));
+      else if (d.isFile()) {
+        const st = lstatSync(src);
+        if (st.size <= maxFileBytes && st.nlink === 1) copyFileSync(src, join(to, d.name));
+      }
     }
   };
   copy(sb.dir, dest);
@@ -331,6 +401,8 @@ export function unlockForCleanup(dir: string): void {
 }
 
 function chmodTree(dir: string, fileMode: number, dirMode: number): void {
+  // A folder swapped for a link would have us chmod wherever it points.
+  assertRealDir(dir);
   // Parents first when opening up (so we can read children), children first when closing down.
   const opening = (dirMode & 0o200) !== 0;
   if (opening) chmodSync(dir, dirMode);
@@ -338,7 +410,8 @@ function chmodTree(dir: string, fileMode: number, dirMode: number): void {
     const p = join(dir, d.name);
     if (d.isSymbolicLink()) continue; // never follow a link out of the folder
     if (d.isDirectory()) chmodTree(p, fileMode, dirMode);
-    else if (d.isFile()) chmodSync(p, fileMode);
+    // A hard-linked file shares its mode with its other name, which may be outside: leave it (it never leaves either).
+    else if (d.isFile() && lstatSync(p).nlink === 1) chmodSync(p, fileMode);
   }
   if (!opening) chmodSync(dir, dirMode);
 }

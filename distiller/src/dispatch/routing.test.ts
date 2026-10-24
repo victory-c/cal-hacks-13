@@ -143,6 +143,24 @@ describe("wall changes are urgent and need no judge", () => {
     assert.ok(items.every((i) => i.kind === "cancel" && i.urgent));
   });
 
+  test("a wall going back up also cancels runs on OTHER deals' sides: while announced, they could see its facts too", () => {
+    const heron: RoutableRun = { run_id: "run_0000he01", agent: "agt_deal_2", role: "deal_analyst", acts_for: "dan", side: "deal_heron", task: "Prep Heron materials", state: "running" };
+    const announced = view({ deals: [{ ...falcon, status: "announced" }] });
+    assert.equal(canSee(heron, "deal_falcon", announced), true, "an announced deal's facts reach every side");
+    for (const to of ["confidential", "terminated"] as const) {
+      const items = routeDealStatus({ deal: "deal_falcon", from: "announced", to }, [...runs, heron], view());
+      assert.ok(
+        items.some((i) => i.run_id === heron.run_id && i.kind === "cancel" && i.urgent),
+        `announced -> ${to}: the Heron run may hold a Falcon fact or a queued Falcon update`,
+      );
+      assert.doesNotMatch(items.find((i) => i.run_id === heron.run_id)!.text, /Falcon|deal_falcon/, "the cancel names no deal");
+    }
+    // Falcon's own side keeps working when the wall goes back up (it was always cleared).
+    assert.ok(!routeDealStatus({ deal: "deal_falcon", from: "announced", to: "confidential" }, [...runs, heron], view()).some((i) => i.run_id === "run_0000dea1"));
+    // Straight from confidential, no other side ever saw Falcon: the Heron run keeps working.
+    assert.ok(!routeDealStatus({ deal: "deal_falcon", from: "confidential", to: "terminated" }, [...runs, heron], view()).some((i) => i.run_id === heron.run_id));
+  });
+
   test("announced -> terminated puts the wall back up too: public-side runs are cancelled with the deal's own", () => {
     const terminatedAfterAnnounce = view({ deals: [{ ...falcon, status: "terminated" }] });
     // The wall is back up for a public-side agent (canSee reads only `announced` as public)...

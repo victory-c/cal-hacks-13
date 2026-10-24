@@ -80,6 +80,55 @@ describe("planDispatch: code decides every side", () => {
     assert.equal(d.runs[0].side, "public", "a deal nobody granted is never a side");
   });
 
+  test("sides come from the walls AFTER planning: a termination or a revoked grant while the planner thinks means public", async () => {
+    const deal = { role: "deal_analyst" as const, deal: "deal_falcon", task: "Prep Falcon board materials" };
+    for (const change of ["terminated", "revoked"] as const) {
+      let deals: Deal[] = [falcon];
+      let entitlements: Entitlement[] = [dan];
+      const planner: Planner = {
+        name: "heuristic",
+        simulated: true,
+        async propose() {
+          // Compliance acts while the planner is still thinking.
+          if (change === "terminated") deals = [{ ...falcon, status: "terminated" }];
+          else entitlements = [];
+          return { runs: [deal] };
+        },
+      };
+      const live = { getDeals: async () => deals, getEntitlements: async () => entitlements };
+      const plan = await planDispatch({ by: "dan", task: DEMO }, { client: live, planner });
+      assert.equal(plan.runs[0].side, "public", `${change} during planning`);
+    }
+  });
+
+  test("a walls read that a wall change overtook is read again before sides are decided", async () => {
+    let epoch = 0;
+    let reads = 0;
+    // The second read (after the planner) is served before the termination, which is heard while it is in flight.
+    const racy = {
+      getDeals: async (): Promise<Deal[]> => {
+        reads++;
+        if (reads === 2) {
+          epoch++;
+          return [falcon];
+        }
+        return reads === 1 ? [falcon] : [{ ...falcon, status: "terminated" }];
+      },
+      getEntitlements: async () => [dan],
+    };
+    const plan = await planDispatch(
+      { by: "dan", task: DEMO },
+      { client: racy, planner: spyPlanner([{ role: "deal_analyst", deal: "deal_falcon", task: "Prep Falcon board materials" }]).planner, wallEpoch: () => epoch },
+    );
+    assert.equal(reads, 3, "the overtaken read was read again");
+    assert.equal(plan.runs[0].side, "public");
+    assert.match(plan.runs[0].side_reason, /terminated/);
+
+    // A view that never settles plans nothing.
+    const moving = { getDeals: async () => (epoch++, [falcon]), getEntitlements: async () => [dan] };
+    await assert.rejects(planDispatch({ by: "dan", task: DEMO }, { client: moving, planner: new HeuristicPlanner(), wallEpoch: () => epoch }), /walls changed/);
+  });
+
   test("no deals or entitlements on the server (v1): every run is public", async () => {
     const plan = await planDispatch({ by: "dan", task: DEMO }, { client: client([], []), planner: new HeuristicPlanner() });
     assert.ok(plan.runs.every((r) => r.side === "public"));
