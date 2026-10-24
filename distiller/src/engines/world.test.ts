@@ -1,7 +1,7 @@
 // The synthetic world in distiller/fixtures/world/ is what the engines, triage and the demo are
-// built against, so it must keep matching contract v2: every session validates as a
-// CapturedSession, deals.json as a DealsResponse, lists.json as a ListsResponse. These checks
-// are by hand (no schema library) and also pin the details the demo depends on.
+// built against, so it must keep matching the scopes contract: every session validates as a
+// CapturedSession and groups.json as a GroupsResponse. These checks are by hand (no schema
+// library) and also pin the details the demo depends on.
 
 import assert from "node:assert/strict";
 import { readFileSync, readdirSync } from "node:fs";
@@ -9,8 +9,8 @@ import { join } from "node:path";
 import { describe, test } from "node:test";
 import { fileURLToPath } from "node:url";
 
-import { DEAL_ID_RE, DEAL_STATUSES, SESSION_ID_RE, SOURCE_KINDS, isDealWall } from "@canon/shared";
-import type { CapturedSession, Deal, DealsResponse, ListsResponse } from "@canon/shared";
+import { GROUP_RE, SESSION_ID_RE, SOURCE_KINDS } from "@canon/shared";
+import type { CapturedSession, Group, GroupsResponse } from "@canon/shared";
 
 const WORLD = fileURLToPath(new URL("../../fixtures/world/", import.meta.url));
 
@@ -72,27 +72,19 @@ function sessionErrors(x: unknown): string[] {
   return errs;
 }
 
-function dealErrors(x: unknown): string[] {
+function groupErrors(x: unknown): string[] {
   if (!isRecord(x)) return ["not an object"];
-  const errs: string[] = unknownKeys(x, ["id", "code_name", "aliases", "companies", "status", "status_changed_at"]).map((k) => `unknown key ${k}`);
-  if (typeof x.id !== "string" || !DEAL_ID_RE.test(x.id) || !isDealWall(x.id)) errs.push(`id ${String(x.id)} is not deal_ + slug`);
-  if (typeof x.code_name !== "string" || !x.code_name) errs.push("code_name missing");
-  for (const k of ["aliases", "companies"]) {
-    const v = x[k];
-    if (!Array.isArray(v) || v.length === 0 || !v.every((s) => typeof s === "string" && s.trim() !== "")) errs.push(`${k} is not a non-empty string[]`);
-  }
-  if (!(DEAL_STATUSES as readonly unknown[]).includes(x.status)) errs.push(`status ${String(x.status)}`);
-  if (!isIso(x.status_changed_at)) errs.push("status_changed_at is not ISO 8601");
+  const errs: string[] = unknownKeys(x, ["id", "description", "aliases"]).map((k) => `unknown key ${k}`);
+  if (typeof x.id !== "string" || !GROUP_RE.test(x.id) || x.id === "inbox") errs.push(`id ${String(x.id)} is not a group path`);
+  if (typeof x.description !== "string" || !x.description.trim()) errs.push("description missing");
+  if (x.aliases !== undefined && (!Array.isArray(x.aliases) || !x.aliases.every((s) => typeof s === "string" && s.trim() !== ""))) errs.push("aliases is not a string[]");
   return errs;
 }
 
-function listEntryErrors(x: unknown, where: string): string[] {
-  if (!isRecord(x)) return [`${where} is not an object`];
-  const errs = unknownKeys(x, ["company", "ticker", "added_at"]).map((k) => `${where} unknown key ${k}`);
-  if (typeof x.company !== "string" || !x.company) errs.push(`${where}.company missing`);
-  if (x.ticker !== undefined && (typeof x.ticker !== "string" || !/^[A-Z]{1,5}$/.test(x.ticker))) errs.push(`${where}.ticker`);
-  if (!isIso(x.added_at)) errs.push(`${where}.added_at is not ISO 8601`);
-  return errs;
+function falconGroup(): Group {
+  const falcon = load<GroupsResponse>("groups.json").groups.find((g) => g.id === "deal/falcon");
+  assert.ok(falcon, "groups.json has deal/falcon");
+  return falcon;
 }
 
 function allText(s: CapturedSession): string {
@@ -102,7 +94,7 @@ function allText(s: CapturedSession): string {
 describe("synthetic world fixtures", () => {
   test("the folder holds exactly the files these tests know about", () => {
     const json = readdirSync(WORLD).filter((f) => f.endsWith(".json")).sort();
-    assert.deepEqual(json, ["deals.json", "lists.json", ...SESSIONS.map((s) => s.file)].sort(), "a new fixture needs a line in SESSIONS");
+    assert.deepEqual(json, ["groups.json", ...SESSIONS.map((s) => s.file)].sort(), "a new fixture needs a line in SESSIONS");
   });
 
   test("every session validates as a CapturedSession with the kind, client, principal and external the demo expects", () => {
@@ -128,43 +120,30 @@ describe("synthetic world fixtures", () => {
     }
   });
 
-  test("deals.json is a DealsResponse with Project Falcon confidential", () => {
-    const res = load<DealsResponse>("deals.json");
-    assert.ok(isRecord(res) && Array.isArray(res.deals));
-    assert.deepEqual(unknownKeys(res as unknown as Record<string, unknown>, ["deals"]), []);
-    for (const d of res.deals) assert.deepEqual(dealErrors(d), [], JSON.stringify(d));
-    const falcon = res.deals.find((d) => d.id === "deal_falcon");
-    assert.ok(falcon);
-    assert.equal(falcon.code_name, "Project Falcon");
-    assert.deepEqual(falcon.aliases, ["Falcon", "Nimbus", "Nimbus Logistics", "NMBL"]);
-    assert.deepEqual(falcon.companies, ["Nimbus Logistics"]);
-    assert.equal(falcon.status, "confidential");
+  test("groups.json is a GroupsResponse with Project Falcon as the deal/falcon group", () => {
+    const res = load<GroupsResponse>("groups.json");
+    assert.ok(isRecord(res) && Array.isArray(res.groups));
+    assert.deepEqual(unknownKeys(res as unknown as Record<string, unknown>, ["groups"]), []);
+    for (const g of res.groups) assert.deepEqual(groupErrors(g), [], JSON.stringify(g));
+    const ids = res.groups.map((g) => g.id);
+    assert.equal(new Set(ids).size, ids.length, "group ids are unique");
+    assert.deepEqual(falconGroup().aliases, ["Project Falcon", "Falcon", "Nimbus", "Nimbus Logistics", "NMBL"]);
+    // The validator rejects the shapes that matter, so the check above means something.
+    assert.ok(groupErrors({ id: "Deal Falcon", description: "" }).length >= 2);
+    assert.ok(groupErrors({ id: "inbox", description: "x" }).some((e) => e.includes("not a group path")), "inbox is not a filing group");
   });
 
-  test("lists.json is a ListsResponse: Nimbus restricted, one other company watched", () => {
-    const lists = load<ListsResponse>("lists.json");
-    assert.deepEqual(unknownKeys(lists as unknown as Record<string, unknown>, ["restricted", "watch"]), []);
-    assert.ok(Array.isArray(lists.restricted) && Array.isArray(lists.watch));
-    const errs = [...lists.restricted.flatMap((e, i) => listEntryErrors(e, `restricted[${i}]`)), ...(lists.watch ?? []).flatMap((e, i) => listEntryErrors(e, `watch[${i}]`))];
-    assert.deepEqual(errs, []);
-    assert.deepEqual(lists.restricted.map((e) => [e.company, e.ticker]), [["Nimbus Logistics", "NMBL"]]);
-
-    // A confidential deal's companies are on the restricted list (walls.ts Deal.companies).
-    const deals = load<DealsResponse>("deals.json").deals.filter((d) => d.status === "confidential");
-    for (const company of deals.flatMap((d) => d.companies)) assert.ok(lists.restricted.some((e) => e.company === company), `${company} restricted`);
-
-    assert.equal(lists.watch?.length, 1);
-    const watched = lists.watch?.[0];
-    assert.ok(watched);
-    const dealNames = deals.flatMap((d: Deal) => [...d.aliases, ...d.companies]).map((n) => n.toLowerCase());
-    assert.ok(!dealNames.includes(watched.company.toLowerCase()) && !dealNames.includes(String(watched.ticker).toLowerCase()), "the watch list is not the deal");
+  test("no other group shares a deal/falcon alias, so code can't file a Falcon name anywhere else", () => {
+    const falcon = falconGroup().aliases?.map((a) => a.toLowerCase()) ?? [];
+    for (const g of load<GroupsResponse>("groups.json").groups.filter((x) => x.id !== "deal/falcon")) {
+      for (const a of g.aliases ?? []) assert.ok(!falcon.includes(a.toLowerCase()), `${g.id} reuses ${a}`);
+    }
   });
 
   test("the team chat refers to Falcon only indirectly: no alias appears, 'the logistics thing' does", () => {
     const chat = load<CapturedSession>("hl-floor-chat-week.json");
     const text = allText(chat);
-    const falcon = load<DealsResponse>("deals.json").deals[0];
-    for (const alias of [falcon.code_name, ...falcon.aliases, ...falcon.companies]) {
+    for (const alias of falconGroup().aliases ?? []) {
       assert.doesNotMatch(text, new RegExp(`\\b${alias}\\b`, "i"), `the chat must not name ${alias}`);
     }
     assert.match(text, /the logistics thing/);
