@@ -9,7 +9,7 @@ export * from "./types/mcp.ts";
 export * from "./types/grants.ts";
 export * from "./types/events.ts";
 export * from "./types/api.ts";
-export * from "./types/walls.ts";
+export * from "./types/scopes.ts";
 export * from "./types/agents.ts";
 
 // Runtime helpers

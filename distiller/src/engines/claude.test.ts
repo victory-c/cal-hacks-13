@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { describe, test } from "node:test";
 
-import type { CapturedSession, DealsResponse, ListsResponse } from "@canon/shared";
+import type { CapturedSession, GroupsResponse } from "@canon/shared";
 import { ClaudeDistiller, DEFAULT_FIRM_TZ, EMIT_FACTS, SYSTEM, asFolder, firmTime, transcript } from "./claude.ts";
 import { loadFixture, quiet, readBody, serve, withEnv } from "../test-helpers.ts";
 
@@ -275,11 +275,9 @@ describe("ClaudeDistiller", () => {
   });
 
   test("security: the system prompt holds none of the test world's answers, so benchmark numbers are not contaminated", () => {
-    const { deals } = readWorld<DealsResponse>("deals.json");
-    const lists = readWorld<ListsResponse>("lists.json");
+    const { groups } = readWorld<GroupsResponse>("groups.json");
     const names = [
-      ...deals.flatMap((d) => [d.id, d.code_name, ...d.aliases, ...d.companies]),
-      ...[...lists.restricted, ...(lists.watch ?? [])].flatMap((e) => [e.company, e.ticker ?? ""]),
+      ...groups.flatMap((g) => [g.id, ...(g.aliases ?? [])]),
       // the indirect-only phrase world.test.ts pins, and the world's people, firms and deal numbers
       "the logistics thing",
       "logistics",
