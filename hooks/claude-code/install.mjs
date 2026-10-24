@@ -87,8 +87,8 @@ function main(argv) {
   if (argv.includes("--project")) {
     const settingsPath = repoSettingsPath();
     writeSettings(settingsPath, capturePath(), PROJECT_COMMAND);
-    console.log(`Wrote Canon hooks (${EVENTS.join(", ")}) to ${settingsPath} with ${PROJECT_COMMAND}`);
-    console.log(`Commit it. New Claude Code sessions in this repo now post to the Canon server (CANON_CAPTURE=0 opts out).`);
+    console.log(`Wrote Bullwark hooks (${EVENTS.join(", ")}) to ${settingsPath} with ${PROJECT_COMMAND}`);
+    console.log(`Commit it. New Claude Code sessions in this repo now post to the Bullwark server (CANON_CAPTURE=0 opts out).`);
     return;
   }
   const write = argv.includes("--write");
@@ -102,7 +102,7 @@ function main(argv) {
   }
   const hadFile = existsSync(settingsPath);
   writeSettings(settingsPath);
-  console.log(`Wrote Canon hooks (${EVENTS.join(", ")}) to ${settingsPath}${hadFile ? ` (backup: ${settingsPath}.bak)` : " (new file)"}.`);
+  console.log(`Wrote Bullwark hooks (${EVENTS.join(", ")}) to ${settingsPath}${hadFile ? ` (backup: ${settingsPath}.bak)` : " (new file)"}.`);
   console.log(`Next: start a new Claude Code session. Without CANON_TOKEN_CLAUDE_CODE in the repo .env the hook uses the dev token (dev-claude-code).`);
 }
 

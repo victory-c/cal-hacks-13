@@ -1,0 +1,8 @@
+{
+  "restricted": [
+    { "company": "Nimbus Logistics", "ticker": "NMBL", "added_at": "2026-10-06T16:05:00.000Z" }
+  ],
+  "watch": [
+    { "company": "Larkspur Cold Chain", "ticker": "LKSP", "added_at": "2026-10-16T21:10:00.000Z" }
+  ]
+}

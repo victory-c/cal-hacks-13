@@ -107,7 +107,7 @@ function connect(): void {
 
 function wireHeader(): void {
   byId<HTMLButtonElement>("server-url").addEventListener("click", () => {
-    const next = prompt("Canon server URL", ctx.server);
+    const next = prompt("Bullwark server URL", ctx.server);
     if (!next || next === ctx.server) return;
     storage.setItem(KEYS.server, next);
     // Reload through the query so resolveServerUrl() validates and remembers it.

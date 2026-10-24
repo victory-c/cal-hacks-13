@@ -1,0 +1,19 @@
+{
+  "id": "ses_10240005",
+  "client": "ingest",
+  "kind": "note",
+  "principal": "priya",
+  "started_at": "2026-10-23T18:30:00.000Z",
+  "ended_at": "2026-10-23T18:30:00.000Z",
+  "title": "NMBL public news roundup",
+  "meta": {
+    "sources": ["Nimbus Logistics Q3 2026 press release", "Q3 2026 earnings call", "sell-side notes"]
+  },
+  "messages": [
+    {
+      "role": "user",
+      "content": "NMBL / Nimbus Logistics: public news roundup (Priya, 2026-10-23). Public sources only: the press release, the call, sell-side notes. Nothing from the desk or the deal side.\n\n- Nimbus Logistics reported Q3 2026 results on 2026-10-22: revenue $1.21bn, down 3% year over year; adjusted EBITDA $36m.\n- Management cut full-year revenue guidance to $4.8-4.9bn, from $5.0bn, citing soft freight volumes.\n- On the call the CEO said the Memphis hub automation project is on budget and finishes in Q2 2027.\n- Shares fell 7% on 2026-10-22 to close at $28.88.\n- One sell-side analyst cut NMBL to Hold with a $33 price target on 2026-10-22.\n- Management declined to comment on M&A when asked on the call. No public report of a sale process.\n\nmy take: guidance cut was mostly priced in, the automation spend is the real story for 2027",
+      "at": "2026-10-23T18:30:00.000Z"
+    }
+  ]
+}
