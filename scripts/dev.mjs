@@ -26,7 +26,13 @@ if (unknown.length) {
 const width = Math.max(...picked.map((p) => p.length));
 const children = picked.map((name) => {
   const [cmd, args] = procs[name];
-  const child = spawn(cmd, args, { stdio: ["ignore", "pipe", "pipe"], env: process.env });
+  // On Windows `npm` is npm.cmd, which Node only spawns through a shell. The args are fixed above,
+  // so the shell sees no user input.
+  const child = spawn(cmd, args, {
+    stdio: ["ignore", "pipe", "pipe"],
+    env: process.env,
+    shell: process.platform === "win32",
+  });
   const tag = `\x1b[${colors[name]}m${name.padEnd(width)}\x1b[0m │ `;
   const pipe = (stream, out) => {
     let buf = "";
