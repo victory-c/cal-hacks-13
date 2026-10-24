@@ -108,7 +108,9 @@ something out; up to 8 of them are spliced in where the cut is, so the `inject` 
 of the whole item. A sentence longer than 280 characters is cut to a window that starts just
 before the match, so padding in front of an order cannot push it out (the quarantine excerpt
 works the same way). The state also tells the judge the item text is untrusted data, never
-instructions. The questions:
+instructions. A missing (or malformed) `external`, `kind` or `principal` goes in as `"unknown"`,
+never as `false`, `ai_session` or a guessed owner (`provenance()`), and the state and the `inject`
+question tell the judge to read an unknown origin as possibly outside the firm. The questions:
 
 | Id | Type | Question | What code does (`TRIAGE_THRESHOLDS`) |
 |---|---|---|---|
@@ -218,6 +220,17 @@ simulation; logs and the CLI say "simulated".
 - **A held public fact keeps outcome `fact` and `decision.wall` `public`** while the fact itself is
   written with no wall; `wall_reason` says "left unlabeled". `TriageDecision.wall` has no
   "unlabeled" value, so saying it there needs a contract change (lane A).
+- **A missing `external`, `kind` or `principal` is unknown, not the friendly default.** The
+  capture route can drop all three (today's `parseSession` in `server/` does), so a missing flag
+  may be an outside email that lost it. Triage does not apply the contract's "missing kind =
+  `ai_session`" default for that reason. The offline judge reads unknown origin as possibly
+  external: an order to an AI quarantines as always, and so does a request to send something out
+  (any "forward/send ... to", and any send to an email address or an outside / personal one).
+  Only the author's own plan ("before i send the LOI draft to the team") and "share" the noun
+  ("per share ... a premium to") are let through, so the demo world's internal items still triage
+  when the server strips their flags. An item stated `external: false` is read as before. The
+  quarantine item says what was unknown ("kind, origin and owner unknown") instead of filling in a
+  default.
 
 ## Open
 
@@ -225,6 +238,11 @@ simulation; logs and the CLI say "simulated".
   `{ item }` or `{ id }`; `quarantine.flagged.review_id` is `""` when it gets none), and give
   `TriageDecision` a way to say "two deals" (today `wall` holds the first one and the review item
   has no `proposed_wall`).
+- Server request (lane A, asked in PR #7): `POST /api/sessions` must keep `external`, `kind` and
+  `principal` through `parseSession` and storage. Until it does, every item reaches triage as
+  unknown origin: the fail-safe above holds, but an outside email whose only forwarding line is
+  phrased as the sender's own plan ("I'll send the terms to Priya") is not quarantined as it would
+  be with `external: true`, and compliance's review items carry no owner or source kind.
 - Replay skipping is time-based (events older than the worker). Proposal for A↔B: the server's
   `EventBus` honours `Last-Event-ID` (replay only ring ids above it) and `subscribeEvents` sends
   the last id it saw on reconnect; then the worker can drop the 5 s heuristic.

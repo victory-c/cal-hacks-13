@@ -102,7 +102,9 @@ describe("worker handler", () => {
     assert.ok(calls.posts[0].facts.every((f) => f.decision.judge === "fake" && f.decision.triage?.judge === "fake"));
     assert.ok(calls.posts[0].facts.every((f) => f.fact.wall === "public"), "the hook session names no deal: public, with a deal list to check against");
     assert.ok(lines.some((l) => /heuristic distilled \d+ drafts in \d+ ms \(simulated\)/.test(l)), lines.join("\n"));
-    assert.ok(lines.some((l) => /fake triaged \d+ drafts against 1 facts and 1 deals in \d+ ms \(\d+ fact, 0 compliance, \d+ archive_only, 0 quarantine; inject 0\.02; walls public \d+\)/.test(l)), lines.join("\n"));
+    // The hook session sets no `external`, so it reads as unknown origin (inject 0.10, not the
+    // internal 0.02); it asks no one to send anything out, so it is not quarantined.
+    assert.ok(lines.some((l) => /fake triaged \d+ drafts against 1 facts and 1 deals in \d+ ms \(\d+ fact, 0 compliance, \d+ archive_only, 0 quarantine; inject 0\.10; walls public \d+\)/.test(l)), lines.join("\n"));
     assert.ok(lines.some((l) => /saved \d+, retired \d+, filed 0 review items, relayed \d+ events in \d+ ms/.test(l)), lines.join("\n"));
     assert.ok(lines.some((l) => l.includes("already processed at 8 messages")));
   });

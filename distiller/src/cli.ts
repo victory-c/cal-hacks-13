@@ -19,7 +19,7 @@ import { createClient, parseDeals, parseLists } from "./client.ts";
 import type { CanonClient } from "./client.ts";
 import { createDistiller } from "./engines/index.ts";
 import { errorMessage } from "./log.ts";
-import { triage, triageJudge } from "./triage.ts";
+import { provenance, triage, triageJudge } from "./triage.ts";
 import type { TriageResult } from "./triage.ts";
 import { deliver, describeUnsent, loadContext, onceWarner } from "./worker.ts";
 import type { WarnOnce } from "./worker.ts";
@@ -70,7 +70,10 @@ async function main(argv: string[]): Promise<number> {
   const triaged = await triage({ session, drafts: result.drafts, existing, deals: deals.value ?? [], lists: lists.value ?? { restricted: [] }, labelPublic }, judge);
   const judgeMs = Math.round(performance.now() - t1);
 
-  const flags = [session.kind ?? "ai_session", `${session.messages.length} messages`, session.ended_at ? "ended" : "", session.external ? "external" : ""].filter(Boolean);
+  // As triage reads it: a missing kind or external flag is unknown, not ai_session or internal.
+  const from = provenance(session);
+  const origin = from.external === true ? "external" : from.external === false ? "" : "origin unknown";
+  const flags = [from.kind === "unknown" ? "kind unknown" : from.kind, `${session.messages.length} messages`, session.ended_at ? "ended" : "", origin].filter(Boolean);
   console.log(`session   ${session.id} (${session.client}, ${flags.join(", ")})`);
   console.log(`engine    ${distiller.name}${result.simulated ? " (simulated)" : ""}  ${distillMs} ms${result.usage ? `  tokens in/out ${result.usage.input_tokens}/${result.usage.output_tokens}` : ""}`);
   console.log(`judge     ${judge.name}${judge.name === "fake" ? " (simulated, finance rules)" : ""}  ${judgeMs} ms, one request, ${existing.length} existing facts`);

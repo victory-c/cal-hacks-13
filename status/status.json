@@ -1,6 +1,6 @@
 {
   "project": "Bullwark",
-  "updated": "2026-10-24T13:08:50Z",
+  "updated": "2026-10-24T13:16:13Z",
   "team": [
     {
       "id": "A",
@@ -244,7 +244,7 @@
       "priority": "must",
       "state": "doing",
       "title": "Jev triage: keep, confidential, deal, instructions and relation to existing facts",
-      "note": "Built and tested on b/triage (stacked on PR #7); awaiting review and lane-A routes. Remaining: run with a real Jev/Claude judge (the offline fake cannot tie indirect references to Falcon). Also carries B17's wall labels (distiller/src/walls.ts, raise-only)."
+      "note": "Built and tested on b/triage (stacked on PR #7); awaiting review and lane-A routes. Remaining: run with a real Jev/Claude judge (the offline fake cannot tie indirect references to Falcon), and lane A's parseSession must keep external/kind/principal (until then triage reads every item as unknown origin and fails safe). Also carries B17's wall labels (distiller/src/walls.ts, raise-only)."
     },
     {
       "id": "B6",
