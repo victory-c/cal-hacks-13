@@ -508,6 +508,15 @@ describe("scopes REST surface, scope builder and handoff (A2, A4+A6, A7+A16)", (
     const item = await body<QuarantineItem>(posted);
     assert.match(item.id, /^qtn_[0-9a-f]+$/);
     assert.equal(item.state, "held");
+    // The hold route emits its event and writes its audit row (A5): the dashboard sees the hold live.
+    assert.ok(
+      events.some((e) => e.type === "quarantine.flagged" && e.quarantine_id === item.id && e.session_id === "ses_10240003" && e.p === 0.82),
+      "POST /api/quarantine emits quarantine.flagged",
+    );
+    assert.ok(
+      events.some((e) => e.type === "audit.logged" && e.entry.kind === "quarantine" && e.entry.detail.includes(item.id)),
+      "the hold writes its audit row",
+    );
 
     const member = await api("/api/quarantine", { method: "POST", token: "tok-dan", json: { session_id: "ses_10240003", p: 0.5, excerpt: "x" } });
     assert.equal(member.status, 403);
@@ -520,6 +529,7 @@ describe("scopes REST surface, scope builder and handoff (A2, A4+A6, A7+A16)", (
     assert.equal(released.released_by, "maya");
     assert.ok(released.released_at);
     assert.ok(events.some((e) => e.type === "quarantine.released" && e.item.id === "qtn_c0de01"));
+    assert.ok(events.some((e) => e.type === "audit.logged" && e.entry.kind === "quarantine.released" && e.entry.detail.includes("qtn_c0de01")));
 
     assert.equal((await api("/api/quarantine/qtn_c0de01/release", { method: "POST", token: "tok-maya" })).status, 409);
     assert.equal((await api("/api/quarantine/qtn_ffff/release", { method: "POST", token: "tok-maya" })).status, 404);

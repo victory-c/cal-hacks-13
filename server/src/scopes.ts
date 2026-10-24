@@ -869,5 +869,6 @@ function holdQuarantine(deps: ScopesDeps, client: string, body: unknown): Quaran
   };
   deps.world.quarantine.set(item.id, item);
   logAudit(deps, { kind: "quarantine", actor: client, ...(item.principal ? { principal: item.principal } : {}), detail: `${item.id} held for session ${session_id} (p ${p}).` });
+  deps.bus.emit({ type: "quarantine.flagged", session_id, quarantine_id: item.id, p, excerpt: item.excerpt });
   return item;
 }

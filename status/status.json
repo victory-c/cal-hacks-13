@@ -1,6 +1,6 @@
 {
   "project": "Bullwark",
-  "updated": "2026-10-24T16:25:22Z",
+  "updated": "2026-10-24T16:38:35Z",
   "team": [
     {
       "id": "A",
@@ -107,9 +107,9 @@
       "owner": "A",
       "milestone": "M1",
       "priority": "must",
-      "state": "todo",
+      "state": "done",
       "title": "Cold archive for raw sessions",
-      "note": "Scaffold archive exists in server/src/store.ts (JSON per session, atomic writes; see server/README.md). Confirm what the finance build still needs before marking done."
+      "note": "Verified against the finance build: JSON per session, upsert on re-capture, id-regex path safety, session reads limited to the capturing client and internal workers, unparsable files skipped not crashed, no delete path. Hardened server/src/store.ts: writeAtomic fsyncs before the rename (a crash cannot leave a truncated session) and loadAll sweeps tmp files orphaned mid-write. Both tested."
     },
     {
       "id": "A4",
@@ -125,9 +125,9 @@
       "owner": "A",
       "milestone": "M2",
       "priority": "must",
-      "state": "todo",
+      "state": "done",
       "title": "SSE events for control room, audit and urgent wall changes",
-      "note": "Keep plain SSE; extend the agreed event contract."
+      "note": "Audited every scopes route against PRD #15/#19: scope.stage (measured times), scope.updated (built / rule_changed / fact_joined / fact_left), principal.changed (added / tier_changed / agent_created / agent_deleted), handoff.served, quarantine.released and audit.logged were already emitted with their audit rows. Gap closed: POST /api/quarantine wrote its audit row but emitted nothing — it now emits quarantine.flagged (relay for lane B workers kept). No new event types; plain SSE unchanged. Tests assert event + audit row per route."
     },
     {
       "id": "A6",
@@ -188,9 +188,9 @@
       "owner": "A",
       "milestone": "M1",
       "priority": "must",
-      "state": "todo",
+      "state": "done",
       "title": "Generate Harbor Lane / Falcon / Nimbus synthetic world and fixture endpoints",
-      "note": "Memos, chat, transcript, AI session and lawyers email with planted instruction; C reviews realism."
+      "note": "Every PRD item verified present and numerically coherent: two Falcon memos, meeting transcript, week of #hl-floor chat, Dan's ChatGPT session, lawyers' email with the planted instruction, Nimbus public news ($38.50 = (9.5x142-310)/27.0, 24% premium to $31.05; Q3 print consistent across news, meeting and facts). Filled gaps: fct_fa1c0004 distilled from the management meeting (it had no fact) and added to Dan's scope + audit fixtures; world README file table now covers falcon-management-meeting and falcon-loi-memo (future-dated on purpose: the live-ingest demo item). Edan (C5) reviews realism."
     },
     {
       "id": "A15",

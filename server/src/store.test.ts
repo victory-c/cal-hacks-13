@@ -105,6 +105,25 @@ describe("FileStore", () => {
     );
   });
 
+  test("loadAll sweeps tmp files orphaned by a crash mid-write and never counts them", async () => {
+    const orphanFact = join(dir, "facts", "career", "projects", "fct_0001aaaa.md.1a2b3c4d.tmp");
+    const orphanSession = join(dir, "sessions", "ses_00ab.json.5e6f7a8b.tmp");
+    await writeFile(orphanFact, "half-written");
+    await writeFile(orphanSession, "{");
+    const original = console.warn;
+    console.warn = () => {};
+    try {
+      const store = new FileStore(dir);
+      const loaded = await store.loadAll();
+      assert.equal(loaded.skipped, 0, "a tmp file is swept, not counted as a skipped file");
+      assert.deepEqual(store.getFact(base.id), base, "the intact real file still loads");
+    } finally {
+      console.warn = original;
+    }
+    assert.ok(!(await exists(orphanFact)));
+    assert.ok(!(await exists(orphanSession)));
+  });
+
   test("loadAll skips an unparsable fact file and a mismatched session with warnings", async () => {
     await mkdir(join(dir, "facts", "inbox"), { recursive: true });
     await writeFile(join(dir, "facts", "inbox", "broken.md"), "not a fact\n");
