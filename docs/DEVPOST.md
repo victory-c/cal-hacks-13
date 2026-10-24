@@ -213,7 +213,7 @@ handoff:   request → Moss + keyword inside the scope (code-enforced) → Jev r
   It runs Factory Droid headless with `droid exec --auto low`, the lowest level that lets it
   create and edit files. On macOS a sandbox profile also stops it from reading the repo,
   Bullwark's data or another agent's folder.
-  [[CHECK: at the Factory booth, that `--auto low` is fine for headless finance runs, whether it runs Python for the numbers at that level, and whether `droid exec --auto low` can make an HTTP GET to localhost:4100 (Bullwark's own server) or reach the network at all; the walls-era `sandbox-exec` profile on PR #9 denies only file paths (blocker Q1)]]
+  [[CHECK: at the Factory booth, that `--auto low` is fine for headless finance runs, whether it runs Python for the numbers at that level, and whether `droid exec --auto low` can make an HTTP GET to localhost:4100 (Bullwark's own server) or reach the network at all; the `sandbox-exec` profile on PR #9 denies only file paths (blocker Q1)]]
   Each task runs as a few short Droid steps. Every step, file and result streams into that
   agent's lane on the dashboard and becomes its audit record. The agent's new facts are its
   creator's memories. [[SHIPPED? Factory Droid: agent runs; Anthropic: briefs and runner]]

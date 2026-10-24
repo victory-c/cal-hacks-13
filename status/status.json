@@ -1,6 +1,6 @@
 {
   "project": "Bullwark",
-  "updated": "2026-10-24T14:27:51Z",
+  "updated": "2026-10-24T14:34:42Z",
   "team": [
     {
       "id": "A",
@@ -289,7 +289,7 @@
       "priority": "must",
       "state": "doing",
       "title": "Small-team-to-company scale slide and sponsor README evidence",
-      "note": "Scale slide, SPONSORS.md and the README sponsor sections rewritten for the scopes PRD on b/story-scopes: two tiers, scope builder order, 60 attacks / 30 tasks, missing-context rate; statuses checked Sat 06:27 PDT (walls-era PRs #9, #10 marked in progress until their scopes versions are up). Remaining: re-check statuses at the 21:00 sync and at code freeze; fill the evidence strip from a real bench run."
+      "note": "Scale slide, SPONSORS.md, the README intro, product flow and sponsor sections rewritten for the scopes PRD on b/story-scopes (PR #16, stacked on PR #7): two tiers, scope builder order, 60 attacks / 30 tasks, missing-context rate. Statuses checked Sat 07:30 PDT: PRs #9, #10 and #12 now hold their scopes versions and are in review; #17 (writer group suggestions) is merged into PR #7; nothing new on main. Remaining: re-check statuses at the 21:00 sync and at code freeze; fill the evidence strip from a real bench run."
     },
     {
       "id": "B14",

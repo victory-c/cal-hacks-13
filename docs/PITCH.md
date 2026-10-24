@@ -75,7 +75,7 @@ switch to the backup recording of the full demo and keep the same script.
   Leo's assistant for them, and say why.
 - Before letting a judge create an agent, check that a Droid agent can't make that request
   either. [[CHECK: whether `droid exec --auto low` in its sandbox can make an HTTP GET to
-  localhost:4100 (blocker Q1); the walls-era sandbox profile on PR #9 denies only file paths, not
+  localhost:4100 (blocker Q1); the sandbox profile on PR #9 denies only file paths, not
   the network]] If it can, and the routes above are still open, skip the agent attack.
 - Let the judge type anything. Read the reply out loud, then switch to Maya's console: the
   handoff inspector shows every candidate came from inside the scope and no Falcon fact was

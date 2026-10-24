@@ -75,20 +75,20 @@ From the PRD's scale path, and none of it is built:
 
 ## What runs today and what is simulated (small-team column)
 
-Last checked Sat 10/24 06:27 PDT. "Today" says where the code is; the right-hand column is filled
+Last checked Sat 10/24 07:30 PDT. "Today" says where the code is; the right-hand column is filled
 at code freeze (Sun 07:00) from what the demo actually ran.
 
 | Part | Today | At code freeze |
 |---|---|---|
 | Data | All synthetic: Harbor Lane Partners, Project Falcon, Nimbus Logistics, Maya, Dan, Priya, Leo | Synthetic |
-| Capture: Claude Code hook, ChatGPT extension | **Built** on `main` for scaffold capture; author fields **in review** (B19, B4; PR #12) | [[CHECK: real / not shipped]] |
-| Capture: ingest client (memos, chat, notes, email, AI sessions) | **In review** (B19; PR #12), being updated for scopes. Carries Dan's ChatGPT session if the extension is cut. | [[CHECK: real / not shipped]] |
+| Capture: Claude Code hook, ChatGPT extension | **Built** on `main` for scaffold capture; author fields, scopes version, **in review** (B4; PR #12) | [[CHECK: real / not shipped]] |
+| Capture: ingest client (memos, chat, notes, email, AI sessions) | Scopes version **in review** (B19; PR #12). Carries Dan's ChatGPT session if the extension is cut. Today's server drops the author until lane A keeps it. | [[CHECK: real / not shipped]] |
 | Storage and events | **Built**: local files and plain SSE, no database | Real |
-| Jev triage (keep, group, AI instructions, relation) and quarantine | **In progress** (B5; walls-era version on PR #10). With no Jev key it runs on the Claude Haiku fallback; with no keys at all, on the fake judge, labelled simulated | [[CHECK: real Jev / Claude fallback / simulated fake judge]] |
-| Claude fact writer | Scaffold writer **built**; finance writer **in review** (B17, on draft PR #7) | [[CHECK: real / simulated]] |
+| Jev triage (keep, group, AI instructions, relation) and quarantine | Scopes version **in review** (B5; PR #10); every fact goes to `inbox` until lane A's groups route ships. With no Jev key it runs on the Claude Haiku fallback; with no keys at all, on the fake judge, labelled simulated | [[CHECK: real Jev / Claude fallback / simulated fake judge]] |
+| Claude fact writer | Scaffold writer **built**; finance writer, with group and label suggestions, **in review** (B17, on draft PR #7) | [[CHECK: real / simulated]] |
 | Scope builder, living scopes, tiers, agent profiles, handoff, audit log | Contract **in review** (draft PR #7); server **planned** (lane A) | [[CHECK: real / not shipped]] |
 | Moss search | **Planned** (A4, blocker Q2); the keyword retriever runs, labelled a stub on the dashboard | [[CHECK: real Moss / keyword fallback]] |
-| Droid agents and live routing | **In progress** (B2, B18; walls-era version on PR #9). Without Factory or Anthropic keys the fake runner runs, labelled simulated | [[CHECK: real `droid exec` / Claude fallback runner / simulated fake runner]] |
+| Droid agents and live routing | Scopes version **in review** (B2, B18; PR #9), not yet run against a real `droid`. Without Factory or Anthropic keys the fake runner runs, labelled simulated | [[CHECK: real `droid exec` / Claude fallback runner / simulated fake runner]] |
 | Moderator console, member view, memory browser | **Planned** (C13, C14, C18); the scaffold dashboard runs today | [[CHECK: real / not shipped]] |
 | Benchmark | Scaffold runner **built** (3 baselines; it doesn't measure scopes); finance runner **planned** (A8, C6) | [[CHECK: link to bench/results/latest.json from a run that is not simulated]] |
 
