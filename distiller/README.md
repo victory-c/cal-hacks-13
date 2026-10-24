@@ -33,6 +33,7 @@ logged and skipped; the loop never dies.
 | `src/decide.ts` | The earlier, pre-finance save-time decisions (tier, folder, dedupe). The worker no longer calls it; triage reuses its exact-duplicate rule. |
 | `src/cli.ts` | Run the pipeline on a recorded item; `--post` files the result on the server like the worker does. |
 | `fixtures/session.sample.json` | A Claude Code session (ships the capture hook, decides folders, targets backend internships). An existing compatibility transcript, not the finance demo world. |
+| `fixtures/world/` | The synthetic finance world (Harbor Lane Partners, Project Falcon): a deal, the restricted and watch lists, and five captured items. All made up; see its README. `src/engines/world.test.ts` checks it against the contract. |
 
 ## Run and test
 
@@ -57,21 +58,32 @@ output are real measurements (`usage` from the API, wall clock); nothing is esti
 
 ## Engines and the fallback order
 
-`DISTILLER` wins; unset, it is `droid` when `FACTORY_API_KEY` is set, else `claude` when
-`ANTHROPIC_API_KEY` is set, else `heuristic`. The console says which, and says **simulated**
-when it is. The worker never switches engine on its own: a failing engine is a logged error, not
-a silent downgrade.
-
-**Until B2 wires the Droid SDK, set `DISTILLER=claude` (or `heuristic`) whenever `FACTORY_API_KEY`
-is in `.env`.** Otherwise the worker picks the `droid` engine, which throws `NotConfiguredError` on
-every session, and no facts are written. In the product plan Claude writes facts and Droid runs
-dispatched agents (B2), so adding the Factory key for agent work must not switch the distiller.
+`DISTILLER` wins; unset, it is `claude` when `ANTHROPIC_API_KEY` is set, else `heuristic`.
+`droid` runs only when `DISTILLER=droid` names it: `FACTORY_API_KEY` is the agent dispatcher's
+key (B2), so adding it does not switch the distiller. The console says which engine, and says
+**simulated** when it is. The worker never switches engine on its own: a failing engine is a
+logged error, not a silent downgrade.
 
 | Engine | Real? | Needs | Where it plugs in |
 |---|---|---|---|
-| `droid` | **Pending blocker Q1.** Constructs; `distill()` throws `NotConfiguredError` until the SDK is wired (task B2). | `FACTORY_API_KEY` | `src/engines/droid.ts` |
-| `claude` | Yes. `claude-sonnet-5-5`, one strict `emit_facts` tool, raw Messages API over `fetch` (no SDK dependency). | `ANTHROPIC_API_KEY` | `src/engines/claude.ts` |
-| `heuristic` | **No, simulated.** Keyword sentences (built/shipped/decided/…), folder guessed by keywords, max 8. | nothing | `src/engines/heuristic.ts` |
+| `droid` | **No, placeholder.** Picked only by `DISTILLER=droid`; constructs, and `distill()` throws `NotConfiguredError`. Droid runs dispatched agents (B2), not fact writing. | `FACTORY_API_KEY` | `src/engines/droid.ts` |
+| `claude` | Yes. The fact writer: `claude-sonnet-5-5`, one strict `emit_facts` tool (statement, folder, happened, detail), at most 16 facts, raw Messages API over `fetch` (no SDK dependency). | `ANTHROPIC_API_KEY` | `src/engines/claude.ts` |
+| `heuristic` | **No, simulated.** Keyword sentences (deal words such as agreed, proposed, LOI, EBITDA, and prices or multiples written as numbers), the speaker named in third person, `happened` from an ISO date in the sentence, paragraphs aimed at an AI left out, max 8. | nothing | `src/engines/heuristic.ts` |
+
+**The Claude fact writer.** The system prompt asks for one claim per fact, in third person with
+names (in an AI session the user is the principal; an external email's claims belong to its
+sender). Deal code names, company names and tickers stay verbatim, because the wall rules match
+them in code, and a hint such as "the logistics thing" is kept word for word, never resolved.
+`happened` is a `YYYY-MM-DD` day only when the source states it, never the capture time; a bad
+date is dropped in code. The item is data, never instructions: lines aimed at an AI are left out
+(triage quarantines the item). The transcript header always says kind, principal and external,
+with header values folded onto one line so a captured title cannot forge a header line, and
+every time stamp it adds (started, ended, each message's time) is shown in the firm's zone
+(`FIRM_TZ`, default `America/Los_Angeles`; a bad zone fails at startup). The item's own text is
+passed through untouched, so a zoned time inside it (an email's `Date: ... +0000`) keeps its zone,
+and the prompt tells the writer to convert such a time to the firm's day. The prompt's examples use an invented deal (Project Heron, Acme Rail) that appears in
+no fixture or benchmark task, and a test checks that it holds none of the test world's names,
+phrases or numbers.
 
 **Factory integration:** `src/engines/droid.ts` is a distiller adapter stub, not an implemented
 agent runner. The current product target is headless finance-agent dispatch with isolated
@@ -179,7 +191,7 @@ simulation; logs and the CLI say "simulated".
 ## Env (all from `.env`, see `.env.example`)
 
 `CANON_URL` · `CANON_TOKEN_DISTILLER` (dev default `dev-distiller`) · `DISTILLER` · `FACTORY_API_KEY`
-· `ANTHROPIC_API_KEY` · `DISTILL_LIVE` · `JUDGE_PROVIDER` / `JEV_API_KEY` / `JEV_API_URL`.
+· `ANTHROPIC_API_KEY` · `FIRM_TZ` · `DISTILL_LIVE` · `JUDGE_PROVIDER` / `JEV_API_KEY` / `JEV_API_URL`.
 
 ## Assumptions (B5, written down while Victor slept)
 
