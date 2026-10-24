@@ -1,13 +1,15 @@
-# Sample data for development
+# Development compatibility fixtures
 
-Hand-written fixtures so the demo runs on a fresh machine: `npm run seed -w server` copies them
-into the data dir (`CANON_DATA_DIR`, default `data/`) without overwriting anything there.
+`npm run seed -w server` copies these fixtures into `CANON_DATA_DIR` (default `data/`),
+without overwriting existing files. The server also seeds an empty store at startup.
 
-- `facts/<folder>/<id>.md` — 10 facts for a Berkeley student recruiting for internships, in the
-  CLAUDE.md fact file format. One (`fct_0b2d4f6e`) is cold, superseded by `fct_a1c3e5f7`, so the
-  retire flow has something to show. `private/health` exists to demo a grant refusal.
-- `sessions/ses_de0001.json` — the captured Claude Code session behind the `projects/canon` facts.
-  Session ids are `ses_` + hex (`SESSION_ID_RE`), so `ses_demo01` would not be a valid id.
+The existing facts and session are retained for source and test compatibility. They exercise
+serialization, cold and superseded facts, source links and folder-grant refusals. The exact fact
+format is defined in `shared/src/types/fact.ts` and `shared/src/fact-file.ts` at the repo root.
+Session ids must be `ses_` followed by hex digits, as defined by `SESSION_ID_RE`.
 
-Not real benchmark data. Numbers in the facts (dates, thresholds) describe the project, not
-measurements.
+These fixtures are not the finance demo world or benchmark evidence. A14 owns the Harbor Lane
+Partners / Project Falcon / Nimbus Logistics world: memos, chat, a meeting transcript, an AI
+session and a lawyers email containing a planted instruction. C5 reviews realism; C6 writes
+legitimate tasks and attacks against that world. Replace fixtures only alongside the required
+schema, permission behavior and tests. Use synthetic data throughout.

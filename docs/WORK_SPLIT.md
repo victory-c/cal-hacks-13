@@ -1,24 +1,19 @@
-# Work split for PRD v2
+# Work split: context with walls for small finance teams
 
-**Updated Sat 10/24.** This file replaces the v1 lanes for the v2 plan in `docs/PRD.md`
-(context with walls for small finance teams). If it disagrees with `CLAUDE.md` or
-`status/status.json`, this file wins until those are updated.
+**Updated Sat 10/24.** This file defines ownership and build order for `docs/PRD.md`.
+`CLAUDE.md` holds the working agreement; `status/status.json` tracks progress.
 
-## What changed from v1
+## Scope
 
-- **Same engine, new core.** Capture hook, distiller, MCP, Moss, `judge()` and SSE all carry
-  over. New: entitlements, restricted and watch lists, a permission filter that runs before
-  search, neutral refusals, an audit log, wall-crossing requests, deal status, Droid agent
-  dispatch, and an exit check on agent outputs.
-- **Cut from v1:** resume viewer (B8), Apify Actor (B10), SpacetimeDB (A10), Gemini capture,
-  the student and `career/` story.
-- **Edan now codes.** He owns the frontend in `web/`, plus the QA, booth and logistics work that
-  still applies.
+Build on capture, distillation, MCP, Moss, `judge()` and SSE. The product adds entitlements,
+restricted and watch lists, permission checks before search, neutral refusals, an audit log,
+wall-crossing requests, deal status, Droid dispatch, live routing and output checks.
+Edan owns the frontend as well as QA and logistics.
 
 ## Stack decision
 
-Keep the **file store + plain SSE** that is already in the repo. Moving to Postgres or Supabase,
-as the PRD stack table says, costs hours and adds no feature the demo needs. The dashboard can be
+Keep the **file store + plain SSE** that is already in the repo. A database migration is
+outside the current build; extend the file-backed contracts for the finance features. The dashboard can be
 Next.js + shadcn/ui inside `web/` if Edan prefers, as long as it reads only the REST and SSE
 contract. It never imports server code.
 
@@ -28,7 +23,7 @@ contract. It never imports server code.
 
 The security core and the largest lane. Henry has the most Claude usage.
 
-1. **Contract v2, written with Victor in the first hour** (`shared/src/types/`):
+1. **Finance contract, written with Victor in the first hour** (`shared/src/types/`):
    - `wall` label on facts (`public` or a deal id)
    - `Deal` with a status of `confidential`, `announced` or `terminated`
    - `Entitlement` (principal, deal, expiry)
@@ -36,7 +31,7 @@ The security core and the largest lane. Henry has the most Claude usage.
    - `AuditEvent`
    - the new SSE events
    - the REST shapes the dashboard needs
-2. **Synthetic world v1, generated early:** Harbor Lane Partners, Project Falcon, Nimbus
+2. **Synthetic world, generated early:** Harbor Lane Partners, Project Falcon, Nimbus
    Logistics, Maya, Dan, Priya and Leo, two memos, a week of chat, one transcript, Dan's ChatGPT
    session, and the lawyers' email with the planted instruction. Everyone builds against it, and
    Edan reviews it for realism.
@@ -58,7 +53,7 @@ The security core and the largest lane. Henry has the most Claude usage.
 ### B · Victor Chun: capture, triage, agents and the story (`hooks/`, `extension/`, `distiller/`, `docs/`)
 
 1. **Capture:** an ingest client for memos, chat and notes, plus updating the existing Claude
-   Code hook and ChatGPT extension to v2. The extension is the first capture path to cut.
+   Code hook and ChatGPT extension for finance capture. The extension is the first capture path to cut.
 2. **Jev save-time triage** in the distiller:
    - worth keeping?
    - confidential?
@@ -86,7 +81,7 @@ The security core and the largest lane. Henry has the most Claude usage.
      tokens)
    - live token, latency and cost counter
 2. **Should ship:** the wall map and the attack box.
-3. **Builds against mock SSE and REST fixtures** that follow the v2 contract, and switches to
+3. **Builds against mock SSE and REST fixtures** that follow the finance contract, and switches to
    Henry's server when the endpoints are ready.
 4. **Booth answers first thing:** Droid headless runs for non-coding tasks (Factory), Jev
    access (TypeSafe), any cap on sponsor tracks.
@@ -97,7 +92,7 @@ The security core and the largest lane. Henry has the most Claude usage.
 
 ## Order of operations
 
-1. **First 30 minutes, Henry and Victor:** freeze contract v2 and the event and REST list Edan
+1. **First 30 minutes, Henry and Victor:** freeze the finance contract and the event and REST list Edan
    needs. This unblocks everyone.
 2. **Then in parallel:**
    - Henry: synthetic world and fixture stubs, then the permission filter
@@ -112,11 +107,11 @@ The security core and the largest lane. Henry has the most Claude usage.
 5. **Cut order if behind:** wall map → attack box → quarantine view → Bitdeer → ChatGPT
    extension.
 
-## Follow-ups this file doesn't do yet
+## Implementation handoffs
 
-- Update `CLAUDE.md`: decisions, interface contracts, folder grants (no more `career/`),
-  cut order, and Edan's lane.
-- Update `.github/CODEOWNERS` so Edan owns `web/`.
-- Each owner adds their v2 tasks to `status/status.json` and marks B8, B10 and A10 as cut.
-- Update `server/fixtures/` and `bench/tasks/README.md` to the finance world (part of Henry's
-  synthetic world task).
+- A and B freeze the finance contract before consumers adopt new fields. Existing types are the
+  implemented interface; the PRD does not make the new fields available automatically.
+- A replaces development fixtures with the synthetic finance world as an implementation task.
+  C authors benchmark tasks and attacks against that world after the schema supports them.
+- C builds the frontend against the agreed mock REST and SSE responses, then switches to A's server.
+- Each owner updates their task state in `status/status.json` and regenerates `STATUS.md`.

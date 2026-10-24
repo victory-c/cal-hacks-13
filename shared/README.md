@@ -4,11 +4,15 @@
 other package imports it (`import { ... } from "@canon/shared"`, never a relative path). Pure
 TypeScript, zero dependencies, runs under `tsx` with no build step.
 
+The existing folder-based contracts remain the implemented interface. Finance wall labels,
+deals, expiring entitlements, lists and audit events are planned extensions (A1), not fields
+available to consumers yet. Coordinate with both builders before changing them.
+
 ## Frozen vs free
 
 | Path | Status | Change it by |
 |---|---|---|
-| `src/types/*` | **Frozen.** Fact schema, session capture, MCP tool I/O, events, grants, `Judge`. | Editing `CLAUDE.md` in the same PR **and** telling the other builder first. |
+| `src/types/*` | **Frozen.** Fact schema, session capture, MCP tool I/O, events, grants, `Judge`. | Agreeing the interface with both builders, updating consumers and documenting the change together. |
 | `src/*.ts`, `src/judge/*` | Free. Runtime helpers. | A PR. Add, don't rename: other lanes import these names. |
 
 ### Adding a helper
@@ -24,14 +28,14 @@ TypeScript, zero dependencies, runs under `tsx` with no build step.
 | File | Exports | Notes |
 |---|---|---|
 | `env.ts` | `loadEnv` `env` `requireEnv` `dataDir` `REPO_ROOT` | Call `loadEnv()` once at the top of each entrypoint, never in library code. |
-| `grants.ts` | `folderAllows` `grantFor` `canRead` `canWrite` `parseClientTokens` | Prefix match is per path segment: `career` grants `career/x`, not `careers`. |
+| `grants.ts` | `folderAllows` `grantFor` `canRead` `canWrite` `parseClientTokens` | Prefix match is per path segment: `projects` grants `projects/x`, not `projects-other`. |
 | `tokens.ts` | `estimateTokens` `factTokens` `cutToBudget` | ~4 chars/token. Label it **est.** in any UI; real counts come from a model's `usage`. |
 | `fact-file.ts` | `serializeFactFile` `parseFactFile` `validateFact` `factPath` | The markdown fact file (frontmatter + body). Hand-rolled YAML for this flat schema. |
 | `ids.ts` | `newFactId` `newSessionId` `today` `nowIso` | `fct_`/`ses_` + 8 hex. `today()` is local, `nowIso()` is UTC. |
 | `sse.ts` | `subscribeEvents` `formatSseEvent` `parseSseChunk` | Client reconnects with backoff (1 s → 10 s) until unsubscribed, also when no bytes arrive for `idleMs` (default 45 s, 3× the server's 15 s heartbeat). Non-JSON events → `onError`. |
 | `judge/` | `createJudge` `timed` `FakeJudge` `JevJudge` `ClaudeJudge` | See below. |
 
-**Fact files.** `serializeFactFile(fact)` writes exactly the shape in `CLAUDE.md`; `parseFactFile`
+**Fact files.** `serializeFactFile(fact)` writes the shape defined in `src/types/fact.ts`; `parseFactFile`
 also reads a hand-edited file (block-form `source:`, comments, CRLF, unknown keys ignored).
 `validateFact` never throws and returns a clean `Fact` (optionals only when set, detail body
 normalized). `factPath` is `facts/<folder>/<id>.md` relative to `dataDir()`.

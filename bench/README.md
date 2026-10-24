@@ -7,9 +7,17 @@ Every token, latency, cost and accuracy figure on Devpost, in the pitch and on t
 comes from a run of this package (CLAUDE.md: *never invent numbers*, *only compare against
 baselines we run*). The runner refuses to write quotable files from a simulated run.
 
-## What it measures
+## Finance evaluation target
 
-20 **handoff tasks**: context created in one AI (`from_client`, as short setup sessions), a
+C6 supplies 50 attacks (10 per PRD style) and 30 legitimate tasks in the synthetic Harbor Lane
+world. A8 extends the evaluator to four setups: no memory, shared memory, Canon + Claude filter
+and Canon + Jev. Measure leak rate, wrongly blocked rate, task accuracy, tokens, latency and cost;
+also record save-time cost per 100 captured items. These are planned extensions, not capabilities
+of the existing three-strategy runner. Only measured runs support pitch claims.
+
+## Existing runner
+
+The current runner accepts **handoff tasks**: context created in one AI (`from_client`, as short setup sessions), a
 question asked in another (`to_client`), an answer key (`must_include` phrases, optional
 `must_not_include`). Each task runs three ways; the same responder answers the same question:
 
@@ -29,7 +37,7 @@ answer latency, the answer, and the score. Summary: accuracy, mean tokens, mean 
 npm run validate -w bench                 # Edan: check every task file, no server needed
 npm run dry -w bench -- --include-example # plumbing check, no model: SIMULATED, nothing quotable
 npm run run -w bench                      # the real thing (needs ANTHROPIC_API_KEY + the server)
-npm run run -w bench -- --baseline canon --task t03-offer-deadline
+npm run run -w bench -- --baseline canon --task t03-public-summary
 npm run run -w bench -- --help
 ```
 

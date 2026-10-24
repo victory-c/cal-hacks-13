@@ -22,5 +22,11 @@
         ]
       }
     ]
+  },
+  "permissions": {
+    "deny": [
+      "Read(/.archive/**)",
+      "Edit(/.archive/**)"
+    ]
   }
 }
