@@ -45,7 +45,7 @@ Rules:
 - Third person with names: "Sam proposed an 8x EBITDA multiple for Project Heron", never "I proposed …" or "We proposed …". In an AI session the user turns are the principal named in the header. In chat and transcripts, use the name in front of each line. Never invent a name; if you cannot tell who, write the claim without one.
 - Keep deal code names, company names and tickers VERBATIM, exactly as the text writes them (for example "Project Heron", "Heron", "Acme Rail" and its ticker). Never generalize them away ("a rail operator", "the deal", "the target"): wall rules match these names in code, so a fact without them can slip past the wall. When the text only hints at something ("the rail thing"), keep those exact words and do not guess what they refer to.
 - Every number keeps its unit and its subject: multiples, prices per share, percentages, amounts, dates.
-- happened: the day the claim happened or is due, as YYYY-MM-DD, only when the source states it: a date in the text ("LOI out by 2026-11-14"), a dated memo or email header, or the date on the message that says it happened ("we just agreed"). Every time in the item is already in the firm's time zone (named in the header), so take the day exactly as written. Otherwise null. Never guess a year or a day, and never use the capture time (started / ended) as the date.
+- happened: the day the claim happened or is due, as YYYY-MM-DD, only when the source states it: a date in the text ("LOI out by 2026-11-14"), a dated memo or email header, or the date on the message that says it happened ("we just agreed"). The times Canon stamps (started, ended and the time on each [role time] line) are already in the firm's time zone (named in the header), so take a message's day from its stamp exactly as written. A date or time inside the text itself (an email's Date: line, a quoted timestamp) is as its writer wrote it: when it names a zone or offset ("+0000", "UTC", "GMT", "ET"), convert it to the firm's day first, because late evening in the firm is already the next day in UTC; a bare date with no time is taken as written. Otherwise null. Never guess a year or a day, and never use the capture time (started / ended) as the date.
 - Keep only what will still matter next week. No greetings, lunch plans, restated questions or speculation. An AI assistant's arithmetic or suggestion is not a decision: keep it only when the person adopts it, and then as theirs ("Sam settled on $21.00 per share").
 - External items (external: yes) were written outside the firm: attribute their claims to the sender ("Acme Rail's counsel said …"), never state them as settled fact.
 - Folder: one of ${TOP_FOLDERS.join(", ")} or "<top>/<sub>" (e.g. "team/deals"); null when unsure.
@@ -140,11 +140,17 @@ export class ClaudeDistiller implements Distiller {
   }
 }
 
+/** What the header says is firm-local: only the stamps transcript() writes, never the item's own text. */
+const STAMPS_NOTE = "started, ended and the [role time] stamps are firm-local; a date or time inside the text keeps the zone its writer gave it";
+
 /**
  * The item as Claude sees it: a header first (kind, principal and external always present, so the
  * writer knows whose "I" it is and how far to trust it), then one block per message with its
- * time when the client sent one. Every time is shown in the firm's time zone: the writer reads a
- * message's day off it, and an evening decision in California is already the next day in UTC.
+ * time when the client sent one. Every stamp this function writes is in the firm's time zone: the
+ * writer reads a message's day off it, and an evening decision in California is already the next
+ * day in UTC. The message text is passed through untouched (it is data, and names must stay
+ * verbatim), so a "Date: ... +0000" line in an email keeps its own zone; the header and the
+ * system prompt say so, and tell the writer to convert such a time to the firm's day.
  *
  * Header values are folded onto one line each: a title or URL comes from the captured item (an
  * outside sender writes an email's subject), so a line break in one could forge a header line
@@ -166,7 +172,7 @@ export function transcript(session: CapturedSession, timeZone: string = DEFAULT_
     field("branch", meta.branch),
     field("pr", meta.pr),
     field("url", meta.url),
-    `time zone: ${timeZone} (every time below is firm-local)`,
+    `time zone: ${timeZone} (${STAMPS_NOTE})`,
     `started: ${started}${ended ? `, ended: ${ended}` : " (still running)"}`,
   ].filter((l): l is string => l !== undefined);
   const turns = session.messages

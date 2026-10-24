@@ -62,8 +62,10 @@ them in code, and a hint such as "the logistics thing" is kept word for word, ne
 date is dropped in code. The item is data, never instructions: lines aimed at an AI are left out
 (triage quarantines the item). The transcript header always says kind, principal and external,
 with header values folded onto one line so a captured title cannot forge a header line, and
-every time is shown in the firm's zone (`FIRM_TZ`, default `America/Los_Angeles`; a bad zone fails
-at startup). The prompt's examples use an invented deal (Project Heron, Acme Rail) that appears in
+every time stamp it adds (started, ended, each message's time) is shown in the firm's zone
+(`FIRM_TZ`, default `America/Los_Angeles`; a bad zone fails at startup). The item's own text is
+passed through untouched, so a zoned time inside it (an email's `Date: ... +0000`) keeps its zone,
+and the prompt tells the writer to convert such a time to the firm's day. The prompt's examples use an invented deal (Project Heron, Acme Rail) that appears in
 no fixture or benchmark task, and a test checks that it holds none of the test world's names,
 phrases or numbers.
 
