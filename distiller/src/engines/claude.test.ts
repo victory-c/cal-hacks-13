@@ -198,6 +198,76 @@ describe("ClaudeDistiller", () => {
     assert.deepEqual(asLabels("heron", text), [], "not a list");
   });
 
+  test("security: every part of a label is a whole word of the item, never the start of a longer one", () => {
+    // Greptile on PR #17: "NMBLX" names a different ticker, so it is no source for "nmbl".
+    assert.deepEqual(asLabels(["nmbl"], "NMBLX reported earnings"), []);
+    assert.deepEqual(asLabels(["heron"], "Heronsgate Capital called about the book"), [], "a code name inside a longer word is not the code name");
+    assert.deepEqual(asLabels(["acme-rail"], "Acme Railways bid for the yard"), [], "every part must be a whole word");
+    assert.deepEqual(asLabels(["market"], "Q3 2026 markets"), []);
+    assert.deepEqual(asLabels(["heron", "acme-rail", "acmr", "q3"], "Heron's board met; Acme\nRail (ACMR) fell in Q3."), ["heron", "acme-rail", "acmr", "q3"], "a possessive and a wrapped name still count");
+  });
+
+  test("security: a group's code name or ticker cannot ride into a label on a longer word in the item", async () => {
+    // The item says "Falconer" and "NMBLX", never Falcon or NMBL. The writer was shown deal/falcon
+    // for filing; a "falcon" or "nmbl" label would carry the deal into a fact about something else.
+    const item: CapturedSession = {
+      id: "ses_0000fa1c",
+      client: "ingest",
+      kind: "email",
+      principal: "dan",
+      external: true,
+      started_at: "2026-10-22T16:05:00.000Z",
+      title: "Q3 factsheet",
+      messages: [{ role: "user", content: "Falconer Partners sent over the NMBLX fund factsheet for Q3." }],
+    };
+    const fake = await fakeWriter({
+      plan: "Kept the factsheet.",
+      facts: [{ statement: "Falconer Partners sent the NMBLX fund factsheet for Q3", group: null, labels: ["falcon", "nmbl", "falconer", "nmblx"], happened: null, detail: null }],
+    });
+    try {
+      await withEnv({ ANTHROPIC_BASE_URL: fake.url }, async () => {
+        const result = await new ClaudeDistiller({ apiKey: "test-key" }).distill(item, { groups: worldGroups() });
+        assert.deepEqual(
+          result.drafts.map((d) => [d.statement, d.folder, d.labels]),
+          [["Falconer Partners sent the NMBLX fund factsheet for Q3", undefined, ["falconer", "nmblx"]]],
+        );
+      });
+    } finally {
+      await fake.close();
+    }
+  });
+
+  test("a name the item wraps across a line break keeps its draft", async () => {
+    // Greptile on PR #17: the memo wraps "Larkspur Cold\nChain"; the writer writes it on one line.
+    // LKSP is no help: it is shorter, but not part of the longer name, so only the phrase match counts.
+    const item: CapturedSession = {
+      id: "ses_0000a11a",
+      client: "ingest",
+      kind: "memo",
+      principal: "priya",
+      external: false,
+      started_at: "2026-10-22T16:05:00.000Z",
+      title: "Sector roundup",
+      messages: [{ role: "user", content: "Larkspur Cold\nChain (LKSP) beat on Q3 volumes." }],
+    };
+    const fake = await fakeWriter({
+      plan: "Kept the beat.",
+      facts: [{ statement: "Larkspur Cold Chain beat on Q3 volumes", group: "desk/trading", labels: ["larkspur-cold-chain", "lksp"], happened: null, detail: null }],
+    });
+    try {
+      await withEnv({ ANTHROPIC_BASE_URL: fake.url }, async () => {
+        const { result, lines } = await quiet(() => new ClaudeDistiller({ apiKey: "test-key" }).distill(item, { groups: worldGroups() }));
+        assert.deepEqual(
+          result.drafts.map((d) => [d.statement, d.folder, d.labels]),
+          [["Larkspur Cold Chain beat on Q3 volumes", "desk/trading", ["larkspur-cold-chain", "lksp"]]],
+        );
+        assert.deepEqual(lines, [], "nothing was left out");
+      });
+    } finally {
+      await fake.close();
+    }
+  });
+
   test("groupList writes one id per line above the item", () => {
     assert.equal(groupList(["deal/heron", "market/rates"]), "GROUPS (file each fact into one of these ids, or null)\n- deal/heron\n- market/rates");
     assert.equal(groupList([]), "GROUPS (file each fact into one of these ids, or null)\n(none: every group is null)");

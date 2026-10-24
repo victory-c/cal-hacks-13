@@ -29,7 +29,7 @@
 
 import { GROUP_RE, INBOX, LABEL_RE, env } from "@canon/shared";
 import type { CapturedSession, DraftFact, Group, GroupId } from "@canon/shared";
-import { filingGroups, foreignName, itemText, startsWordIn } from "./groups.ts";
+import { filingGroups, foreignName, itemText, namesWord } from "./groups.ts";
 import { asDay, sourceOf } from "./heuristic.ts";
 import type { DistillOptions, Distiller, DistillResult } from "./index.ts";
 
@@ -340,8 +340,11 @@ export function asGroup(x: unknown, known: ReadonlySet<GroupId>): GroupId | unde
 
 /**
  * Up to MAX_LABELS label slugs (LABEL_RE), each made only of words the item itself uses: every
- * hyphen-separated part must start a word in `text`. "Acme Rail" becomes "acme-rail"; a label
- * the item never says (a code name it only hints at, a group id) is dropped.
+ * hyphen-separated part must be a whole word in `text` (any case; "Acme Rail's" has "rail").
+ * "Acme Rail" becomes "acme-rail"; a label the item never says (a code name it only hints at, a
+ * group id) is dropped. The start of a longer word is not enough: "NMBLX" names another ticker
+ * than "nmbl", and "Falconer" is not "falcon", so a name the writer saw only in GROUPS cannot ride
+ * in on a longer word.
  */
 export function asLabels(x: unknown, text: string): string[] {
   if (!Array.isArray(x)) return [];
@@ -356,7 +359,7 @@ export function asLabels(x: unknown, text: string): string[] {
       .replace(/-{2,}/g, "-")
       .replace(/^-+|-+$/g, "");
     if (!label || label.length > MAX_LABEL_CHARS || !LABEL_RE.test(label) || out.includes(label)) continue;
-    if (!label.split("-").every((part) => startsWordIn(text, part))) continue;
+    if (!label.split("-").every((part) => namesWord(text, part))) continue;
     out.push(label);
   }
   return out;
