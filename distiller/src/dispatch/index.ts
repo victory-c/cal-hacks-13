@@ -57,8 +57,18 @@ function startWorker(): void {
     const handler = createDispatchHandler({ dispatcher, client, judge, ledger: fileLedger(join(recordsRoot(), "dispatched.log")) });
 
     log(`dispatcher worker: runtime ${runner.name}, judge ${judge.name}, listening on ${baseUrl}${ROUTES.events}`);
+    let connections = 0;
     const stop = subscribe({ baseUrl, token }, (event) => void handler(event), {
-      onOpen: () => log(`connected to ${baseUrl}${ROUTES.events}`),
+      onOpen: () => {
+        log(`connected to ${baseUrl}${ROUTES.events}`);
+        // A reconnect: a scope.updated sent during the gap may be past the server's replay, so
+        // every running agent's folder is checked against its scope now (runs also check before
+        // every step and before saving).
+        if (connections++ === 0) return;
+        void dispatcher.resync().then((n) => {
+          if (n) log(`reconnected: ${n} run(s) held a fact their scope no longer does; they restart in a fresh folder`);
+        });
+      },
       onError: (err) => warn(`event stream: ${errorMessage(err)}; reconnecting`),
     });
 

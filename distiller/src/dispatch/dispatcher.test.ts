@@ -581,6 +581,172 @@ describe("live routing through the worker handler (B18)", () => {
     assert.deepEqual(seen.slice(1), [["fct_0b1c0001"], ["fct_0b1c0001"]], "the server still lists it; the folder never holds it again");
   });
 
+  test("a narrowing the event stream never brought (a dropped /events connection) is caught before the next step: every step checks the folder against the server's scope", async () => {
+    const seen: string[][] = [];
+    const { client, scopes, calls } = fakeServer({ [DAN]: [falcon, falcon2, news] });
+    const d = make(
+      client,
+      planThenWrite((req) => {
+        seen.push(listFactFiles(req.dir));
+        // Maya removes deal/falcon from Dan while the worker is disconnected: no scope.updated ever arrives.
+        if (seen.length === 1) scopes.set(DAN, [news]);
+      }),
+    );
+    const run = await d.dispatch({ agent: DAN, by: "dan" });
+    await quiet(() => d.settle());
+
+    const final = d.get(run.id)!;
+    assert.equal(final.state, "done");
+    assert.equal(final.restarts, 1);
+    assert.deepEqual(seen, [["fct_0b1c0001", "fct_fa1c0003", "fct_fa1c0005"], ["fct_0b1c0001"], ["fct_0b1c0001"]], "no step after the change sees a Falcon file");
+    assert.ok(calls.events.some((e) => e.type === "agent.inbox" && e.item.kind === "scope_narrowed" && e.item.urgent && e.item.delivered_at));
+    assert.equal(calls.sessions.length, 1);
+    assert.doesNotMatch(JSON.stringify(calls.sessions[0]), /fct_fa1c|38\.50/, "nothing saved carries a removed fact");
+  });
+
+  test("a narrowing with no event that lands as the run finishes is caught right before saving: nothing from the old folder is saved", async () => {
+    const { client, scopes, calls } = fakeServer({ [DAN]: [falcon, news] });
+    // The removal lands just after the last check before the save: that read still lists Falcon.
+    let flipAfterRead = false;
+    const read = client.getScopeFacts.bind(client);
+    client.getScopeFacts = async (p) => {
+      const r = await read(p);
+      if (flipAfterRead) {
+        flipAfterRead = false;
+        scopes.set(DAN, [news]);
+      }
+      return r;
+    };
+    let finishes = 0;
+    const d = make(
+      client,
+      planThenWrite((req) => {
+        if (req.n === 2 && ++finishes === 1) flipAfterRead = true;
+      }),
+    );
+    const run = await d.dispatch({ agent: DAN, by: "dan" });
+    await quiet(() => d.settle());
+    assert.equal(d.get(run.id)!.state, "done");
+    assert.equal(d.get(run.id)!.restarts, 1);
+    assert.equal(calls.sessions.length, 1);
+    assert.doesNotMatch(JSON.stringify(calls.sessions[0]), /fct_fa1c|38\.50/);
+  });
+
+  test("after the event stream reconnects, resync() checks every running agent's folder at once and stops a step working from a removed fact", async () => {
+    let entered!: () => void;
+    const inStep = new Promise<void>((r) => (entered = r));
+    let first = true;
+    const { client, scopes, calls } = fakeServer({ [DAN]: [falcon, news] });
+    const runner = new ScriptedRunner(
+      (req) =>
+        new Promise<StepResult>((resolve, reject) => {
+          if (!first) {
+            writeFileSync(join(req.dir, "out", "memo.md"), `Memo from ${listFactFiles(req.dir).join(", ")}.\n`);
+            return resolve({ done: true, summary: "DONE" });
+          }
+          first = false;
+          entered();
+          req.signal.addEventListener("abort", () => reject(new CancelledError()), { once: true });
+        }),
+    );
+    const d = make(client, runner);
+    const run = await d.dispatch({ agent: DAN, by: "dan" });
+    await inStep;
+    assert.equal((await quiet(() => d.resync())).result, 0, "nothing changed: the step goes on");
+    assert.equal(d.get(run.id)!.restarts, 0);
+    scopes.set(DAN, [news]); // missed while the stream was down
+    assert.equal((await quiet(() => d.resync())).result, 1);
+    await quiet(() => d.settle());
+    assert.equal(d.get(run.id)!.state, "done");
+    assert.equal(d.get(run.id)!.restarts, 1);
+    assert.deepEqual(d.factsOf(run.id), ["fct_0b1c0001"]);
+    assert.equal(calls.sessions.length, 1);
+    assert.doesNotMatch(JSON.stringify(calls.sessions[0]), /fct_fa1c|38\.50/);
+  });
+
+  for (const [when, n] of [
+    ["the plan step", 1],
+    ["the DONE step", 2],
+  ] as const) {
+    test(`one narrowing heard during the scope read after ${when} restarts the run once, from the plan step, and it ends done`, async () => {
+      const { judge } = judgeSaying(0.9);
+      const server = fakeServer({ [DAN]: [falcon, news] });
+      let handler!: ReturnType<typeof createDispatchHandler>;
+      // The read after step `n` is where the narrowing is heard: Maya's change lands while it is in flight.
+      let narrowDuringRead = false;
+      const read = server.client.getScopeFacts.bind(server.client);
+      server.client.getScopeFacts = async (p) => {
+        const r = await read(p);
+        if (narrowDuringRead) {
+          narrowDuringRead = false;
+          server.scopes.set(DAN, [news, sellSide]);
+          await handler(scopeUpdated(DAN, { removed: [falcon.id] }));
+        }
+        return r;
+      };
+      const seen: Array<[number, string[]]> = [];
+      let d!: Dispatcher;
+      const runner = planThenWrite((req) => {
+        seen.push([req.n, listFactFiles(req.dir)]);
+        if (req.n === n && seen.length === n) {
+          // A new fact is routed during the step, so the dispatcher reads the scope before the next one.
+          server.scopes.get(DAN)!.push(sellSide);
+          d.deliver([{ id: "inb_00000003", run_id: req.runId, kind: "new_fact", urgent: false, text: "new", fact_id: sellSide.id, p_needs: 0.9, at: nowIso() }]);
+          narrowDuringRead = true;
+        }
+      });
+      d = make(server.client, runner);
+      handler = createDispatchHandler({ dispatcher: d, client: server.client, judge });
+      const run = await d.dispatch({ agent: DAN, by: "dan" });
+      await quiet(() => d.settle());
+
+      const final = d.get(run.id)!;
+      assert.equal(final.state, "done", final.reason);
+      assert.equal(final.restarts, 1, "one narrowing, one restart");
+      assert.deepEqual(seen.slice(n), [
+        [1, ["fct_0b1c0001", "fct_0b1c0004"]],
+        [2, ["fct_0b1c0001", "fct_0b1c0004"]],
+      ]);
+      assert.equal(server.calls.sessions.length, 1);
+      assert.doesNotMatch(JSON.stringify(server.calls.sessions[0]), /fct_fa1c|38\.50/);
+    });
+  }
+
+  test("an agent deleted while its dispatch reads the scope rule never starts: nothing is read, run or saved", async () => {
+    const { judge } = judgeSaying(0.9);
+    let ruleRead!: () => void;
+    const reading = new Promise<void>((r) => (ruleRead = r));
+    let releaseRule!: () => void;
+    const held = new Promise<void>((r) => (releaseRule = r));
+    const server = fakeServer({ [DAN]: [falcon] });
+    const getRule = server.client.getScopeRule.bind(server.client);
+    server.client.getScopeRule = async (p) => {
+      ruleRead();
+      await held;
+      return getRule(p);
+    };
+    const runner = planThenWrite();
+    const d = make(server.client, runner);
+    const handler = createDispatchHandler({ dispatcher: d, client: server.client, judge });
+    const principal = { id: DAN, kind: "agent" as const, name: "Dan's deal analyst", created_by: "dan" };
+    await quiet(async () => {
+      const dispatching = handler({ type: "dispatch.requested", at: nowIso(), id: "dsp_del1", request: { agent: DAN, by: "dan" } });
+      await reading;
+      await handler({ type: "principal.changed", at: nowIso(), principal, change: "agent_deleted", by: "dan" });
+      releaseRule();
+      await dispatching;
+      await d.settle();
+    });
+    const runs = d.list();
+    assert.equal(runs.length, 1);
+    assert.equal(runs[0].state, "cancelled");
+    assert.equal(runs[0].reason, DELETED_TEXT);
+    assert.equal(runner.steps.length, 0);
+    assert.deepEqual(server.calls.reads, [], "the deleted agent's scope is never read");
+    assert.deepEqual(server.calls.handoff, []);
+    assert.equal(server.calls.sessions.length, 0);
+  });
+
   test("a deleted agent's run is cancelled at once: the step in flight is killed, the folder locked, nothing saved", async () => {
     const { judge } = judgeSaying(0.9);
     let entered!: () => void;

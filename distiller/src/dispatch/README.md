@@ -17,15 +17,17 @@ dispatch.requested {agent, by}
       POST /api/handoff (as the agent)   the most relevant facts ─▶ brief.md (Claude Sonnet, or template)
       ┌─ before each step ─────────────────────────────────────────────────────────────┐
       │ drain the inbox, urgent first: cancel ⇒ stop + lock; scope_narrowed ⇒ discard  │
-      │ the folder, restart from the plan step in a fresh one; new_fact ⇒ read the     │
-      │ scope again, write only the routed facts it still holds                         │
+      │ the folder, restart from the plan step in a fresh one. Then read the scope     │
+      │ again, every step: a folder fact it no longer holds ⇒ the same restart (event  │
+      │ or no event); new_fact ⇒ write only the routed facts it still holds            │
       └─────────────────────────────────────────────────────────────────────────────────┘
       droid exec --auto low -o stream-json --cwd <sandbox>     every event ⇒ agent.step
-      done ⇒ freeze ⇒ out/ ⇒ POST /api/sessions (principal = created_by, kind ai_session)
+      done ⇒ freeze ⇒ read the scope once more ⇒ out/ ⇒ POST /api/sessions (principal = created_by, kind ai_session)
 
 scope.updated     removed ⇒ urgent scope_narrowed for every run whose folder holds one
                   added   ⇒ (25 ms batch across agents) ONE judge.ask "does running agent k need fact i now?" ⇒ new_fact
-principal.changed agent_deleted ⇒ urgent cancel
+principal.changed agent_deleted ⇒ urgent cancel; a dispatch still reading the rule never starts
+/events reconnect every running agent's folder checked against its scope at once (resync)
 ```
 
 ## Where Droid runs (Factory track)
@@ -113,10 +115,20 @@ The worker hears `scope.updated` whenever the server changes a principal's scope
   into `facts/`; the step prompt quotes them as data. A narrowing heard while the judge was
   thinking drops that run's items: its restart reads the whole current scope anyway.
 - **Agent deleted** (`principal.changed agent_deleted`): urgent cancel. The step in flight is
-  killed, the folder locked, the run `cancelled`; nothing is saved.
+  killed, the folder locked, the run `cancelled`; nothing is saved. A dispatch of that agent still
+  waiting on its scope rule ends `cancelled` before it reads the scope or runs a step.
 - **Stale reads.** A scope read that a narrowing overtook (heard while it was in flight) is read
   again; a withdrawn fact is never written back until the server says it joined the agent's scope
   again; the check and the writes run with no await in between.
+- **Missed events.** The event stream only makes a narrowing land sooner; it is never the only
+  check. The SSE client reconnects without `Last-Event-ID` and the server replays only its last
+  `EVENT_REPLAY_LIMIT` (100) events, so a `scope.updated` can be lost. Before every step and once
+  more right before saving, the dispatcher reads the agent's scope and compares it with the
+  folder: a fact the folder holds that the read does not is withdrawn and the run restarts in a
+  fresh folder, exactly as if the event had arrived. On every reconnect after the first, the
+  worker checks every running agent at once (`Dispatcher.resync()`), which also stops a step in
+  flight. A scope read that fails fails the run: no step runs, and nothing is saved, on a folder
+  nobody could check. One restart covers every narrowing queued before it.
 
 ## Files
 

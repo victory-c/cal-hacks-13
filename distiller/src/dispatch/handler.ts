@@ -6,7 +6,8 @@
 //                           for routeBatchMs across agents -> ONE judge ask for all their runs
 //                           (routing.routeNewFacts) -> new_fact items
 //   principal.changed    -> agent_created: remember the agent (its name and created_by);
-//                           agent_deleted: urgent cancel for its runs
+//                           agent_deleted: urgent cancel for its runs, and a dispatch of it still
+//                           reading the rule never starts one
 // Events stamped more than the grace before the worker started (the server's SSE replay on
 // connect) are not acted on; a replayed principal.changed still teaches the worker who created an
 // agent. A request this worker already ran is skipped by its id: the ids are kept on disk
@@ -25,7 +26,7 @@ import type { CanonEvent, Judge, Principal } from "@canon/shared";
 import type { DispatchClient } from "./client.ts";
 import type { Dispatcher } from "./dispatcher.ts";
 import { errorMessage, log, warn } from "./log.ts";
-import { isActive, routeAgentDeleted, routeNarrowing, routeNewFacts } from "./routing.ts";
+import { DELETED_TEXT, isActive, routeAgentDeleted, routeNarrowing, routeNewFacts } from "./routing.ts";
 import type { ScopedNewFacts } from "./routing.ts";
 
 /** dispatch.requested ids already handled. */
@@ -65,6 +66,8 @@ export function createDispatchHandler(opts: HandlerOptions): DispatchHandler {
   const inflight = new Set<Promise<void>>();
   const agents = new Map<string, Principal>();
   const deleted = new Set<string>();
+  /** Dispatches still reading their agent's scope rule, by agent: a deletion heard meanwhile marks them. */
+  const starting = new Map<string, Set<{ deleted: boolean }>>();
   let noScopeRoute = false;
 
   const remember = (p: Principal) => {
@@ -136,6 +139,8 @@ export function createDispatchHandler(opts: HandlerOptions): DispatchHandler {
         if (event.change === "agent_deleted") {
           agents.delete(p.id);
           deleted.add(p.id);
+          // A dispatch waiting on the rule has no run to cancel yet: it never starts one.
+          for (const ticket of starting.get(p.id) ?? []) ticket.deleted = true;
           if (replayed) return;
           const n = opts.dispatcher.deliver(routeAgentDeleted(p.id, opts.dispatcher.routable()));
           log(`agent ${p.id} deleted by ${event.by}: ${n} run(s) cancelled`);
@@ -153,8 +158,21 @@ export function createDispatchHandler(opts: HandlerOptions): DispatchHandler {
           log(`dispatch ${event.id}: ${agent} was deleted; not run`);
           return;
         }
-        const run = await opts.dispatcher.dispatch(event.request, agents.get(agent));
-        log(`dispatch ${event.id}: started ${run.id} for ${run.agent} (created by ${run.created_by})`);
+        // Deleted while the rule is read: the dispatcher asks the ticket right before the run
+        // starts, so the run ends cancelled without reading the agent's scope or running a step.
+        const ticket = { deleted: false };
+        const tickets = starting.get(agent) ?? new Set<{ deleted: boolean }>();
+        tickets.add(ticket);
+        starting.set(agent, tickets);
+        let run;
+        try {
+          run = await opts.dispatcher.dispatch(event.request, agents.get(agent), () => (ticket.deleted ? DELETED_TEXT : undefined));
+        } finally {
+          tickets.delete(ticket);
+          if (tickets.size === 0 && starting.get(agent) === tickets) starting.delete(agent);
+        }
+        if (ticket.deleted) log(`dispatch ${event.id}: ${agent} was deleted while its rule was read; ${run.id} cancelled before it started`);
+        else log(`dispatch ${event.id}: started ${run.id} for ${run.agent} (created by ${run.created_by})`);
         return;
       }
       case "scope.updated": {

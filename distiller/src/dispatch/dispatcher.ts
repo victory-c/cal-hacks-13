@@ -9,19 +9,24 @@
 //            (Claude Sonnet, or the offline template), from facts that are in facts/ only.
 //   before   each step, drain the inbox, urgent first. cancel (agent deleted): stop, lock, done.
 //            scope_narrowed: discard the folder and restart from the plan step in a fresh folder
-//            built from the new scope (restarts += 1). new_fact: read the scope again and write the
-//            routed facts the server still holds into facts/; a fact the scope does not hold is
-//            never written or mentioned.
+//            built from the new scope (restarts += 1). Otherwise read the scope again, every step:
+//            a fact the folder holds that the read does not narrows the run all the same (the
+//            event stream can miss a scope.updated), and the routed new_fact files the scope still
+//            holds are written into facts/; a fact the scope does not hold is never written or
+//            mentioned.
 //   step     runner.step() in the sandbox (droid, the Claude fallback, or the fake runtime); every
 //            StepEvent is published as agent.step.
-//   after    the folder is frozen, and every text file in out/ goes back in as the creator's memory:
-//            one CapturedSession (principal = created_by, kind ai_session, client dispatcher) on
-//            POST /api/sessions, so triage files it like anything else they wrote.
+//   after    the folder is frozen and checked against the scope once more, and every text file in
+//            out/ goes back in as the creator's memory: one CapturedSession (principal =
+//            created_by, kind ai_session, client dispatcher) on POST /api/sessions, so triage files
+//            it like anything else they wrote.
 //
 // Scope reads are guarded. noteScopeChange() (called by the worker the moment it hears a
 // scope.updated) bumps the run's generation and remembers the removed ids; a read that a narrowing
 // overtook is read again, and a removed fact is never written back until the server says it
-// joined the agent's scope again. The check and the writes run with no await in between.
+// joined the agent's scope again. The check and the writes run with no await in between. The event
+// stream only makes a narrowing land sooner: every scope read also checks the folder against what
+// the server holds, and resync() checks every run at once when the stream comes back after a gap.
 //
 // Every change is published through POST /api/events (agent.run / agent.step / agent.inbox) so the
 // dashboard draws one lane per agent and the audit log has the record. A run's reason is a fixed
@@ -36,7 +41,7 @@ import type { BriefFact, BriefWriter } from "./brief.ts";
 import type { DispatchClient, RelayedEvent } from "./client.ts";
 import { errorMessage, log, warn } from "./log.ts";
 import type { RoutableRun } from "./routing.ts";
-import { isActive, oneLine } from "./routing.ts";
+import { NARROWED_TEXT, isActive, newInboxId, oneLine } from "./routing.ts";
 import { CancelledError, StepError } from "./runners/types.ts";
 import type { Runner, StepEvent, StepResult } from "./runners/types.ts";
 import {
@@ -69,6 +74,8 @@ export const MAX_SCOPE_READS = 3;
 const MAX_OUTPUT_BYTES = 256_000;
 /** The agent's working plan (step 1). Kept in the record, not saved as memory. */
 const PLAN_FILE = "out/plan.md";
+/** writeFromScope(rec, CHECK_ONLY) writes nothing: the read only checks the folder against the scope. */
+const CHECK_ONLY: ReadonlySet<string> = new Set();
 
 /** Agent principal ids, as the contract names them: `agt_` + slug or hex. */
 export const AGENT_ID_RE = /^agt_[a-z0-9][a-z0-9_-]{0,63}$/;
@@ -178,19 +185,24 @@ export class Dispatcher {
    * dispatch.requested: reads the agent's scope rule (the task) and starts one run. `known` is the
    * agent's Principal when the worker heard it created (it carries created_by). Without it, the
    * creator is the rule's set_by, else whoever asked. No rule on the server: the run fails at
-   * once with NO_RULE_REASON and nothing is read.
+   * once with NO_RULE_REASON and nothing is read. `stopped` is asked once the rule is read, with
+   * no await before the run starts: a reason (the agent was deleted meanwhile) ends the run
+   * cancelled before it reads the scope or runs a step.
    */
-  async dispatch(req: DispatchRequest, known?: Pick<Principal, "name" | "created_by">): Promise<AgentRun> {
+  async dispatch(req: DispatchRequest, known?: Pick<Principal, "name" | "created_by">, stopped?: () => string | undefined): Promise<AgentRun> {
     if (typeof req.agent !== "string" || !AGENT_ID_RE.test(req.agent)) throw new Error(`dispatch: "${String(req.agent)}" is not an agent id (agt_ + slug)`);
     const rule = await this.opts.client.getScopeRule(req.agent);
     const ok = rule !== null && rule.principal === req.agent && typeof rule.task === "string" && rule.task.trim() !== "";
     const created_by = known?.created_by ?? (ok && rule.set_by ? rule.set_by : req.by);
     const profile: AgentProfile = { id: req.agent, name: known?.name ?? req.agent, created_by, task: ok ? rule.task.trim() : "" };
-    return this.start(profile, ok ? undefined : NO_RULE_REASON);
+    return this.start(profile, ok ? undefined : NO_RULE_REASON, stopped?.());
   }
 
-  /** Starts one run now. It executes in the background; settle() waits for it. */
-  start(profile: AgentProfile, failReason?: string): AgentRun {
+  /**
+   * Starts one run now. It executes in the background; settle() waits for it. With `cancelReason`
+   * the run ends cancelled at once (with `failReason`, failed) and reads and runs nothing.
+   */
+  start(profile: AgentProfile, failReason?: string, cancelReason?: string): AgentRun {
     if (!AGENT_ID_RE.test(profile.id)) throw new Error(`start: "${profile.id}" is not an agent id (agt_ + slug)`);
     const id = newRunId();
     const sandbox = createSandbox(id, { root: this.opts.root });
@@ -222,7 +234,12 @@ export class Dispatcher {
     };
     this.runs.set(id, rec);
     this.publishRun(rec);
-    rec.done = failReason ? Promise.resolve().then(() => this.endFailed(rec, failReason)) : this.execute(rec);
+    if (cancelReason) rec.cancelReason = cancelReason;
+    rec.done = cancelReason
+      ? Promise.resolve().then(() => this.endCancelled(rec))
+      : failReason
+        ? Promise.resolve().then(() => this.endFailed(rec, failReason))
+        : this.execute(rec);
     return { ...run };
   }
 
@@ -243,6 +260,29 @@ export class Dispatcher {
       }
       if (own) for (const id of added) rec.withdrawn.delete(id);
     }
+  }
+
+  /**
+   * The worker's event stream came back after a gap. A scope.updated sent meanwhile may never
+   * arrive (the server replays only its last EVENT_REPLAY_LIMIT events), so every active run's
+   * folder is checked against the server's scope now, and a run that holds a fact its scope no
+   * longer does gets an urgent scope_narrowed at once, which stops its step in flight. Runs also
+   * check before every step and before saving; this only makes the restart sooner. Never rejects.
+   * Returns how many of the checked runs are now narrowed.
+   */
+  async resync(): Promise<number> {
+    const recs = [...this.runs.values()].filter((r) => isActive(r.run) && !r.cancelReason && !r.narrowed && r.factIds.size > 0);
+    const narrowed = await Promise.all(
+      recs.map(async (rec) => {
+        try {
+          await this.writeFromScope(rec, CHECK_ONLY);
+        } catch (err) {
+          warn(`run ${rec.run.id}: could not check its folder against the agent's scope after a reconnect (it checks again before its next step): ${errorMessage(err)}`);
+        }
+        return rec.narrowed && isActive(rec.run);
+      }),
+    );
+    return narrowed.filter(Boolean).length;
   }
 
   /**
@@ -350,7 +390,9 @@ export class Dispatcher {
           if (run.restarts >= this.maxRestarts) return this.endFailed(rec, RESTART_LIMIT_REASON);
           await this.restart(rec);
           if (rec.cancelReason) return this.endCancelled(rec);
+          // A fresh folder starts again from the plan step, even when the old one had finished.
           k = 0;
+          finished = false;
           continue;
         }
         if (finished || k >= this.maxSteps) {
@@ -459,20 +501,29 @@ export class Dispatcher {
   }
 
   /**
-   * Reads the agent's scope from the server and writes fact files: every fact (`only` unset) or
-   * just the ids in `only`. Returns the facts written, or null when the server has no scope route.
-   * A read that a narrowing overtook is read again; withdrawn ids are never written. From the
+   * Reads the agent's scope from the server, checks the folder against it, then writes fact files:
+   * every fact (`only` unset) or just the ids in `only` (CHECK_ONLY: none). Returns the facts
+   * written, or null when the server has no scope route. A read that a narrowing overtook is read
+   * again; withdrawn ids are never written. When the folder holds a fact the read does not, the
+   * run narrows (narrowFrom) and nothing is written: the restart rebuilds the folder. From the
    * generation check to the last write there is no await, so nothing can slip in between.
    */
   private async writeFromScope(rec: RunRecord, only?: ReadonlySet<string>): Promise<Fact[] | null> {
     for (let attempt = 1; attempt <= MAX_SCOPE_READS; attempt++) {
       const gen = rec.scopeGen;
+      // What the folder held when the read was made. A fact written since came from a newer read
+      // (resync() reads alongside the run's own loop), and a restart builds a new folder.
+      const folder = rec.sandbox;
+      const held = [...rec.factIds];
       const read = await this.opts.client.getScopeFacts(rec.run.agent);
-      if (read === null) return null;
       if (gen !== rec.scopeGen) continue;
+      const facts = read === null ? null : this.usable(rec, read);
+      if (rec.sandbox === folder && this.narrowFrom(rec, held, facts)) return [];
+      if (facts === null) return null;
+      if (only?.size === 0) return [];
       const sb = this.sandboxOf(rec);
       const written: Fact[] = [];
-      for (const f of this.usable(rec, read)) {
+      for (const f of facts) {
         if (only && !only.has(f.id)) continue;
         writeFactFile(sb, f);
         rec.factIds.add(f.id);
@@ -481,6 +532,25 @@ export class Dispatcher {
       return written;
     }
     throw new Error(`the agent's scope changed during ${MAX_SCOPE_READS} reads in a row`);
+  }
+
+  /**
+   * The folder against the server's scope as just read (`facts`; null, no scope route, holds
+   * nothing). An id in `held` that the folder still holds and the read does not has left the
+   * agent's scope, whether or not the worker heard a scope.updated for it (a dropped connection, a
+   * replay that did not reach back far enough): it is withdrawn, and the run gets the same urgent
+   * scope_narrowed the event would have brought. True when the run narrowed.
+   */
+  private narrowFrom(rec: RunRecord, held: readonly string[], facts: readonly Fact[] | null): boolean {
+    if (!isActive(rec.run)) return false;
+    const inScope = new Set((facts ?? []).map((f) => f.id));
+    const gone = held.filter((id) => rec.factIds.has(id) && !inScope.has(id));
+    if (gone.length === 0) return false;
+    rec.scopeGen++;
+    for (const id of gone) rec.withdrawn.add(id);
+    if (!rec.narrowed) log(`run ${rec.run.id} (${rec.run.agent}): its folder holds a fact the agent's scope no longer does; it restarts in a fresh folder`);
+    this.deliver([{ id: newInboxId(), run_id: rec.run.id, kind: "scope_narrowed", urgent: true, text: NARROWED_TEXT, at: nowIso() }]);
+    return true;
   }
 
   /** Valid facts, each once, minus the withdrawn ones. A malformed fact is logged and never written. */
@@ -503,8 +573,11 @@ export class Dispatcher {
   /**
    * Urgent first, then oldest first. A cancel ends the drain. A scope_narrowed marks the run for a
    * restart; the rebuild reads the whole scope, so new facts queued with it need nothing more.
-   * Otherwise the routed new facts the scope still holds are written into facts/ and become the
-   * step's updates. Returns the update lines for the step prompt.
+   * Otherwise the scope is read again before every step, whatever the inbox holds: the folder is
+   * checked against it (a narrowing the event stream never brought restarts the run all the
+   * same), and the routed new facts it still holds are written into facts/ and become the step's
+   * updates. A read that fails fails the run: no step runs on a folder nobody could check.
+   * Returns the update lines for the step prompt.
    */
   private async beforeStep(rec: RunRecord): Promise<string[]> {
     if (rec.cancelReason) return [];
@@ -523,19 +596,11 @@ export class Dispatcher {
         rec.narrowed = true;
       } else newFacts.push(item);
     }
-    if (rec.narrowed || newFacts.length === 0) return [];
+    if (rec.narrowed) return [];
 
     const wanted = new Set(newFacts.flatMap((i) => (i.fact_id ? [i.fact_id] : [])));
-    let written: Fact[] | null;
-    try {
-      written = await this.writeFromScope(rec, wanted);
-    } catch (err) {
-      if (err instanceof SandboxEscapeError) throw err;
-      warn(`run ${rec.run.id}: could not read the agent's scope for ${wanted.size} new fact(s); trying again before the next step: ${errorMessage(err)}`);
-      rec.inbox.push(...newFacts);
-      return [];
-    }
-    if (rec.narrowed) return [];
+    const written = await this.writeFromScope(rec, wanted);
+    if (rec.narrowed || rec.cancelReason) return [];
     const updates: string[] = [];
     for (const item of newFacts) {
       const f = written?.find((x) => x.id === item.fact_id);
@@ -551,6 +616,11 @@ export class Dispatcher {
   /** Discards the folder and builds a fresh one from the scope as the server holds it now. */
   private async restart(rec: RunRecord): Promise<void> {
     const { run } = rec;
+    // One restart covers every narrowing queued before it (one heard while a scope read was in
+    // flight is still in the inbox): the fresh folder is built from the whole current scope.
+    const covered = rec.inbox.filter((i) => i.kind === "scope_narrowed");
+    rec.inbox = rec.inbox.filter((i) => i.kind !== "scope_narrowed");
+    for (const item of covered) this.markDelivered(rec, item);
     rec.narrowed = false;
     rec.phase = "scope";
     const old = this.sandboxOf(rec);
@@ -571,8 +641,9 @@ export class Dispatcher {
   }
 
   /**
-   * Freezes the folder, then saves the text files in out/ to the creator's memory and ends the run.
-   * Returns "narrowed", saving nothing, when the folder holds a fact the scope no longer does.
+   * Freezes the folder, checks it against the scope once more, then saves the text files in out/
+   * to the creator's memory and ends the run. Returns "narrowed", saving nothing, when the folder
+   * holds a fact the scope no longer does.
    */
   private async release(rec: RunRecord, finished: boolean): Promise<"narrowed" | void> {
     const { run } = rec;
@@ -597,7 +668,11 @@ export class Dispatcher {
       return this.end(rec, "done");
     }
     if (rec.cancelReason) return this.endCancelled(rec);
-    // Checked with no await since the files were read: what is saved never carries a removed fact.
+    // The folder against the server's scope right before saving, event or no event. The folder is
+    // frozen, so the bytes read above are still the folder's.
+    await this.writeFromScope(rec, CHECK_ONLY);
+    if (rec.cancelReason) return this.endCancelled(rec);
+    // Checked with no await before the post: what is saved never carries a removed fact.
     if (rec.narrowed || [...rec.factIds].some((id) => rec.withdrawn.has(id))) {
       rec.narrowed = true;
       return "narrowed";
