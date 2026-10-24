@@ -179,7 +179,15 @@ export interface AuditResponse {
   entries: AuditEvent[];
 }
 
-/** Only RELAYED_EVENTS types; the server stamps `at` when it is missing and rejects the rest. */
+export type RelayedEvent = Extract<CanonEvent, { type: RelayedEventType }>;
+
+/** `at` becomes optional, per union member, so the discriminant on `type` still narrows. */
+type WithOptionalAt<E> = E extends { at: string } ? Omit<E, "at"> & { at?: string } : never;
+
+/**
+ * Only RELAYED_EVENTS types; the server rejects the rest. `at` may be omitted: the server stamps
+ * it on receipt, and every event it broadcasts on /events carries one.
+ */
 export interface PublishEventBody {
-  event: Extract<CanonEvent, { type: RelayedEventType }>;
+  event: WithOptionalAt<RelayedEvent>;
 }
