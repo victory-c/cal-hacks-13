@@ -1,6 +1,6 @@
-# Scale slide: Canon
+# Scale slide: Bullwark
 
-**Owner:** Victor (task B13). One slide: how Canon goes from a small team to a company version,
+**Owner:** Victor (task B13). One slide: how Bullwark goes from a small team to a company version,
 and what of it runs today. The tiers come from the scale path in [`PRD.md`](PRD.md) ("Competitors
 and positioning"). It is used at 1:55 in the live pitch ([`PITCH.md`](PITCH.md)), as shot S14 in
 the video ([`VIDEO_SCRIPT.md`](VIDEO_SCRIPT.md)), and as the "scale slide" the Microsoft track
@@ -29,10 +29,10 @@ asks for. Build statuses come from [`SPONSORS.md`](SPONSORS.md); change them the
 | **State** | Partly built, see the table below | Design, not built | Design, not built |
 
 **Evidence strip** (bottom of the slide; drop any item that isn't measured):
-leaks out of 50 attacks, Canon + Jev [[BENCH: leaks out of 50, Canon + Jev]] vs. shared memory
-[[BENCH: leaks out of 50, shared memory]] · wrongly blocked [[BENCH: wrongly blocked rate, Canon + Jev]]
-· tokens per handoff [[BENCH: mean tokens per handoff, Canon + Jev]]
-· cost per handoff [[BENCH: cost per handoff, Canon + Jev]]
+leaks out of 50 attacks, Bullwark + Jev [[BENCH: leaks out of 50, Bullwark + Jev]] vs. shared memory
+[[BENCH: leaks out of 50, shared memory]] · wrongly blocked [[BENCH: wrongly blocked rate, Bullwark + Jev]]
+· tokens per handoff [[BENCH: mean tokens per handoff, Bullwark + Jev]]
+· cost per handoff [[BENCH: cost per handoff, Bullwark + Jev]]
 
 **Footer:** Synthetic data. Decision support for a compliance officer, not legal compliance.
 
@@ -64,7 +64,7 @@ From the PRD's scale path, and none of it is built:
   data.
 - **Company version:** policies per agent across the organization, retention rules,
   regulator-ready exports, and setup with a forward-deployed engineer.
-- **Hosting:** today Canon runs as local processes over local files (one markdown file per fact,
+- **Hosting:** today Bullwark runs as local processes over local files (one markdown file per fact,
   raw captures in a cold archive) and plain server-sent events. How it is hosted for more than
   one office is not designed yet; the slide doesn't claim it.
 

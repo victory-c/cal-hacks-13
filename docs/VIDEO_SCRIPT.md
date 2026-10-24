@@ -1,4 +1,4 @@
-# Video script: Canon (3:00 max)
+# Video script: Bullwark (3:00 max)
 
 **Script:** Victor (task B14). **Footage:** Edan records it (C9), plus the full-demo backup
 recording. **Voiceover:** Victor. Source of the beats: the demo script in [`PRD.md`](PRD.md).
@@ -26,13 +26,13 @@ live beat that breaks.
 | # | Time | Beat | Picture | On-screen text | Voiceover |
 |---|---|---|---|---|---|
 | 1 | 0:00–0:18 | The moment | S1 then S2 | "Leo · trader · public side" | (first 4 s: no voice, let the refusal land) "Leo is a trader. He just asked his AI about a company his firm is secretly advising on. It said no, and nothing else. But Maya in compliance sees who asked, what, and which deal it touched." |
-| 2 | 0:18–0:40 | Who it's for | S3, S4 | "Canon: the control room for a small finance team's AI" then "Harbor Lane Partners · 30 people · 1 compliance officer (synthetic)" then the quote card | "This is Canon. Small finance firms must keep deal information away from their traders and researchers. Maya does it with a spreadsheet. Now every banker uses AI tools, and every agent is one more place a deal can leak." (Quote card holds 3 s, no voice.) |
-| 3 | 0:40–1:05 | Capture and triage | S5, S6 | "Jev: keep? confidential? which deal? instructions to an AI?" then "Quarantined: planted instruction" | "Canon captures context as it happens: Dan's ChatGPT session about deal terms, a new memo. Jev, a judge model, asks yes-or-no questions about each one and flags both as Falcon. Claude writes the facts, and code puts them behind the wall. This email from the target's lawyers hides an instruction to the AI. Quarantined." |
-| 4 | 1:05–1:35 | Dispatch and slices | S7, S8 | "Deal analyst · Falcon side" / "Research analyst · public side" then "Cut by: wall (before search)" | "Dan asks for Falcon board materials and an update to the logistics sector note. Canon dispatches two Factory Droid agents, each in its own sandbox folder. The deal analyst gets Falcon facts. The research analyst gets public facts only. The inspector shows why: this Falcon fact was cut by the wall before search ran. No model ever saw it, so none can be talked into revealing it." |
+| 2 | 0:18–0:40 | Who it's for | S3, S4 | "Bullwark: the control room for a small finance team's AI" then "Harbor Lane Partners · 30 people · 1 compliance officer (synthetic)" then the quote card | "This is Bullwark. Small finance firms must keep deal information away from their traders and researchers. Maya does it with a spreadsheet. Now every banker uses AI tools, and every agent is one more place a deal can leak." (Quote card holds 3 s, no voice.) |
+| 3 | 0:40–1:05 | Capture and triage | S5, S6 | "Jev: keep? confidential? which deal? instructions to an AI?" then "Quarantined: planted instruction" | "Bullwark captures context as it happens: Dan's ChatGPT session about deal terms, a new memo. Jev, a judge model, asks yes-or-no questions about each one and flags both as Falcon. Claude writes the facts, and code puts them behind the wall. This email from the target's lawyers hides an instruction to the AI. Quarantined." |
+| 4 | 1:05–1:35 | Dispatch and slices | S7, S8 | "Deal analyst · Falcon side" / "Research analyst · public side" then "Cut by: wall (before search)" | "Dan asks for Falcon board materials and an update to the logistics sector note. Bullwark dispatches two Factory Droid agents, each in its own sandbox folder. The deal analyst gets Falcon facts. The research analyst gets public facts only. The inspector shows why: this Falcon fact was cut by the wall before search ran. No model ever saw it, so none can be talked into revealing it." |
 | 5 | 1:35–1:52 | Knowing when to ask | S9 | "Jev pre-screen: plausible tie, needs a human" then "Approved · expires [[CHECK: date shown]]" | "Priya in research asks to join Falcon. Jev rates the request borderline, so a person decides, not a model. Maya approves it with an expiry date, and the wall map updates." |
 | 6 | 1:52–2:12 | Walls change live | S10, S11 | "Project Falcon: announced" then "Inbox · wall change · urgent" | "Now Falcon is announced. Restrictions lift. Leo asks again and gets his answer. The research agent picks up the now-public facts at its next step, with no restart. If the deal had died instead, the deal agent would stop and its folder would lock." |
-| 7 | 2:12–2:37 | Proof | S12, S13 | Chart title: "Leak rate vs. wrongly blocked, 50 attacks, 30 tasks". Callouts from the chart only. | "We attacked it 50 times: direct questions, paraphrases, the code name, indirect hints and planted instructions. Canon with Jev leaked [[BENCH: leaks out of 50, Canon + Jev]]. A shared memory told to respect the wall leaked [[BENCH: leaks out of 50, shared memory]]. Canon wrongly blocked [[BENCH: wrongly blocked rate, Canon + Jev]] of real tasks. And every handoff is in the audit log." |
-| 8 | 2:37–2:55 | Close | S14, S15 | "Other memory tools ask what's relevant. Canon first asks what you're allowed to know, then what's relevant." then the end card | "Canon fills two seats at a small firm: a compliance analyst for Maya, and a research assistant that never crosses the wall. One firm today, a company version next. Canon." |
+| 7 | 2:12–2:37 | Proof | S12, S13 | Chart title: "Leak rate vs. wrongly blocked, 50 attacks, 30 tasks". Callouts from the chart only. | "We attacked it 50 times: direct questions, paraphrases, the code name, indirect hints and planted instructions. Bullwark with Jev leaked [[BENCH: leaks out of 50, Bullwark + Jev]]. A shared memory told to respect the wall leaked [[BENCH: leaks out of 50, shared memory]]. Bullwark wrongly blocked [[BENCH: wrongly blocked rate, Bullwark + Jev]] of real tasks. And every handoff is in the audit log." |
+| 8 | 2:37–2:55 | Close | S14, S15 | "Other memory tools ask what's relevant. Bullwark first asks what you're allowed to know, then what's relevant." then the end card | "Bullwark fills two seats at a small firm: a compliance analyst for Maya, and a research assistant that never crosses the wall. One firm today, a company version next. Bullwark." |
 
 Voiceover is about 360 words (fewer once the placeholders become numbers), roughly 140 words a
 minute across the 2:55 with the silent beats. Beats 4 and 7 are the densest. If a take
@@ -49,7 +49,7 @@ emails anywhere in frame. Mouse moves slowly; pause 1 s before each click.
 |---|---|---|---|
 | S1 | Desk assistant chat as **Leo**. Type: "Anything going on with Nimbus Logistics? Should we add to our position?" and send. Hold on the refusal. | 12 s | The refusal text must read exactly: "I can't help with that company right now. It's on the restricted list. Contact compliance." |
 | S2 | Maya's control room. The refusal row appears in the live feed and the review/audit panel lights up with who, what, which deal. | 8 s | Zoom in (post) on "deal: Project Falcon" so viewers see compliance gets the full reason and Leo didn't. |
-| S3 | Title card on a plain background: "Canon: the control room for a small finance team's AI". | 4 s | Made in post. |
+| S3 | Title card on a plain background: "Bullwark: the control room for a small finance team's AI". | 4 s | Made in post. |
 | S4 | Quote card: [[QUOTE: from Edan's notes]], with the speaker's role (no name unless they agreed). | 3 s | If there is no quote with permission, cut S4 and give the time to beat 3. |
 | S5 | Event feed while Dan's ChatGPT session and a new Falcon memo arrive. Triage rows show the Falcon label and Jev's probabilities. | 12 s | Dan's ChatGPT session comes in through the ChatGPT extension on a real ChatGPT tab with synthetic text, or, if the extension is cut, through the ingest client (`hooks/ingest/`, as an AI session). Say which on the end card. |
 | S6 | The lawyers' email arrives and lands in Quarantine. Open it to show the planted line highlighted. | 8 s | Keep the planted instruction readable for 2 s. |
@@ -70,8 +70,8 @@ the pitch, if a judge asks what happens when a deal dies.
 ## End card (on screen, no voiceover)
 
 ```
-Canon · Cal Hacks 13.0
-All data is synthetic. Canon is decision support for a compliance officer, not legal compliance.
+Bullwark · Cal Hacks 13.0
+All data is synthetic. Bullwark is decision support for a compliance officer, not legal compliance.
 Real in this video: [[CHECK: e.g. Claude writer, Droid agents, Moss search, Jev]]
 Simulated in this video: [[CHECK: e.g. nothing / fake judge / keyword search]]
 [[CHECK: repo URL]]

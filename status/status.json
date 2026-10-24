@@ -1,6 +1,6 @@
 {
   "project": "Bullwark",
-  "updated": "2026-10-24T12:50:51Z",
+  "updated": "2026-10-24T12:53:18Z",
   "team": [
     {
       "id": "A",
@@ -298,7 +298,7 @@
       "priority": "must",
       "state": "doing",
       "title": "Two-minute finance pitch and answers to judge questions",
-      "note": "Built and tested on b/story (stacked on PR #7); awaiting review and lane-A routes. Remaining: add C4's interview quote and measured numbers, then rehearse with C11."
+      "note": "Built and tested on b/story (stacked on PR #7); awaiting review and lane-A routes. Remaining: add C4's interview quote and measured numbers, get lane A's reset command so the attack-box laptop starts with Falcon still confidential, then rehearse with C11."
     },
     {
       "id": "B16",

@@ -1,4 +1,4 @@
-# Devpost draft: Canon
+# Devpost draft: Bullwark
 
 **Owner:** Victor (task B12). **Draft due:** Sat 10/24 23:59 PDT. **Final submit:** Sun 08:30.
 Edan pastes it into Devpost and handles the logistics (C8, C10). Source of truth for the story:
@@ -35,7 +35,7 @@ Edan pastes it into Devpost and handles the logistics (C8, C10). Source of truth
 
 ## Project name
 
-Canon
+Bullwark
 
 ## Tagline
 
@@ -62,7 +62,7 @@ We asked people who do this work how they handle it today:
 
 Maya and her firm, Harbor Lane Partners, are invented for the demo. The problem is real. Big
 banks solve it with whole compliance departments and control-room software that knows nothing
-about AI. A 30-person firm has one Maya. We built Canon for her.
+about AI. A 30-person firm has one Maya. We built Bullwark for her.
 
 ## What it does
 
@@ -73,7 +73,7 @@ now. It's on the restricted list. Contact compliance." That is all Leo sees. At 
 Maya's control room shows the full record: who asked, what they asked, and which deal it touched.
 [[SHIPPED? Hyphenate: server and control room]]
 
-Canon is the context layer for a small finance team's people and AI agents. It runs five steps
+Bullwark is the context layer for a small finance team's people and AI agents. It runs five steps
 on every piece of context:
 
 1. **Capture.** It pulls in AI sessions (a Claude Code hook and a ChatGPT browser extension),
@@ -91,9 +91,9 @@ on every piece of context:
    they aren't cleared for. Only then does search run, and Jev keeps the few facts that help
    with the task, cut to a token budget. Every handoff is logged.
    [[SHIPPED? Hyphenate: server and control room; Jev: handoff and pre-screen]]
-5. **Dispatch and update live.** Canon sends Factory Droid agents to do the work, each in a
+5. **Dispatch and update live.** Bullwark sends Factory Droid agents to do the work, each in a
    sandbox folder that holds only its side of the wall. When a deal is announced, a deal dies,
-   or a new fact lands, Canon routes the change to the agents that need it and stops the ones
+   or a new fact lands, Bullwark routes the change to the agents that need it and stops the ones
    that shouldn't continue. [[SHIPPED? Factory Droid]]
 
 Maya runs it from the control room: the deals and who is over each wall, pending access
@@ -104,7 +104,7 @@ token count. [[SHIPPED? Hyphenate: server and control room]]
 Maya can also open the memory browser to view and edit facts, or retire one. A retired fact moves
 to cold storage with its history kept; nothing is ever hard-deleted. [[SHIPPED? Memory browser]]
 
-**Other memory tools ask what's relevant. Canon first asks what you're allowed to know, then
+**Other memory tools ask what's relevant. Bullwark first asks what you're allowed to know, then
 what's relevant.**
 
 ## How we built it
@@ -133,7 +133,7 @@ capture → Jev triage → Claude writer → [permission filter] → Moss + keyw
   quarantine. A "which deal?" pick below 60% confidence goes to Maya's queue as "unsure." (All
   thresholds live in `shared/src/types/judge.ts`.) [[SHIPPED? Jev: triage]]
 - **Claude writer.** Claude (`claude-sonnet-5-5`) turns kept items into one-claim facts with two
-  dates (when it happened, when Canon learned it) and a link to the source. Claude writes the
+  dates (when it happened, when Bullwark learned it) and a link to the source. Claude writes the
   fact text; code sets the wall label from fixed rules (deal code names, aliases and company
   names, matched in code) plus the judge's answers to "does this look confidential?" and "which
   deal?". When Jev isn't available, the judge is the Claude fallback (`claude-haiku-5-5`), so
@@ -158,10 +158,10 @@ capture → Jev triage → Claude writer → [permission filter] → Moss + keyw
   [[SHIPPED? Hyphenate: server and control room]]
 - **Droid dispatch.** A person types one task in the control room. The dispatcher splits it into
   agent runs, one per side of the wall. Each agent gets its slice through the same pipeline, as
-  its own principal. Claude writes a short brief from that slice. Canon creates a sandbox folder
-  per agent, outside the repo and Canon's data, holding only the allowed files, and runs Factory
+  its own principal. Claude writes a short brief from that slice. Bullwark creates a sandbox folder
+  per agent, outside the repo and Bullwark's data, holding only the allowed files, and runs Factory
   Droid headless with `droid exec --auto low`, the lowest level that lets it create and edit
-  files. On macOS a sandbox profile also stops it from reading the repo, Canon's data or another
+  files. On macOS a sandbox profile also stops it from reading the repo, Bullwark's data or another
   agent's folder. When a run ends, its folder is locked and kept as the run's record.
   [[CHECK: at the Factory booth, that `--auto low` is fine for headless finance runs, whether it runs Python for the numbers at that level, and whether it can reach the network (blocker Q1)]]
   Each task runs as a few short Droid steps. Every step, file and result streams into that
@@ -203,7 +203,7 @@ token per client.
   list is secret, so a hit there gets an even blander answer with no reason. Maya sees the full
   reason in her queue.
   [[SHIPPED? Armadin: refusal wording; Hyphenate: server and control room]]
-- **Planted instructions.** Canon reads text from outside parties, like the target company's
+- **Planted instructions.** Bullwark reads text from outside parties, like the target company's
   lawyers. Our synthetic email hides a line telling the AI to send the Falcon terms to research.
   Triage asks of every item whether it contains instructions aimed at an AI, quarantines it, and
   facts reach agents quoted as data, never as instructions.
@@ -237,13 +237,13 @@ token per client.
   the alias rules and the judge miss at save time would read as public. The exit check and the
   paraphrase and indirect attacks in our benchmark are aimed at exactly that.
   [[SHIPPED? Hyphenate: server and control room; Armadin: filter and exit check]]
-- On our 50-attempt attack set, Canon with Jev leaked [[BENCH: leaks out of 50, Canon + Jev]]
+- On our 50-attempt attack set, Bullwark with Jev leaked [[BENCH: leaks out of 50, Bullwark + Jev]]
   times. A shared memory told in its prompt to respect the walls leaked
   [[BENCH: leaks out of 50, shared memory]] times.
-- It still does the work. On 30 real tasks from both sides of the wall, Canon wrongly blocked
-  [[BENCH: wrongly blocked rate, Canon + Jev]] and answered
-  [[BENCH: task accuracy, Canon + Jev]] correctly, handing over
-  [[BENCH: mean tokens per handoff, Canon + Jev]] tokens per handoff.
+- It still does the work. On 30 real tasks from both sides of the wall, Bullwark wrongly blocked
+  [[BENCH: wrongly blocked rate, Bullwark + Jev]] and answered
+  [[BENCH: task accuracy, Bullwark + Jev]] correctly, handing over
+  [[BENCH: mean tokens per handoff, Bullwark + Jev]] tokens per handoff.
 - Every handoff, refusal, approval, label change and quarantine is in one audit log, so Maya can
   answer "who knew what, and when?" in one view. [[SHIPPED? Hyphenate: server and control room]]
 - Agents that respect the wall: two Droid agents on opposite sides of Project Falcon work on one
@@ -268,7 +268,7 @@ token per client.
 - **Agents need less than you think.** The "inject nothing" check and the token budget keep each
   agent's context small and on task.
 
-## What's next for Canon
+## What's next for Bullwark
 
 | Stage | What it is |
 | --- | --- |
@@ -279,7 +279,7 @@ token per client.
 Only the first row is what we built; the other two are design. Our scale slide marks which
 parts of the first row are real and which ran simulated.
 
-Next steps after the hackathon: talk to more compliance officers at small firms, run Canon on
+Next steps after the hackathon: talk to more compliance officers at small firms, run Bullwark on
 their real (redacted) workflows, replace the synthetic connectors with real email and chat, and
 flag when two teammates' notes contradict each other.
 
@@ -298,7 +298,7 @@ chrome-extension, claude-code-hooks, esbuild, tsx, node-test, obsidian,
 Each paragraph says where the sponsor's tool does real work in the running product. File paths
 and build status are in [`docs/SPONSORS.md`](SPONSORS.md).
 
-**Hyphenate: Autonomous Systems for Finance.** Hyphenate asks, "Would you hire it?" Canon is
+**Hyphenate: Autonomous Systems for Finance.** Hyphenate asks, "Would you hire it?" Bullwark is
 designed around the answer: limited access, a clean record of its work, and knowing when to ask
 a person. It fills two seats at a small firm: a compliance analyst that keeps the walls and the
 audit log for Maya, and a research assistant that does real work without ever crossing the wall.
@@ -311,7 +311,7 @@ firms, like Maya. Claude does the writing. `claude-sonnet-5-5` turns captured me
 sessions into short sourced facts and writes each agent's brief from its slice.
 `claude-haiku-5-5` is the fallback judge behind the same `judge()` interface as Jev. The obvious
 way Claude could go wrong here is leaking across the wall, by summarizing a deal memo into a
-fact that reads as public or by repeating deal details in a brief. Canon limits both. No model
+fact that reads as public or by repeating deal details in a brief. Bullwark limits both. No model
 can lower a wall or grant access, and Claude only writes briefs from facts that already passed
 the permission filter. At save time, code rules plus the judge's answers set each fact's wall
 label, and it can only move up. When the Claude fallback judge runs, Claude Haiku answers the
@@ -320,21 +320,21 @@ left is a deal fact that both the alias rules and the judge miss; the paraphrase
 attacks in our benchmark and the exit check measure it.
 [[SHIPPED? Anthropic: finance writer; Anthropic: briefs and runner; Armadin: triage and labels]]
 
-**Microsoft: Built for the Real World.** Canon is a finance agent system built for production
+**Microsoft: Built for the Real World.** Bullwark is a finance agent system built for production
 habits: deny by default, an audit log of every handoff, humans approving anything uncertain, and
-measured usefulness. Our benchmark compares four setups (no memory, shared memory, Canon with a
-Claude filter, Canon with Jev) on leak rate, wrongly-blocked rate, task accuracy, tokens, latency
+measured usefulness. Our benchmark compares four setups (no memory, shared memory, Bullwark with a
+Claude filter, Bullwark with Jev) on leak rate, wrongly-blocked rate, task accuracy, tokens, latency
 and cost. Results: [[CHECK: link to bench/results/latest.json from a run that is not simulated]].
 The scale path goes from one firm to a company version, and our scale slide marks what is built
 and what is design.
 [[SHIPPED? Microsoft: finance setups; Hyphenate: server and control room]]
 
-**Factory Droid SDK.** Droid runs every agent Canon dispatches. It isn't a chat wrapper: a
+**Factory Droid SDK.** Droid runs every agent Bullwark dispatches. It isn't a chat wrapper: a
 person's task triggers the dispatcher, which runs Droid headless (`droid exec --auto low`) in a
 sandbox folder outside the repo that holds only its side of the wall, where it can create and
 edit files. [[CHECK: Python at `--auto low`, from the Factory booth (blocker Q1)]] Each task runs
 as a few short steps with an inbox in between. Each step, file and result streams into the agent's lane on the dashboard.
-Canon controls exactly what each Droid can see and touch, and can cancel it when a deal dies.
+Bullwark controls exactly what each Droid can see and touch, and can cancel it when a deal dies.
 The dispatcher is in `distiller/src/dispatch/`. [[SHIPPED? Factory Droid]]
 
 **Moss.** Moss is the search-by-meaning step on every handoff and every routing check. It runs
@@ -342,7 +342,7 @@ after the permission filter, so it only searches facts the requester is cleared 
 latency shows on the dashboard counter: [[LIVE COUNTER: Moss search latency]].
 [[SHIPPED? Moss]]
 
-**Armadin: Best Security Hack.** Canon is a security system for information. The walls are
+**Armadin: Best Security Hack.** Bullwark is a security system for information. The walls are
 enforced in code, refusals don't leak the deal they protect, captured text with planted
 instructions is quarantined, and every agent output passes an exit check for code names,
 restricted companies and indirect references before it leaves its side. Judges can attack it in
@@ -364,7 +364,7 @@ memory tool to context with walls.
 ## What's real and what's simulated
 
 All data is synthetic: Harbor Lane Partners, Project Falcon, Nimbus Logistics, and Maya, Dan,
-Priya and Leo are invented. Canon is decision support for a compliance officer, not a replacement
+Priya and Leo are invented. Bullwark is decision support for a compliance officer, not a replacement
 for legal compliance.
 
 | Part | State at submit |

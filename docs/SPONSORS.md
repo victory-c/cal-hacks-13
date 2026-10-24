@@ -1,4 +1,4 @@
-# Where each sponsor runs in Canon
+# Where each sponsor runs in Bullwark
 
 **Owner:** Victor (task B13). One line per sponsor: the file where its tool does real work in the
 running product, and an honest status. The README's "Sponsor tracks and integration evidence"
