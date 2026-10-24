@@ -5,7 +5,7 @@ import { ClaudeJudge, FakeJudge, JevJudge, createJudge, timed } from "./index.ts
 import { withEnv } from "../test-helpers.ts";
 
 // Every case clears the four variables first so the developer's own shell cannot leak in.
-const clean = { JUDGE_PROVIDER: undefined, JEV_API_KEY: undefined, JEV_API_URL: undefined, ANTHROPIC_API_KEY: undefined };
+const clean = { JUDGE_PROVIDER: undefined, JEV_API_KEY: undefined, TYPESAFE_API_KEY: undefined, JEV_API_URL: undefined, ANTHROPIC_API_KEY: undefined };
 
 describe("createJudge provider selection (no network: only constructors run)", () => {
   test("no keys → fake", async () => {
@@ -47,7 +47,8 @@ describe("createJudge provider selection (no network: only constructors run)", (
 
   test("a provider without its key fails at construction, naming the variable", async () => {
     await withEnv({ ...clean, JUDGE_PROVIDER: "jev" }, () => assert.throws(() => createJudge(), /JEV_API_KEY is not set/));
-    await withEnv({ ...clean, JUDGE_PROVIDER: "jev", JEV_API_KEY: "k" }, () => assert.throws(() => createJudge(), /JEV_API_URL is not set/));
+    await withEnv({ ...clean, JUDGE_PROVIDER: "jev", JEV_API_KEY: "k" }, () => assert.equal(createJudge().name, "jev", "the URL defaults to TypeSafe's"));
+    await withEnv({ ...clean, TYPESAFE_API_KEY: "k" }, () => assert.equal(createJudge().name, "jev", "TypeSafe's own variable name picks Jev"));
     await withEnv({ ...clean, JUDGE_PROVIDER: "claude" }, () => assert.throws(() => createJudge(), /ANTHROPIC_API_KEY is not set/));
   });
 });

@@ -55,11 +55,11 @@ const { result, ms } = await timed(() => judge.ask(state, questions));
 
 | `JUDGE_PROVIDER` | Class | Real? | Needs |
 |---|---|---|---|
-| `jev` | `JevJudge` | Yes. **Request/response shape unverified until TypeSafe's docs arrive (blocker Q3).** | `JEV_API_KEY`, `JEV_API_URL` |
+| `jev` | `JevJudge` | Yes. `POST /v1/systemone` (`jev-latest`) as documented at docs.typesafe.ai/api/system-one.md: questions keyed `q0…`, choices as `criteria`, at most 255 options sent (the first, safe one always), 429/529 retried twice. | `JEV_API_KEY` (or `TYPESAFE_API_KEY`); `JEV_API_URL` and `JEV_MODEL` optional |
 | `claude` | `ClaudeJudge` | Yes. `claude-haiku-5-5`, one forced `answer` tool call, raw Messages API over `fetch`. | `ANTHROPIC_API_KEY` |
 | `fake` | `FakeJudge` | **No, simulated.** Deterministic keyword heuristic; logs that it is simulated. | nothing |
 
-Unset, `createJudge` picks `jev` if `JEV_API_KEY` is set, else `claude` if `ANTHROPIC_API_KEY`
+Unset, `createJudge` picks `jev` if `JEV_API_KEY` or `TYPESAFE_API_KEY` is set, else `claude` if `ANTHROPIC_API_KEY`
 is set, else `fake`. A missing key for an explicit provider fails at construction with the
 variable's name. Both network judges read responses defensively: a missing or malformed answer
 becomes a neutral default (`p` 0.5 / `options[0]` / midpoint) with one `console.warn`.
