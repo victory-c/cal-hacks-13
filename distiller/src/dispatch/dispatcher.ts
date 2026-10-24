@@ -19,14 +19,18 @@
 //   after    the folder is frozen and checked against the scope once more, and every text file in
 //            out/ goes back in as the creator's memory: one CapturedSession (principal =
 //            created_by, kind ai_session, client dispatcher) on POST /api/sessions, so triage files
-//            it like anything else they wrote.
+//            it like anything else they wrote. A cancel or a narrowing heard while that post is in
+//            flight aborts it, and the run is checked again before it is marked done.
 //
 // Scope reads are guarded. noteScopeChange() (called by the worker the moment it hears a
 // scope.updated) bumps the run's generation and remembers the removed ids; a read that a narrowing
 // overtook is read again, and a removed fact is never written back until the server says it
-// joined the agent's scope again. The check and the writes run with no await in between. The event
-// stream only makes a narrowing land sooner: every scope read also checks the folder against what
-// the server holds, and resync() checks every run at once when the stream comes back after a gap.
+// joined the agent's scope again. A read that would narrow the run but was overtaken by an
+// addition to the agent's scope is read again too: it may predate a removed fact coming back. The
+// check and the writes run with no await in between. The event stream only makes a narrowing land
+// sooner: every scope read also checks the folder against what the server holds, and resync()
+// checks every run at once when the stream comes back after a gap (a step it could not check is
+// stopped until the run's own read succeeds).
 //
 // Every change is published through POST /api/events (agent.run / agent.step / agent.inbox) so the
 // dashboard draws one lane per agent and the audit log has the record. A run's reason is a fixed
@@ -36,7 +40,7 @@ import { randomBytes } from "node:crypto";
 import { join } from "node:path";
 
 import { DEFAULT_BUDGET_TOKENS, cutToBudget, env, newSessionId, nowIso, validateFact } from "@canon/shared";
-import type { AgentRun, AgentRuntime, AgentStep, CapturedSession, DispatchRequest, Fact, InboxItem, Principal, RunState } from "@canon/shared";
+import type { AgentRun, AgentRuntime, AgentStep, CapturedSession, DispatchRequest, Fact, InboxItem, PostSessionResponse, Principal, RunState } from "@canon/shared";
 import type { BriefFact, BriefWriter } from "./brief.ts";
 import type { DispatchClient, RelayedEvent } from "./client.ts";
 import { errorMessage, log, warn } from "./log.ts";
@@ -135,16 +139,26 @@ interface RunRecord {
   inbox: InboxItem[];
   /** Aborted on cancel. */
   controller: AbortController;
-  /** The step in flight; aborted on cancel and on a narrowed scope. */
+  /** The step (or the save) in flight; aborted on cancel and on a narrowed scope. */
   step?: AbortController;
   cancelReason?: string;
   /** A scope_narrowed arrived: the next thing the run does is restart in a fresh folder. */
   narrowed: boolean;
+  /**
+   * resync() could not check the folder after the event stream came back, so it stopped the step
+   * in flight: no step runs until the run's own scope read succeeds (a failed one fails the run).
+   */
+  recheck: boolean;
   phase: Phase;
   /** Fact ids written into the current folder. */
   factIds: Set<string>;
   /** Moves on every narrowing heard for this run; a scope read it overtook is read again. */
   scopeGen: number;
+  /**
+   * Moves on every addition heard for the agent's own scope. A read that would narrow the run and
+   * that an addition overtook is read again: it may be from before a removed fact came back.
+   */
+  addGen: number;
   /** Removed from the agent's (or its creator's) scope since the run started, and not added back. */
   withdrawn: Set<string>;
   done?: Promise<void>;
@@ -227,9 +241,11 @@ export class Dispatcher {
       inbox: [],
       controller: new AbortController(),
       narrowed: false,
+      recheck: false,
       phase: "scope",
       factIds: new Set(),
       scopeGen: 0,
+      addGen: 0,
       withdrawn: new Set(),
     };
     this.runs.set(id, rec);
@@ -247,7 +263,8 @@ export class Dispatcher {
    * The worker heard scope.updated for `principal`. Synchronous, and called before anything else is
    * done with the event: for every active run of that agent, or of an agent that principal created,
    * a removal bumps the run's scope generation (a read in flight is read again) and withdraws the
-   * removed ids, so no read can write them back. Only the agent's own `added` brings one back.
+   * removed ids, so no read can write them back. Only the agent's own `added` brings one back, and
+   * it marks reads in flight as possibly older than the addition (see writeFromScope).
    */
   noteScopeChange(principal: string, removed: readonly string[], added: readonly string[]): void {
     for (const rec of this.runs.values()) {
@@ -258,7 +275,10 @@ export class Dispatcher {
         rec.scopeGen++;
         for (const id of removed) rec.withdrawn.add(id);
       }
-      if (own) for (const id of added) rec.withdrawn.delete(id);
+      if (own && added.length) {
+        rec.addGen++;
+        for (const id of added) rec.withdrawn.delete(id);
+      }
     }
   }
 
@@ -267,17 +287,27 @@ export class Dispatcher {
    * arrive (the server replays only its last EVENT_REPLAY_LIMIT events), so every active run's
    * folder is checked against the server's scope now, and a run that holds a fact its scope no
    * longer does gets an urgent scope_narrowed at once, which stops its step in flight. Runs also
-   * check before every step and before saving; this only makes the restart sooner. Never rejects.
-   * Returns how many of the checked runs are now narrowed.
+   * check before every step and before saving; this only makes the restart sooner. A run whose
+   * check fails has its step in flight stopped (fail closed: nothing keeps working from a folder
+   * nobody could check after a gap); its next step waits for its own scope read, and a failed one
+   * fails the run. Never rejects. Returns how many of the checked runs are now narrowed.
    */
   async resync(): Promise<number> {
     const recs = [...this.runs.values()].filter((r) => isActive(r.run) && !r.cancelReason && !r.narrowed && r.factIds.size > 0);
     const narrowed = await Promise.all(
       recs.map(async (rec) => {
+        // The step working from the folder as it was when the stream came back.
+        const inFlight = rec.phase === "step" ? rec.step : undefined;
         try {
           await this.writeFromScope(rec, CHECK_ONLY);
         } catch (err) {
-          warn(`run ${rec.run.id}: could not check its folder against the agent's scope after a reconnect (it checks again before its next step): ${errorMessage(err)}`);
+          warn(`run ${rec.run.id}: could not check its folder against the agent's scope after a reconnect: ${errorMessage(err)}`);
+          // A later step was checked by the run's own read, made after the stream came back.
+          if (inFlight && rec.step === inFlight && isActive(rec.run) && !rec.cancelReason) {
+            rec.recheck = true;
+            inFlight.abort();
+            this.publishStep(rec, rec.run.steps + 1, { kind: "inbox", text: "Step stopped: the folder could not be checked against the agent's scope after the event stream came back. It is checked again before the next step." });
+          }
         }
         return rec.narrowed && isActive(rec.run);
       }),
@@ -427,8 +457,9 @@ export class Dispatcher {
         } catch (err) {
           run.steps = n;
           if (rec.cancelReason) return this.endCancelled(rec);
-          // Stopped because the scope narrowed: the loop restarts it in a fresh folder.
-          if (rec.narrowed && err instanceof CancelledError) continue;
+          // Stopped because the scope narrowed: the loop restarts it in a fresh folder. Stopped
+          // because resync() could not check the folder: the loop reads the scope before any step.
+          if ((rec.narrowed || rec.recheck) && err instanceof CancelledError) continue;
           throw err;
         } finally {
           rec.step = undefined;
@@ -505,12 +536,16 @@ export class Dispatcher {
    * every fact (`only` unset) or just the ids in `only` (CHECK_ONLY: none). Returns the facts
    * written, or null when the server has no scope route. A read that a narrowing overtook is read
    * again; withdrawn ids are never written. When the folder holds a fact the read does not, the
-   * run narrows (narrowFrom) and nothing is written: the restart rebuilds the folder. From the
-   * generation check to the last write there is no await, so nothing can slip in between.
+   * run narrows (narrow) and nothing is written: the restart rebuilds the folder. Unless an
+   * addition to the agent's scope was heard while the read was in flight: the read may be from
+   * before a removed fact came back (a removal the stream missed, then its return), so it is read
+   * again rather than withdraw a fact the server allows. From the generation checks to the last
+   * write there is no await, so nothing can slip in between.
    */
   private async writeFromScope(rec: RunRecord, only?: ReadonlySet<string>): Promise<Fact[] | null> {
     for (let attempt = 1; attempt <= MAX_SCOPE_READS; attempt++) {
       const gen = rec.scopeGen;
+      const adds = rec.addGen;
       // What the folder held when the read was made. A fact written since came from a newer read
       // (resync() reads alongside the run's own loop), and a restart builds a new folder.
       const folder = rec.sandbox;
@@ -518,7 +553,14 @@ export class Dispatcher {
       const read = await this.opts.client.getScopeFacts(rec.run.agent);
       if (gen !== rec.scopeGen) continue;
       const facts = read === null ? null : this.usable(rec, read);
-      if (rec.sandbox === folder && this.narrowFrom(rec, held, facts)) return [];
+      if (rec.sandbox === folder) {
+        const gone = this.goneFrom(rec, held, facts);
+        if (gone.length) {
+          if (adds !== rec.addGen) continue;
+          this.narrow(rec, gone);
+          return [];
+        }
+      }
       if (facts === null) return null;
       if (only?.size === 0) return [];
       const sb = this.sandboxOf(rec);
@@ -536,21 +578,22 @@ export class Dispatcher {
 
   /**
    * The folder against the server's scope as just read (`facts`; null, no scope route, holds
-   * nothing). An id in `held` that the folder still holds and the read does not has left the
-   * agent's scope, whether or not the worker heard a scope.updated for it (a dropped connection, a
-   * replay that did not reach back far enough): it is withdrawn, and the run gets the same urgent
-   * scope_narrowed the event would have brought. True when the run narrowed.
+   * nothing): the ids in `held` that the folder still holds and the read does not. They have left
+   * the agent's scope, whether or not the worker heard a scope.updated for them (a dropped
+   * connection, a replay that did not reach back far enough).
    */
-  private narrowFrom(rec: RunRecord, held: readonly string[], facts: readonly Fact[] | null): boolean {
-    if (!isActive(rec.run)) return false;
+  private goneFrom(rec: RunRecord, held: readonly string[], facts: readonly Fact[] | null): string[] {
+    if (!isActive(rec.run)) return [];
     const inScope = new Set((facts ?? []).map((f) => f.id));
-    const gone = held.filter((id) => rec.factIds.has(id) && !inScope.has(id));
-    if (gone.length === 0) return false;
+    return held.filter((id) => rec.factIds.has(id) && !inScope.has(id));
+  }
+
+  /** Withdraws `gone` and gives the run the same urgent scope_narrowed the event would have brought. */
+  private narrow(rec: RunRecord, gone: readonly string[]): void {
     rec.scopeGen++;
     for (const id of gone) rec.withdrawn.add(id);
     if (!rec.narrowed) log(`run ${rec.run.id} (${rec.run.agent}): its folder holds a fact the agent's scope no longer does; it restarts in a fresh folder`);
     this.deliver([{ id: newInboxId(), run_id: rec.run.id, kind: "scope_narrowed", urgent: true, text: NARROWED_TEXT, at: nowIso() }]);
-    return true;
   }
 
   /** Valid facts, each once, minus the withdrawn ones. A malformed fact is logged and never written. */
@@ -599,6 +642,8 @@ export class Dispatcher {
     if (rec.narrowed) return [];
 
     const wanted = new Set(newFacts.flatMap((i) => (i.fact_id ? [i.fact_id] : [])));
+    // This read is the check a step stopped by resync() waits for: it either succeeds or fails the run.
+    rec.recheck = false;
     const written = await this.writeFromScope(rec, wanted);
     if (rec.narrowed || rec.cancelReason) return [];
     const updates: string[] = [];
@@ -643,7 +688,9 @@ export class Dispatcher {
   /**
    * Freezes the folder, checks it against the scope once more, then saves the text files in out/
    * to the creator's memory and ends the run. Returns "narrowed", saving nothing, when the folder
-   * holds a fact the scope no longer does.
+   * holds a fact the scope no longer does. The save is coordinated with stops: a cancel or a
+   * narrowing heard while the post is in flight aborts it, and the run is checked again once the
+   * post settles, before it is marked done (cancelled, or "narrowed" for the restart).
    */
   private async release(rec: RunRecord, finished: boolean): Promise<"narrowed" | void> {
     const { run } = rec;
@@ -673,13 +720,37 @@ export class Dispatcher {
     await this.writeFromScope(rec, CHECK_ONLY);
     if (rec.cancelReason) return this.endCancelled(rec);
     // Checked with no await before the post: what is saved never carries a removed fact.
-    if (rec.narrowed || [...rec.factIds].some((id) => rec.withdrawn.has(id))) {
+    if (isNarrowed(rec)) {
       rec.narrowed = true;
       return "narrowed";
     }
 
     const session = this.outputSession(rec, texts);
-    const saved = await this.opts.client.postSession(session);
+    // A cancel aborts rec.controller; deliver() aborts rec.step on a scope_narrowed.
+    const saving = new AbortController();
+    rec.step = saving;
+    let saved: PostSessionResponse | null | undefined;
+    let failure: { err: unknown } | undefined;
+    try {
+      saved = await this.opts.client.postSession(session, AbortSignal.any([rec.controller.signal, saving.signal]));
+    } catch (err) {
+      failure = { err };
+    } finally {
+      rec.step = undefined;
+    }
+    // Checked again before the run is marked done: a stop heard while the post was in flight.
+    if (rec.cancelReason || isNarrowed(rec)) {
+      // An aborted post may still have reached the server, and the dispatcher cannot take back what
+      // the server took: the lane says so, with the session id, for a moderator to look at.
+      if (saved !== null) {
+        const took = saved ? "took" : "may have taken";
+        this.publishStep(rec, run.steps, { kind: "result", text: `Stopped while saving: the server ${took} the outputs as ${run.created_by}'s memory before the stop reached it (session ${session.id}).` });
+      }
+      if (rec.cancelReason) return this.endCancelled(rec);
+      rec.narrowed = true;
+      return "narrowed";
+    }
+    if (failure) throw failure.err;
     if (saved === null) {
       this.publishStep(rec, run.steps, { kind: "result", text: `Done${note}. The server did not take the outputs (no /api/sessions for the dispatcher yet); they stay in the run's record.` });
       return this.end(rec, "done");
@@ -805,6 +876,11 @@ export class Dispatcher {
         }
       });
   }
+}
+
+/** Nothing may be saved from the run's folder: a narrowing reached it, or it holds a withdrawn fact. */
+function isNarrowed(rec: RunRecord): boolean {
+  return rec.narrowed || [...rec.factIds].some((id) => rec.withdrawn.has(id));
 }
 
 /** One line for the lane: what failed, never the error's text (stderr, server bodies, facts). */

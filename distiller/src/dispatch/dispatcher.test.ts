@@ -664,6 +664,182 @@ describe("live routing through the worker handler (B18)", () => {
     assert.doesNotMatch(JSON.stringify(calls.sessions[0]), /fct_fa1c|38\.50/);
   });
 
+  for (const [then, failures] of [
+    ["the run's own read succeeds: the next step runs on a checked folder", 1],
+    ["the run's own read fails too: the run fails and no other step runs", 2],
+  ] as const) {
+    test(`after a reconnect, a step whose folder could not be checked is stopped; ${then}`, async () => {
+      const { client, calls } = fakeServer({ [DAN]: [falcon, news] });
+      const read = client.getScopeFacts.bind(client);
+      let failing = 0;
+      client.getScopeFacts = async (p) => {
+        if (failing > 0) {
+          failing--;
+          throw new Error("GET /api/scopes/agt_dan_deal/facts -> HTTP 503");
+        }
+        return read(p);
+      };
+      let entered!: () => void;
+      const inStep = new Promise<void>((r) => (entered = r));
+      let finishStep!: () => void;
+      const finish = new Promise<void>((r) => (finishStep = r));
+      let stopped = false;
+      let first = true;
+      const runner = new ScriptedRunner(
+        (req) =>
+          new Promise<StepResult>((resolve, reject) => {
+            if (!first) {
+              writeFileSync(join(req.dir, "out", "memo.md"), `Memo from ${listFactFiles(req.dir).join(", ")}.\n`);
+              return resolve({ done: true, summary: "DONE" });
+            }
+            first = false;
+            entered();
+            req.signal.addEventListener("abort", () => ((stopped = true), reject(new CancelledError())), { once: true });
+            void finish.then(() => resolve({ done: false, summary: "CONTINUE" }));
+          }),
+      );
+      const d = make(client, runner);
+      const run = await d.dispatch({ agent: DAN, by: "dan" });
+      await inStep;
+      failing = failures; // the stream came back, and the server cannot serve the scope right now
+      assert.equal((await quiet(() => d.resync())).result, 0);
+      const stoppedByResync = stopped;
+      finishStep(); // a step that was not stopped finishes here, so the run can end either way
+      await quiet(() => d.settle());
+
+      assert.equal(stoppedByResync, true, "the step working from an unchecked folder was stopped at once");
+      assert.ok(stepTexts(calls.events).some((t) => /^Step stopped: the folder could not be checked/.test(t)));
+      const final = d.get(run.id)!;
+      if (failures === 1) {
+        assert.equal(final.state, "done", final.reason);
+        assert.equal(final.restarts, 0);
+        assert.equal(runner.steps.length, 2);
+        assert.equal(calls.sessions.length, 1);
+      } else {
+        assert.equal(final.state, "failed");
+        assert.equal(final.reason, "Could not read the agent's scope from the server. The worker log has the details.");
+        assert.equal(runner.steps.length, 1, "no step ran on a folder nobody could check");
+        assert.equal(calls.sessions.length, 0);
+      }
+    });
+  }
+
+  test("a removed fact that comes back while a scope read is in flight is not withdrawn: a read an addition overtook is read again before it narrows the run", async () => {
+    const { judge } = judgeSaying(0.9);
+    const server = fakeServer({ [DAN]: [falcon, news] });
+    let reads = 0;
+    let holdNext = false;
+    let readHeld!: () => void;
+    const holding = new Promise<void>((r) => (readHeld = r));
+    let releaseRead!: () => void;
+    const gate = new Promise<void>((r) => (releaseRead = r));
+    server.client.getScopeFacts = async (p) => {
+      reads++;
+      server.calls.reads.push(p);
+      const snapshot = structuredClone(server.scopes.get(p) ?? []);
+      if (holdNext) {
+        holdNext = false;
+        readHeld();
+        await gate;
+      }
+      return snapshot;
+    };
+    const seen: string[][] = [];
+    const d = make(
+      server.client,
+      planThenWrite((req) => {
+        seen.push(listFactFiles(req.dir));
+        if (seen.length !== 1) return;
+        // Falcon leaves the agent's scope while the worker is disconnected: no scope.updated arrives.
+        server.scopes.set(DAN, [news]);
+        holdNext = true; // the read before step 2
+      }),
+    );
+    const handler = createDispatchHandler({ dispatcher: d, client: server.client, judge });
+    const run = await d.dispatch({ agent: DAN, by: "dan" });
+    await holding; // the read before step 2 was served without Falcon, and is held
+    // Falcon comes back, and this time the worker hears it.
+    server.scopes.set(DAN, [falcon, news]);
+    await quiet(() => handler(scopeUpdated(DAN, { added: [falcon.id] }, "fact_joined")));
+    releaseRead(); // the read from before the return lands after it
+    await quiet(() => d.settle());
+
+    const final = d.get(run.id)!;
+    assert.equal(final.state, "done", final.reason);
+    assert.equal(final.restarts, 0, "the server allows Falcon again: nothing to restart");
+    assert.deepEqual(seen, [
+      ["fct_0b1c0001", "fct_fa1c0003"],
+      ["fct_0b1c0001", "fct_fa1c0003"],
+    ]);
+    assert.deepEqual(d.factsOf(run.id), ["fct_0b1c0001", "fct_fa1c0003"], "the restored fact stays in the folder");
+    assert.ok(reads >= 4, "the overtaken read was read again");
+  });
+
+  for (const stop of ["cancel", "narrow"] as const) {
+    for (const took of [false, true]) {
+      test(`a ${stop === "cancel" ? "deletion" : "narrowing"} heard while the outputs are being saved (${took ? "the server already took them" : "before the server took them"}) aborts the save and is honoured: ${stop === "cancel" ? "cancelled, not done" : "the promised restart"}`, async () => {
+        const { judge } = judgeSaying(0.9);
+        const server = fakeServer({ [DAN]: [falcon, news] });
+        let entered!: () => void;
+        const inSave = new Promise<void>((r) => (entered = r));
+        let respond!: () => void;
+        const response = new Promise<void>((r) => (respond = r));
+        const signals: AbortSignal[] = [];
+        let saves = 0;
+        server.client.postSession = async (s, signal) => {
+          if (signal) signals.push(signal);
+          if (++saves > 1) {
+            server.calls.sessions.push(s);
+            return { id: s.id, updated: false };
+          }
+          // The first save is held in flight. Either the server already took it (only the response
+          // is outstanding), or the request is aborted before the server took it, as fetch does.
+          if (took) server.calls.sessions.push(s);
+          entered();
+          await new Promise<void>((resolve, reject) => {
+            void response.then(resolve);
+            if (!took) signal?.addEventListener("abort", () => reject(new Error("POST /api/sessions failed: This operation was aborted")), { once: true });
+          });
+          return { id: s.id, updated: false };
+        };
+        const runner = planThenWrite();
+        const d = make(server.client, runner);
+        const handler = createDispatchHandler({ dispatcher: d, client: server.client, judge });
+        const run = await d.dispatch({ agent: DAN, by: "dan" });
+        await inSave;
+        await quiet(async () => {
+          if (stop === "cancel") {
+            await handler({ type: "principal.changed", at: nowIso(), principal: { id: DAN, kind: "agent", name: "Dan's deal analyst", created_by: "dan" }, change: "agent_deleted", by: "dan" });
+          } else {
+            server.scopes.set(DAN, [news]);
+            await handler(scopeUpdated(DAN, { removed: [falcon.id] }));
+          }
+        });
+        respond(); // the response arrives (a no-op once the request was aborted)
+        await quiet(() => d.settle());
+
+        const final = d.get(run.id)!;
+        assert.notEqual(final.state === "done" && final.restarts === 0, true, "a stop heard while saving is never ignored");
+        assert.equal(signals[0]?.aborted, true, "the stop aborted the save in flight");
+        const texts = stepTexts(server.calls.events);
+        assert.ok(texts.some((t) => t.startsWith(`Stopped while saving: the server ${took ? "took" : "may have taken"} the outputs as dan's memory`)), "the lane says where the outputs may be");
+        if (stop === "cancel") {
+          assert.equal(final.state, "cancelled");
+          assert.equal(final.reason, DELETED_TEXT);
+          assert.equal(runner.steps.length, 2, "the deleted agent never runs again");
+          assert.equal(server.calls.sessions.length, took ? 1 : 0);
+        } else {
+          assert.equal(final.state, "done", final.reason);
+          assert.equal(final.restarts, 1, "the run restarts in a fresh folder built from the new scope");
+          assert.equal(runner.steps.length, 4);
+          assert.equal(server.calls.sessions.length, took ? 2 : 1);
+          assert.doesNotMatch(JSON.stringify(server.calls.sessions.at(-1)), /fct_fa1c|38\.50/, "the restarted run's outputs carry no removed fact");
+          assert.deepEqual(d.factsOf(run.id), ["fct_0b1c0001"]);
+        }
+      });
+    }
+  }
+
   for (const [when, n] of [
     ["the plan step", 1],
     ["the DONE step", 2],

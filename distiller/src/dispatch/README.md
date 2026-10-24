@@ -104,6 +104,10 @@ The worker hears `scope.updated` whenever the server changes a principal's scope
   (plan, drafts, brief) is discarded, and the run restarts from the plan step in a fresh folder
   (`<run_id>-r<n>`) built from the scope as the server holds it now (`restarts += 1`, at most
   `DEFAULT_MAX_RESTARTS` = 3). A run that narrows as it finishes saves nothing from the old folder.
+  A narrowing (or a cancel) heard while the outputs are being posted aborts the post, and the run
+  is checked again once the post settles, before it is marked done: a cancel ends it `cancelled`,
+  a narrowing restarts it. The lane says when the server took, or may have taken, the outputs
+  before the stop reached it (see Limits).
 - **Added facts.** Only for the runs of the agent whose scope they joined, and only the facts the
   server's read of that agent's scope holds (an id in the event that the read does not hold is
   never asked about or routed). One new fact joins many scopes at once and the server sends one
@@ -119,7 +123,9 @@ The worker hears `scope.updated` whenever the server changes a principal's scope
   waiting on its scope rule ends `cancelled` before it reads the scope or runs a step.
 - **Stale reads.** A scope read that a narrowing overtook (heard while it was in flight) is read
   again; a withdrawn fact is never written back until the server says it joined the agent's scope
-  again; the check and the writes run with no await in between.
+  again; the check and the writes run with no await in between. A read that would narrow the run
+  but that an addition to the agent's scope overtook is read again too: it may be from before a
+  removed fact came back, and withdrawing a fact the server allows again would starve the run.
 - **Missed events.** The event stream only makes a narrowing land sooner; it is never the only
   check. The SSE client reconnects without `Last-Event-ID` and the server replays only its last
   `EVENT_REPLAY_LIMIT` (100) events, so a `scope.updated` can be lost. Before every step and once
@@ -127,8 +133,10 @@ The worker hears `scope.updated` whenever the server changes a principal's scope
   folder: a fact the folder holds that the read does not is withdrawn and the run restarts in a
   fresh folder, exactly as if the event had arrived. On every reconnect after the first, the
   worker checks every running agent at once (`Dispatcher.resync()`), which also stops a step in
-  flight. A scope read that fails fails the run: no step runs, and nothing is saved, on a folder
-  nobody could check. One restart covers every narrowing queued before it.
+  flight. When that check cannot be made, the step in flight is stopped anyway and the run waits
+  for its own scope read before any other step. A scope read that fails fails the run: no step
+  runs, and nothing is saved, on a folder nobody could check. One restart covers every narrowing
+  queued before it.
 
 ## Files
 
@@ -225,6 +233,12 @@ the offline CLI until lane A's routes land.
   who edited the agent's rule would be its `set_by`; see the contract request below.
 - **Routing timing.** A new fact routed while the agent's step finishes reaches it at the step
   after; the last step never gets one (PRD: "at its next step").
+- **A stop that lands during the save.** The post is aborted and the run ends `cancelled` or
+  restarts, but a post the server already took cannot be taken back from here, and a narrowing
+  whose `scope.updated` arrives only after the server's answer looks like one that came after the
+  save. The lane names the session. Closing this needs the server to refuse the save itself (lane
+  A): for example, `POST /api/sessions` from the dispatcher carrying the run's fact ids, refused
+  when one of them has left the agent's scope.
 - **Process groups.** A tool that calls `setsid` leaves Droid's group and survives a kill. The
   worker also kills live groups when it exits, but not when it is itself `SIGKILL`ed.
 - **Mid-run messages.** We use steps (a new `droid exec` per step) rather than `--session-id`

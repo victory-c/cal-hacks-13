@@ -41,8 +41,12 @@ export interface DispatchClient {
   handoff(body: HandoffBody): Promise<HandoffResult | null>;
   /** POST /api/events. A missing route drops the event (the dispatcher logs it locally). */
   publishEvent(event: RelayedEvent): Promise<void>;
-  /** POST /api/sessions: an agent's outputs, as its creator's memory. null when the route refuses us. */
-  postSession(session: CapturedSession): Promise<PostSessionResponse | null>;
+  /**
+   * POST /api/sessions: an agent's outputs, as its creator's memory. null when the route refuses
+   * us. `signal` aborts the request (the dispatcher stops a save when the run is stopped); an
+   * aborted save rejects, and the server may or may not have taken it.
+   */
+  postSession(session: CapturedSession, signal?: AbortSignal): Promise<PostSessionResponse | null>;
 }
 
 export class DispatchApiError extends Error {
@@ -78,7 +82,7 @@ export function createDispatchClient(opts: { baseUrl: string; token: string }): 
     warn(`${key}: HTTP ${status}, ${why}; degrading safely and carrying on (logged once)`);
   };
 
-  async function call<T>(method: "GET" | "POST", path: string, route: string, body?: unknown): Promise<T | typeof UNAVAILABLE> {
+  async function call<T>(method: "GET" | "POST", path: string, route: string, body?: unknown, signal?: AbortSignal): Promise<T | typeof UNAVAILABLE> {
     const url = base + path;
     let res: Response;
     try {
@@ -86,7 +90,7 @@ export function createDispatchClient(opts: { baseUrl: string; token: string }): 
         method,
         headers: body === undefined ? headers : { ...headers, "content-type": "application/json" },
         body: body === undefined ? undefined : JSON.stringify(body),
-        signal: AbortSignal.timeout(TIMEOUT_MS),
+        signal: signal ? AbortSignal.any([AbortSignal.timeout(TIMEOUT_MS), signal]) : AbortSignal.timeout(TIMEOUT_MS),
       });
     } catch (err) {
       throw new Error(`${method} ${url} failed: ${errorMessage(err)}. Is the server running (npm run dev -w server)?`, { cause: err });
@@ -126,8 +130,8 @@ export function createDispatchClient(opts: { baseUrl: string; token: string }): 
       const payload: PublishEventBody = { event };
       await call("POST", ROUTES.publish, ROUTES.publish, payload);
     },
-    async postSession(session) {
-      const r = await call<PostSessionResponse>("POST", ROUTES.sessions, ROUTES.sessions, session);
+    async postSession(session, signal) {
+      const r = await call<PostSessionResponse>("POST", ROUTES.sessions, ROUTES.sessions, session, signal);
       return r === UNAVAILABLE ? null : (r ?? { id: session.id, updated: false });
     },
   };
