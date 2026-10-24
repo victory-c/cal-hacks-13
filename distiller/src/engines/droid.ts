@@ -1,22 +1,14 @@
-// DroidDistiller: the Factory Droid SDK engine (sponsor track). SDK wiring is pending blocker Q1
-// ("Can the Factory Droid SDK run headless on our trigger?"), task B2. Until that is answered the
-// class constructs (so engine selection works) and distill() fails loudly, never silently.
+// DroidDistiller: a placeholder kept so DISTILLER=droid still parses. In v2 Factory Droid does not
+// distill. It runs the dispatched agents instead (PRD v2 "Agents and dispatch", WORK_SPLIT lane
+// B item 4): lane B's dispatcher gives each agent a sandbox folder, runs `droid exec` at a low
+// permission level, keeps an inbox between runs and streams every step as an agent.step event.
+// That is the Factory track. Claude writes the facts (claude.ts), and the heuristic engine stands
+// in offline.
 //
-// Intended contract, agreed before the SDK is wired (do not guess the SDK API; fill this in from
-// Factory's docs once Q1 is resolved):
-//
-//   Trigger   Every captured session (SSE session.captured, see worker.ts). Not a chat wrapper:
-//             Droid runs headless on our event, with no human in the loop.
-//   Input     The CapturedSession (messages + meta), the fact-file format from CLAUDE.md, and
-//             the folder list (TOP_FOLDERS plus known subfolders) so it files facts correctly.
-//   Output    { plan: string, drafts: DraftFact[] }. The plan is Droid's own description of what
-//             it is about to keep and why; the dashboard shows it next to the fact diffs.
-//   Write     Droid may only write the fact store, and only through our POST /api/facts (the
-//             distiller token). It never touches disk, the cold archive or any other folder.
-//             Jev still decides tier / folder / dedupe on every draft (decide.ts), so Droid
-//             cannot bypass the save-time questions.
-//   Failure   Any SDK error surfaces as a thrown Error with Factory's message; the worker logs it
-//             and moves on to the next session. The heuristic engine never kicks in silently.
+// Behaviour is unchanged from v1: the class constructs when FACTORY_API_KEY is set (so engine
+// selection works) and distill() fails loudly, never silently. createDistiller() no longer picks
+// it on its own; only an explicit DISTILLER=droid does (see index.ts). FACTORY_API_KEY is now
+// there for the dispatcher, and picking it up here would stop the distiller.
 
 import { env } from "@canon/shared";
 import type { CapturedSession } from "@canon/shared";
@@ -31,7 +23,7 @@ export class NotConfiguredError extends Error {
 
 export class DroidDistiller implements Distiller {
   readonly name = "droid" as const;
-  // Kept for the SDK wiring; unused until then.
+  // Kept so the constructor still checks the key; unused, since Droid does not distill in v2.
   protected readonly apiKey: string;
 
   constructor(opts: { apiKey?: string } = {}) {
