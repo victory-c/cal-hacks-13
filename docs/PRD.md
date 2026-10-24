@@ -45,7 +45,8 @@ Teams have the same problem at larger scale. Decisions and "how we deploy" live 
 person's chat history, and every new agent or new hire has to be told again.
 
 Anthropic's track wants a named community and a problem the team has lived. Victor lives this
-one, and C interviews five students at the venue to back it up.
+one. Edan collects raw notes from five student interviews at the venue, and Victor picks the
+quotes for the pitch.
 
 ## 3. Competitors and moat
 
@@ -178,14 +179,14 @@ with probabilities. It costs $0.042 per million input tokens, output is free, an
 
 ## 9. Build plan
 
-Two builders and one non-coding owner. Task-level tracking lives in `status/status.json` (see
-`STATUS.md`).
+Two builders and one ops/QA owner. Task-level tracking lives in `status/status.json` (see
+`STATUS.md`). Sync rhythm and sleep rotation are in `CLAUDE.md`.
 
 | Owner | Owns |
 |---|---|
-| A · Builder: server & retrieval | Fact store and cold archive, MCP server, folder grants, Moss, the Jev filter in `canon_context`, benchmark runner, SSE event stream |
-| B · Builder: capture, distill & UI | Claude Code hook, extension (ChatGPT web), Droid distiller, Jev save-time decisions, ChatGPT connector, dashboard with the token counter, resume viewer |
-| C · Story, QA & sponsors | Sponsor answers, workshops, user interviews, demo test sessions, benchmark task set, QA every 3 h, Devpost, scale slide, README prose, video, pitch rehearsal, timekeeping |
+| A · Henry Lai: server & retrieval | Fact store and cold archive, MCP server, folder grants, Moss, the Jev filter in `canon_context`, benchmark runner, SSE event stream |
+| B · Victor Chun: capture, distill, UI & story | Claude Code hook, extension (ChatGPT web), Droid distiller, Jev save-time decisions, ChatGPT connector, dashboard with the token counter, resume viewer. Also the story: Devpost text, pitch, video script and voiceover, scale slide, sponsor README sections |
+| C · Edan Wong: ops & QA | Sponsor answers, workshops, accounts and keys, Devpost logistics, raw interview notes, demo test sessions, benchmark task set, QA after every sync, screen recording, rehearsal timing, timekeeping |
 
 | Window | Done means |
 |---|---|
@@ -200,7 +201,7 @@ Two builders and one non-coding owner. Task-level tracking lives in `status/stat
 
 | Risk | Mitigation |
 |---|---|
-| Only two people are building | Stretch stays stretch. Cut order: Apify → team mode → Gemini web → SpacetimeDB. C takes everything that isn't code off the builders' plates. |
+| Only two people are building, and Victor also owns the story | Stretch stays stretch. Cut order: Apify → team mode → Gemini web → SpacetimeDB. Edan takes all ops, logistics, recording and QA off the builders' plates. Victor blocks Sat 19:00–21:00 for Devpost text and the video script. |
 | Jev early access doesn't come through | Claude fallback behind the same `judge()` interface |
 | ChatGPT can't write over MCP on Plus | Capture through the extension. ChatGPT only reads. |
 | Chat sites change their page structure and break the extension | Build and test ChatGPT capture first. Claude Code capture is the guaranteed demo path. |

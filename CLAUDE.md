@@ -21,17 +21,26 @@ Read both before starting a task.
 
 ## Team
 
-Three people. Names live in `status/status.json` → `team`.
+| Lane | Who | Owns | Folders |
+|---|---|---|---|
+| **A · Server & retrieval** | Henry Lai | Fact store, cold archive, MCP server, folder grants, Moss index, Jev filter in `canon_context`, SSE event stream, benchmark runner | `server/`, `bench/` |
+| **B · Capture, distill, UI & story** | Victor Chun | Claude Code hook, browser extension, Droid distiller, Jev save-time decisions, ChatGPT connector, dashboard, resume viewer. Also all storytelling: Devpost text, pitch, video script, scale slide, sponsor README sections | `hooks/`, `extension/`, `distiller/`, `web/`, `docs/` |
+| **C · Ops & QA (no coding, no storytelling)** | Edan Wong | Sponsor answers, accounts and keys, Devpost logistics, raw interview notes, demo test sessions, benchmark task set, QA runs, screen recording, timekeeping | `status/` (his tasks + blockers), `bench/tasks/` |
 
-- **A · Builder: server & retrieval.** Fact store, cold archive, MCP server, folder grants,
-  Moss index, the Jev filter in `canon_context`, benchmark runner, event stream.
-- **B · Builder: capture, distill & UI.** Claude Code hook, browser extension, Droid distiller,
-  Jev save-time decisions, ChatGPT connector, live dashboard, resume viewer.
-- **C · Story, QA & sponsors (no coding).** Sponsor answers, user interviews, demo sessions,
-  the benchmark task set, QA runs, Devpost, video, pitch.
-
-Stay inside your lane's files unless the owner agrees. A and B agree on the interface
+Stay inside your lane's folders unless the owner agrees. A and B agree on the interface
 contracts below. Never change one without telling the other.
+
+**How we work together**
+
+1. First hour: Victor and Henry freeze the fact file format and the four MCP tools together.
+   Henry ships a stub server that writes local files, and then they split.
+2. Nobody waits. B builds capture against the stub or a mock server. A builds retrieval
+   against sample facts from Edan's persona sessions.
+3. Sync every 6 hours (Sat 03:00, 09:00, 15:00, 21:00), 10 minutes each: merge to `main`, run
+   the demo end to end, update `status.json`. Edan's QA run follows each sync.
+4. Sleep rotation, so one builder is always awake: Henry about 02:00–06:00, Victor about
+   06:00–10:00, Edan Friday about 01:00–07:00.
+5. Keys and credentials are shared directly between people, never through git or chat logs.
 
 ## Decisions already made (don't re-argue these)
 
@@ -58,7 +67,7 @@ distiller/   B — Droid distiller: session in, facts out; save-time Jev decisio
 extension/   B — Chrome MV3 extension: live capture from ChatGPT / Claude / Gemini web
 hooks/       B — Claude Code capture hook
 web/         B — live product dashboard (token counter) + resume viewer
-bench/       A runs, C writes tasks — 20 handoff tasks, 3 baselines, results JSON
+bench/       A runs; C writes tasks in bench/tasks/ — 20 handoff tasks, 3 baselines, results JSON
 status/      everyone — status.json (source of truth), dashboard, sync script
 docs/        PRD, demo script, sponsor notes
 ```
@@ -145,7 +154,8 @@ block on a task:
 3. Commit the status change **in the same commit** as the work.
 
 New work goes in as a new task with the next id in the owner's lane. A question that blocks
-anyone goes in `blockers` with an owner. Don't edit `STATUS.md` by hand.
+anyone goes in `blockers` with an owner. Each person updates only their own tasks. Edan also
+maintains `blockers`. Don't edit `STATUS.md` by hand.
 
 Live board: `node status/serve.mjs`, then open http://localhost:4173. It re-reads `status.json`
 every 30 seconds, so `git pull` to see teammates' updates.
