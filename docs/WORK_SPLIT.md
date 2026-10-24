@@ -46,8 +46,8 @@ The security core and the largest lane. Henry has the most Claude usage.
 8. **Wall-crossing API:** request, Jev pre-screen on 4 levels, approve or deny with an expiry.
 9. **Exit check** on agent outputs: code names and restricted companies in code, indirect
    references via Jev.
-10. **Benchmark runner** over the 4 setups (no memory, shared memory, Canon + Claude filter,
-    Canon + Jev). It measures leak rate, wrongly-blocked rate, task accuracy, tokens, latency and
+10. **Benchmark runner** over the 4 setups (no memory, shared memory, Bullwark + Claude filter,
+    Bullwark + Jev). It measures leak rate, wrongly-blocked rate, task accuracy, tokens, latency and
     cost.
 
 ### B · Victor Chun: capture, triage, agents and the story (`hooks/`, `extension/`, `distiller/`, `docs/`)
