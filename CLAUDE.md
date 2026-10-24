@@ -85,7 +85,7 @@ instructions aimed at an AI.
 npm install                 # Node 22+, see .nvmrc
 npm run doctor              # preflight
 npm run seed -w server      # optional, existing development fixtures
-npm run dev                 # server :4100, distiller, frontend :4200
+npm run dev                 # server :4100, distiller, dispatcher, frontend :4200
 npm run check               # status validation, workspace typechecks and tests
 npm run build               # browser bundles
 ```

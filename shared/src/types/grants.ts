@@ -31,6 +31,8 @@ export const DEMO_GRANTS: readonly Grant[] = [
   // Scopes (A2): one token per synthetic-world person and the dispatcher. Direct folder reads/
   // writes stay deny-by-default; their only access is through their scope (server/src/scopes.ts).
   { client: "dispatcher", read: [], write: [] },
+  // The ingest CLI (hooks/ingest/) only posts sessions to the cold archive; it reads and writes no folder.
+  { client: "ingest", read: [], write: [] },
   { client: "maya", read: [], write: [], principal: "maya" },
   { client: "dan", read: [], write: [], principal: "dan" },
   { client: "priya", read: [], write: [], principal: "priya" },

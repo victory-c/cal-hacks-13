@@ -22,7 +22,7 @@ npm install            # Node 22+, see .nvmrc
 cp .env.example .env   # optional; without keys, providers are labelled simulated
 npm run doctor
 npm run seed -w server # optional development fixtures; skips existing files
-npm run dev            # server :4100, distiller worker, frontend :4200
+npm run dev            # server :4100, distiller worker, agent dispatcher, frontend :4200
 ```
 
 | URL | What runs today |

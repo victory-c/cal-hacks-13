@@ -29,7 +29,7 @@ describe("DEMO_GRANTS", () => {
   test("has the demo AI clients, the synthetic-world people and the internal workers", () => {
     assert.deepEqual(
       DEMO_GRANTS.map((g) => g.client).sort(),
-      ["chatgpt", "claude-code", "dan", "dispatcher", "distiller", "leo", "maya", "priya", "teammate-cursor"],
+      ["chatgpt", "claude-code", "dan", "dispatcher", "distiller", "ingest", "leo", "maya", "priya", "teammate-cursor"],
     );
     assert.ok(aiClients.length >= 3);
   });

@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 // Runs the dev stack in one terminal, each process prefixed with its name.
-// Usage: npm run dev                 → server + distiller + web
+// Usage: npm run dev                 → server + distiller + dispatch + web
 //        npm run dev -- server web   → just those
 //        npm run dev -- all          → everything incl. the status board
 
@@ -9,13 +9,15 @@ import { spawn } from "node:child_process";
 const procs = {
   server: ["npm", ["run", "dev", "-w", "server"]],
   distiller: ["npm", ["run", "dev", "-w", "distiller"]],
+  // The agent dispatcher (distiller/src/dispatch/): runs agents on dispatch.requested.
+  dispatch: ["npm", ["run", "dispatch", "-w", "distiller"]],
   web: ["npm", ["run", "dev", "-w", "web"]],
   status: ["node", ["status/serve.mjs"]],
 };
-const colors = { server: 36, distiller: 33, web: 35, status: 32 };
+const colors = { server: 36, distiller: 33, dispatch: 34, web: 35, status: 32 };
 
 let picked = process.argv.slice(2);
-if (picked.length === 0) picked = ["server", "distiller", "web"];
+if (picked.length === 0) picked = ["server", "distiller", "dispatch", "web"];
 if (picked.includes("all")) picked = Object.keys(procs);
 const unknown = picked.filter((p) => !procs[p]);
 if (unknown.length) {
