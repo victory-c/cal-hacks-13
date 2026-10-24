@@ -1,6 +1,6 @@
-# Canon — working agreement
+# Bullwark — working agreement
 
-Canon is the control room for a small finance team's AI. Each person and agent gets only
+Bullwark (formerly Canon) is the control room for a small finance team's AI. Each person and agent gets only
 the context they are cleared to see and need; information barriers stay enforced as deals change.
 
 Read `docs/PRD.md` for product scope, `docs/WORK_SPLIT.md` for ownership and build order, and

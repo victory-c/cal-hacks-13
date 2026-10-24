@@ -19,7 +19,7 @@ npm test -w web         # node:test, offline, ~0.3 s
 npm run typecheck -w web
 ```
 
-Port: `WEB_PORT` in `.env` (default 4200). The page talks to the Canon server at
+Port: `WEB_PORT` in `.env` (default 4200). The page talks to the Bullwark server at
 `?server=<url>` (remembered in localStorage), else the remembered one, else
 `DEFAULT_SERVER_URL` from `@canon/shared`. Those server routes are open (no token, CORS `*`),
 so the dashboard needs no credentials.
@@ -52,7 +52,7 @@ the browser's EventSource retries on its own and `main.ts` reopens it when the b
   clears). Otherwise "—" with a "set a rate" tooltip. No built-in price.
 - **vs full history** — filled from the page's own origin, `GET /bench/latest.json`, which
   `scripts/serve.mjs` maps to `<repo>/bench/results/latest.json` (lane A's `npm run run -w bench`
-  writes it; the Canon server has no bench route and owes none). 404 → "— (run bench)". The
+  writes it; the Bullwark server has no bench route and owes none). 404 → "— (run bench)". The
   reader (`src/bench.ts`) understands bench's `Summary` (`baselines[]` with `mean_input_tokens`,
   falling back to `mean_tokens_injected_est`) and `Chart` (`series[]`); anything else →
   "— (bench format?)". A file with `simulated: true` renders "… (simulated)". No hard-coded ratio.
