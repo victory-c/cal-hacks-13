@@ -140,6 +140,17 @@ describe("synthetic world fixtures", () => {
     }
   });
 
+  test("every deal group lists its code name as an alias, so the writer's name check can catch it", () => {
+    // claude.ts drops a draft that names an alias the item never mentions. A code name that is
+    // only in the group id ("falcon" in deal/falcon) would slip past that check.
+    const deals = load<GroupsResponse>("groups.json").groups.filter((g) => g.id.startsWith("deal/"));
+    assert.ok(deals.length > 0);
+    for (const g of deals) {
+      const codeName = g.id.split("/").pop() ?? "";
+      assert.ok((g.aliases ?? []).some((a) => a.toLowerCase() === codeName), `${g.id} lists "${codeName}" as an alias`);
+    }
+  });
+
   test("the team chat refers to Falcon only indirectly: no alias appears, 'the logistics thing' does", () => {
     const chat = load<CapturedSession>("hl-floor-chat-week.json");
     const text = allText(chat);
