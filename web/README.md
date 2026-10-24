@@ -1,13 +1,18 @@
-# `@canon/web` — live dashboard + resume viewer
+# `@canon/web` — dashboard and control room frontend
 
-**Owner:** lane B, Victor Chun. The dashboard is the demo's opening shot (the video opens on the
-token counter). Static site: `src/*.html` + TypeScript bundled by esbuild into `dist/`, served
-by `scripts/serve.mjs` (plain `node:http`). No framework, no runtime dependencies.
+**Owner:** lane C, Edan Wong. The current app is HTML and TypeScript bundled by esbuild and
+served by `scripts/serve.mjs`. This README documents its working event panels and counters.
+The target control room adds deals, clearances, pending requests, Droid agent lanes and a
+handoff inspector. Those are implementation tasks C13 and C14; the demo opens on a neutral
+refusal and its compliance record. Optional views are the wall map and attack box.
+
+Build against the agreed mock REST and SSE contract, then connect to Henry's server. The
+frontend never imports server code. Framework choice is optional within `web/`.
 
 ## Run
 
 ```bash
-npm run dev -w web      # build, watch src/, serve → http://localhost:4200 (resume: /resume.html)
+npm run dev -w web      # build, watch src/, serve → http://localhost:4200
 npm run build -w web    # one-shot build into dist/
 npm start -w web        # serve an existing dist/ (fails with a clear message when it is missing)
 npm test -w web         # node:test, offline, ~0.3 s
@@ -52,15 +57,6 @@ the browser's EventSource retries on its own and `main.ts` reopens it when the b
   falling back to `mean_tokens_injected_est`) and `Chart` (`series[]`); anything else →
   "— (bench format?)". A file with `simulated: true` renders "… (simulated)". No hard-coded ratio.
 
-## Resume viewer (`resume.html`)
-
-`GET /api/facts?folder=career&tier=hot`, grouped by subfolder (`career/projects` → Projects …,
-plain `career` → General). Each line is the fact statement plus a client chip and the source
-session id as text. It is not a link: `GET /api/sessions/:id` needs a bearer token the browser
-does not have, so a link there would land on `401 { error }`. Linking (or rendering the session
-inline) waits on a dashboard-readable session route from lane A. "Copy as markdown" copies the
-same list. No LLM call here; resume *writing* is a later task.
-
 ## Files
 
 | File | What | Tested |
@@ -69,8 +65,7 @@ same list. No LLM call here; resume *writing* is a later task.
 | `src/format.ts` | `fmtMs` `fmtTokens` `pct` `fmtCost` `relativeTime` `clientLabel` `folderTop` | yes |
 | `src/config.ts` | server URL + rate from query/localStorage | yes |
 | `src/bench.ts` | reader for bench's `latest.json` / `chart.json`, fetched same-origin from `/bench/` | yes |
-| `src/resume-data.ts` | grouping + markdown for the resume | yes |
-| `src/dom.ts`, `src/render.ts`, `src/main.ts`, `src/resume.ts` | `h()`, keyed list sync, panels, EventSource wiring | browser only |
+| `src/dom.ts`, `src/render.ts`, `src/main.ts` | `h()`, keyed list sync, panels, EventSource wiring | browser only |
 | `scripts/build.mjs` | esbuild bundle (esm, es2022, sourcemaps), copies HTML/CSS, `--watch`, `--serve` | — |
 | `scripts/serve.mjs` | static `dist/` server, `no-store`, reads `.env` via `loadEnv()`; `/bench/<name>.json` → `bench/results/` (top-level JSON only, never `raw/`) | — |
 
