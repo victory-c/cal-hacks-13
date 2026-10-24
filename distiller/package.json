@@ -1,0 +1,17 @@
+{
+  "name": "@canon/distiller",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Droid distiller worker: captured session in, facts out, with Jev save-time decisions. Lane B.",
+  "type": "module",
+  "scripts": {
+    "dev": "tsx watch src/index.ts",
+    "start": "tsx src/index.ts",
+    "distill": "tsx src/cli.ts",
+    "typecheck": "tsc --noEmit -p .",
+    "test": "node --import tsx --test \"src/**/*.test.ts\""
+  },
+  "dependencies": {
+    "@canon/shared": "*"
+  }
+}

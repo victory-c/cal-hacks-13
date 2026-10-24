@@ -1,0 +1,19 @@
+{
+  "name": "@canon/server",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Canon server: MCP (Streamable HTTP) + REST + SSE, fact store, cold archive, grants, retrieval. Lane A.",
+  "type": "module",
+  "scripts": {
+    "dev": "tsx watch src/index.ts",
+    "start": "tsx src/index.ts",
+    "seed": "tsx src/seed.ts",
+    "typecheck": "tsc --noEmit -p .",
+    "test": "node --import tsx --test \"src/**/*.test.ts\""
+  },
+  "dependencies": {
+    "@canon/shared": "*",
+    "@modelcontextprotocol/sdk": "^1.32.2",
+    "zod": "^4.6.7"
+  }
+}

@@ -57,42 +57,77 @@ contracts below. Never change one without telling the other.
   promoted to hot facts and what reaches a session.
 - **No LinkedIn scraping.**
 
-## Planned layout
+## Layout
 
-Create these folders as you build. Don't add new top-level folders without a reason.
+npm workspaces, one package per folder. Don't add new top-level folders without a reason.
 
 ```
-server/      A — MCP server (Streamable HTTP) + REST + SSE, fact store, grants, Moss, Jev filter
-distiller/   B — Droid distiller: session in, facts out; save-time Jev decisions
+shared/      A + B — the contract as code: fact schema, MCP tool I/O, events, grants, judge().
+                     Types in shared/src/types/ are frozen; change them with this file + the other builder
+server/      A — MCP server (Streamable HTTP) + REST + SSE, fact store, cold archive, grants, retrieval (Moss)
+distiller/   B — Droid distiller worker: subscribes to /events, session in, facts out; save-time Jev decisions
 extension/   B — Chrome MV3 extension: live capture from ChatGPT / Claude / Gemini web
-hooks/       B — Claude Code capture hook
-web/         B — live product dashboard (token counter) + resume viewer
+hooks/       B — Claude Code capture hook (plain Node, no deps)
+web/         B — live dashboard (token / latency / cost counter) + resume viewer
 bench/       A runs; C writes tasks in bench/tasks/ — 20 handoff tasks, 3 baselines, results JSON
-status/      everyone — status.json (source of truth), dashboard, sync script
+status/      everyone — status.json (source of truth), board, sync script
+scripts/     root dev scripts: doctor (preflight), dev (run the stack)
 docs/        PRD, demo script, sponsor notes
 ```
 
-Stack: TypeScript on Node 22+ for everything that runs. Use npm workspaces once the second
-package exists. Keep dependencies few: anything that breaks at 4 AM costs the demo.
+Stack: TypeScript on Node 22+, run directly with `tsx` (no build step for Node packages);
+`esbuild` bundles the two browser targets (extension, web); tests use `node:test`. Keep
+dependencies few: anything that breaks at 4 AM costs the demo. Add a dependency only in your
+own package and say why in the PR.
+
+**Running it**
+
+```
+npm install          # once; Node 22+ (see .nvmrc)
+npm run doctor       # preflight: node, install, .env, ports, data dir
+npm run seed -w server   # once per machine: demo facts + a session into data/ (skips existing)
+npm run dev          # server :4100 + distiller worker + dashboard :4200   (npm run dev -- server web)
+npm run check        # before every PR: status.json valid, typecheck, tests
+```
+
+Ports: server **4100** (`/health`, `/events` SSE, `/mcp`, `/api/*`), dashboard **4200**,
+status board **4173**. Everything runs without API keys on local stubs that label themselves
+simulated. The fact store is `data/` at the repo root (gitignored; open it in Obsidian).
+
+Data flow: hooks / extension / `canon_save` → `POST /api/sessions` → cold archive → SSE
+`session.captured` → distiller worker → Jev decides → `POST /api/facts` → hot facts →
+retriever → `canon_context` (Jev filters, cut to budget) → the client. The dashboard renders
+every event. The server never imports lane-B code; the distiller is its own process.
+
+Import contracts with `import { Fact, MCP_TOOLS } from "@canon/shared"`. Relative imports
+carry the `.ts` extension (`./store.ts`) so the same files run under tsx, esbuild and Node's
+own type stripping.
 
 ## Interface contracts (A ↔ B)
 
-**Fact file.** One markdown file per fact. The files are plain markdown, so the store opens
-in Obsidian.
+These contracts are code in `shared/src/types/` (`fact.ts`, `session.ts`, `mcp.ts`,
+`events.ts`, `grants.ts`, `judge.ts`, `api.ts`). Change a type and this section together.
+
+**Fact file.** One markdown file per fact at `data/facts/<folder>/<id>.md`. The files are
+plain markdown, so the store opens in Obsidian. Raw sessions live in `data/sessions/<id>.json`.
 
 ```yaml
 ---
 id: fct_7f3a                 # fct_ + 4+ hex chars
 statement: Built Canon's live capture hook for Claude Code sessions
-folder: career/projects      # top level: career | projects | team | private
+folder: career/projects      # top level: career | projects | team | private (or inbox)
 tier: hot                    # hot | cold
 jev_keep: 0.91               # save-time relevance probability
-source: { client: claude-code, session: 2026-10-24T03:12, pr: <url> }
+source: { client: claude-code, session: ses_3b9e, pr: <url> }   # session = captured session id
 supersedes: fct_12aa         # optional
 updated: 2026-10-24
 ---
 Optional detail.
 ```
+
+**Session capture** (`POST /api/sessions`, bearer token per client): `{ id: ses_…, client,
+started_at, ended_at?, title?, messages: [{ role, content, at? }], meta? }`. Clients re-send
+the whole message list under the same id; the server upserts. See `shared/src/types/session.ts`.
 
 **MCP tools** (the server exposes these, and every call is scoped to the client token's folders):
 
@@ -103,9 +138,11 @@ Optional detail.
 | `canon_save(text, folder?)` | Queued. It goes through the distiller and Jev, never straight to hot |
 | `canon_whoami()` | This client's folders, so an AI can explain a refusal |
 
-**Client grants.** Map each client token to its folders. Demo defaults: `claude-code` reads
-`projects/` and `career/` and saves to `projects/`. `chatgpt` reads `career/`.
-`teammate-cursor` reads `team/`. Nothing external reads `private/`.
+**Client grants.** Map each client token to its folders (`CANON_CLIENT_TOKENS=client=token,…`,
+grants in `shared/src/types/grants.ts`). Demo defaults: `claude-code` reads `projects/` and
+`career/` and saves to `projects/`. `chatgpt` reads `career/`. `teammate-cursor` reads `team/`.
+Nothing external reads `private/`. The `distiller` worker is an internal client (runs on your
+machine) that writes decided facts into every folder; it is not an AI.
 
 **Jev decisions.** Jev answers typed questions with probabilities, and our code applies
 the thresholds:

@@ -1,0 +1,41 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>Canon Capture</title>
+    <style>
+      :root { color-scheme: dark; }
+      body { margin: 0; padding: 24px; max-width: 520px; background: #111; color: #ddd; font: 14px/1.5 system-ui, sans-serif; }
+      h1 { margin: 0 0 4px; font-size: 16px; }
+      .hint { color: #888; }
+      p.hint { margin: 0 0 20px; }
+      label { display: block; margin: 12px 0 4px; color: #aaa; }
+      input { width: 100%; box-sizing: border-box; padding: 8px 10px; background: #1b1b1b; color: #eee; border: 1px solid #333; border-radius: 6px; font: inherit; }
+      .row { display: flex; gap: 8px; margin-top: 16px; }
+      button { padding: 8px 14px; background: #2b2b2b; color: #eee; border: 1px solid #444; border-radius: 6px; cursor: pointer; font: inherit; }
+      button.primary { background: #2e7d32; border-color: #2e7d32; }
+      #status { margin-top: 16px; padding: 10px 12px; background: #1b1b1b; border-radius: 6px; color: #aaa; white-space: pre-wrap; word-break: break-word; }
+      #status.ok { color: #81c784; }
+      #status.err { color: #ef9a9a; }
+      code { color: #ccc; }
+    </style>
+  </head>
+  <body>
+    <h1>Canon Capture</h1>
+    <p class="hint">Streams your ChatGPT sessions to the Canon server as you chat. Turn text only.</p>
+
+    <label for="canonUrl">Canon server URL</label>
+    <input id="canonUrl" type="url" placeholder="http://localhost:4100" autocomplete="off" />
+
+    <label for="token">Client token <span class="hint">(the <code>chatgpt=…</code> value from <code>CANON_CLIENT_TOKENS</code> in <code>.env</code>)</span></label>
+    <input id="token" type="password" autocomplete="off" />
+
+    <div class="row">
+      <button id="save" class="primary">Save</button>
+      <button id="test">Test connection</button>
+    </div>
+
+    <div id="status">Loading…</div>
+    <script type="module" src="options.js"></script>
+  </body>
+</html>

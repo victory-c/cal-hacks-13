@@ -1,0 +1,105 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Canon · live</title>
+  <meta name="description" content="Canon's live dashboard: sessions captured, facts distilled, and the context handed to each new AI session.">
+  <link rel="icon" href="data:,">
+  <link rel="stylesheet" href="./styles.css">
+</head>
+<body>
+  <header class="top">
+    <div class="brand">
+      <span class="wordmark">Canon</span>
+      <span class="tagline">live context, one place</span>
+    </div>
+    <div class="conn">
+      <span id="conn-dot" class="dot connecting" aria-hidden="true"></span>
+      <span id="conn-text" class="conn-text">connecting</span>
+      <button id="server-url" class="link mono" type="button" title="Change the server URL (or add ?server=… to the page URL)">http://localhost:4100</button>
+      <span id="server-meta" class="meta"></span>
+      <a id="resume-link" class="link" href="./resume.html">resume →</a>
+    </div>
+  </header>
+
+  <main class="grid">
+    <section class="panel hero" id="counter" aria-labelledby="counter-title">
+      <div class="panel-head">
+        <h2 id="counter-title">Context handed over</h2>
+        <span id="counter-when" class="meta"></span>
+      </div>
+      <div class="counter">
+        <span id="counter-tokens" class="num big">—</span>
+        <span class="unit">est. tokens<small>≈4 chars / token</small></span>
+      </div>
+      <div id="counter-sub" class="counter-sub"></div>
+      <dl class="stats">
+        <div>
+          <dt>latency</dt>
+          <dd><span id="stat-latency" class="num">—</span><small id="stat-breakdown" class="meta"></small></dd>
+        </div>
+        <div>
+          <dt>candidates → kept</dt>
+          <dd><span id="stat-kept" class="num">—</span></dd>
+        </div>
+        <div>
+          <dt>cost</dt>
+          <dd><span id="stat-cost" class="num" title="set a rate">—</span></dd>
+        </div>
+        <div>
+          <dt>vs full history</dt>
+          <dd><span id="stat-bench" class="num">—</span></dd>
+        </div>
+      </dl>
+    </section>
+
+    <section class="panel" id="sessions" aria-labelledby="sessions-title">
+      <div class="panel-head">
+        <h2 id="sessions-title">Live sessions</h2>
+        <span id="sessions-count" class="count num"></span>
+      </div>
+      <ul id="sessions-list" class="list"></ul>
+    </section>
+
+    <section class="panel wide" id="facts" aria-labelledby="facts-title">
+      <div class="panel-head">
+        <h2 id="facts-title">Facts</h2>
+        <span id="facts-count" class="count num"></span>
+      </div>
+      <ul id="facts-list" class="list"></ul>
+    </section>
+
+    <section class="panel" id="distiller" aria-labelledby="distiller-title">
+      <div class="panel-head">
+        <h2 id="distiller-title">Distiller</h2>
+        <span id="distiller-count" class="count num"></span>
+      </div>
+      <ul id="distiller-list" class="list"></ul>
+    </section>
+
+    <section class="panel" id="access" aria-labelledby="access-title">
+      <div class="panel-head">
+        <h2 id="access-title">Access</h2>
+        <span id="access-count" class="count num"></span>
+      </div>
+      <ul id="access-list" class="list"></ul>
+    </section>
+
+    <section class="panel" id="grants" aria-labelledby="grants-title">
+      <div class="panel-head">
+        <h2 id="grants-title">Grants</h2>
+        <span class="meta">private/ is never granted to an external client</span>
+      </div>
+      <table class="grants">
+        <thead>
+          <tr><th>client</th><th>reads</th><th>writes</th></tr>
+        </thead>
+        <tbody id="grants-body"></tbody>
+      </table>
+    </section>
+  </main>
+
+  <script type="module" src="./main.js"></script>
+</body>
+</html>

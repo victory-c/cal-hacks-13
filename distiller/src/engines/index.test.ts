@@ -1,0 +1,57 @@
+import assert from "node:assert/strict";
+import { describe, test } from "node:test";
+
+import { ClaudeDistiller, DroidDistiller, HeuristicDistiller, NotConfiguredError, createDistiller, resolveEngine } from "./index.ts";
+import { loadFixture, quiet, withEnv } from "../test-helpers.ts";
+
+const clean = { DISTILLER: undefined, FACTORY_API_KEY: undefined, ANTHROPIC_API_KEY: undefined };
+
+describe("createDistiller", () => {
+  test("no keys → heuristic, logged as simulated", async () => {
+    await withEnv(clean, async () => {
+      const { result, lines } = await quiet(() => createDistiller());
+      assert.ok(result instanceof HeuristicDistiller);
+      assert.equal(result.name, "heuristic");
+      assert.ok(lines.some((l) => l.includes("engine: heuristic (simulated)")), lines.join("\n"));
+    });
+  });
+
+  test("ANTHROPIC_API_KEY alone → claude; FACTORY_API_KEY wins over it → droid", async () => {
+    await withEnv({ ...clean, ANTHROPIC_API_KEY: "test-anthropic" }, async () => {
+      const { result } = await quiet(() => createDistiller());
+      assert.ok(result instanceof ClaudeDistiller);
+    });
+    await withEnv({ ...clean, ANTHROPIC_API_KEY: "test-anthropic", FACTORY_API_KEY: "test-factory" }, async () => {
+      const { result } = await quiet(() => createDistiller());
+      assert.ok(result instanceof DroidDistiller);
+    });
+  });
+
+  test("DISTILLER overrides key detection; an explicit option overrides DISTILLER", async () => {
+    await withEnv({ ...clean, DISTILLER: "heuristic", FACTORY_API_KEY: "test-factory" }, async () => {
+      assert.equal(resolveEngine(), "heuristic");
+      const { result } = await quiet(() => createDistiller({ engine: "droid" }));
+      assert.ok(result instanceof DroidDistiller);
+    });
+  });
+
+  test("a bad DISTILLER value and a missing key for an explicit engine both fail with the variable name", async () => {
+    await withEnv({ ...clean, DISTILLER: "gpt" }, () => {
+      assert.throws(() => createDistiller(), /DISTILLER must be one of droid\|claude\|heuristic \(got "gpt"\)/);
+    });
+    await withEnv(clean, async () => {
+      assert.throws(() => new DroidDistiller(), /FACTORY_API_KEY is not set/);
+      assert.throws(() => new ClaudeDistiller(), /ANTHROPIC_API_KEY is not set/);
+    });
+  });
+
+  test("DroidDistiller constructs with a key and distill() fails loudly until Q1 is resolved", async () => {
+    const droid = new DroidDistiller({ apiKey: "test-factory" });
+    assert.equal(droid.name, "droid");
+    await assert.rejects(droid.distill(loadFixture()), (err: unknown) => {
+      assert.ok(err instanceof NotConfiguredError);
+      assert.equal(err.message, "Droid SDK wiring pending: blocker Q1 (headless Droid), task B2");
+      return true;
+    });
+  });
+});

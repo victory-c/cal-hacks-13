@@ -1,0 +1,26 @@
+{
+  "hooks": {
+    "Stop": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node /ABSOLUTE/PATH/TO/canon/hooks/claude-code/canon-capture.mjs",
+            "timeout": 15
+          }
+        ]
+      }
+    ],
+    "SessionEnd": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node /ABSOLUTE/PATH/TO/canon/hooks/claude-code/canon-capture.mjs",
+            "timeout": 15
+          }
+        ]
+      }
+    ]
+  }
+}

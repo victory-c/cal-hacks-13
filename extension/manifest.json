@@ -1,0 +1,27 @@
+{
+  "manifest_version": 3,
+  "name": "Canon Capture",
+  "version": "0.1.0",
+  "description": "Streams your ChatGPT (and later Claude, Gemini) web sessions into Canon as you chat. Turn text only.",
+  "permissions": ["storage"],
+  "host_permissions": [
+    "https://chatgpt.com/*",
+    "https://chat.openai.com/*",
+    "https://claude.ai/*",
+    "https://gemini.google.com/*",
+    "http://localhost/*",
+    "http://127.0.0.1/*"
+  ],
+  "background": { "service_worker": "background.js", "type": "module" },
+  "content_scripts": [
+    {
+      "matches": ["https://chatgpt.com/*", "https://chat.openai.com/*"],
+      "js": ["content/chatgpt.js"],
+      "run_at": "document_idle"
+    },
+    { "matches": ["https://claude.ai/*"], "js": ["content/claude.js"], "run_at": "document_idle" },
+    { "matches": ["https://gemini.google.com/*"], "js": ["content/gemini.js"], "run_at": "document_idle" }
+  ],
+  "options_page": "options.html",
+  "action": {}
+}

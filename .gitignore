@@ -5,4 +5,13 @@ node_modules/
 .DS_Store
 dist/
 *.log
+*.tsbuildinfo
+
+# Local fact store + cold archive (CANON_DATA_DIR). Open it in Obsidian; never commit it.
+data/
+
+# Raw benchmark transcripts are big; the summarized results JSON is committed.
 bench/results/raw/
+
+# Claude Code worktrees
+.claude/worktrees/

@@ -1,0 +1,9 @@
+{
+  "_fixture_note": "A Claude Code Stop hook payload. transcript_path is relative to hooks/; the test and `npm run smoke -w hooks` resolve it from there. Real payloads carry an absolute path.",
+  "session_id": "7c2f9e1a-4b3d-4e6f-9a8b-1c2d3e4f5a6b",
+  "transcript_path": "fixtures/transcript.jsonl",
+  "cwd": "/Users/victor/canon",
+  "permission_mode": "default",
+  "hook_event_name": "Stop",
+  "stop_hook_active": false
+}

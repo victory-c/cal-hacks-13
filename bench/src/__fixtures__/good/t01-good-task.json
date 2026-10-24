@@ -1,0 +1,20 @@
+{
+  "id": "t01-good-task",
+  "title": "Project name: built in Claude Code, asked in ChatGPT",
+  "from_client": "claude-code",
+  "to_client": "chatgpt",
+  "folder": "career/projects",
+  "setup_sessions": [
+    {
+      "id": "ses_01000001",
+      "client": "claude-code",
+      "started_at": "2026-10-24T03:12:00Z",
+      "messages": [
+        { "role": "user", "content": "Add the capture hook for Canon, our Cal Hacks project." },
+        { "role": "assistant", "content": "Done: hooks/capture.mjs posts each session to the server." }
+      ]
+    }
+  ],
+  "question": "What did I build at Cal Hacks?",
+  "answer_key": { "must_include": ["Canon"], "must_not_include": ["Databricks"] }
+}
