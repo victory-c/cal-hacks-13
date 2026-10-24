@@ -1,0 +1,59 @@
+{
+  "id": "ses_10240001",
+  "client": "chatgpt",
+  "kind": "ai_session",
+  "principal": "dan",
+  "started_at": "2026-10-22T02:14:09.000Z",
+  "ended_at": "2026-10-22T02:41:37.000Z",
+  "title": "LOI terms sanity check",
+  "meta": {
+    "url": "https://chatgpt.com/c/6717f3a1-90c2-8004-b1d7-2f5e0c9a4d18"
+  },
+  "messages": [
+    {
+      "role": "user",
+      "content": "ok need a sanity check on falcon terms before i send the LOI draft to the team tmrw. target is Nimbus Logistics (NMBL). LTM EBITDA 142m, net debt ~310m, 27.0m shares fully diluted. stock closed 31.05 today. corvane IC approved a range of 9.0x to 9.75x. i'm thinking we lead at 9.5x. whats the implied price per share + premium",
+      "at": "2026-10-22T02:14:09.000Z"
+    },
+    {
+      "role": "assistant",
+      "content": "Here's the math at 9.5x LTM EBITDA:\n\n- Enterprise value: 9.5 × $142M = $1,349M\n- Less net debt: $1,349M − $310M = $1,039M equity value\n- Per share: $1,039M ÷ 27.0M = ~$38.48\n- Premium to the $31.05 close: ~23.9%\n\nAt the ends of the IC range:\n- 9.0x → EV $1,278M, equity $968M, ~$35.85/share (~15.5% premium)\n- 9.75x → EV $1,384.5M, equity $1,074.5M, ~$39.80/share (~28.2% premium)\n\nA premium in the mid-20s is within the usual range for a strategic buyer, though it depends on recent trading and how their board views standalone value.",
+      "at": "2026-10-22T02:14:52.000Z"
+    },
+    {
+      "role": "user",
+      "content": "ok round to 38.50/sh. thats the number. also the board (theirs) meets 2026-10-29, I want the LOI in their hands before that so call it LOI out by 2026-10-28. exclusivity ask 45 days",
+      "at": "2026-10-22T02:19:30.000Z"
+    },
+    {
+      "role": "assistant",
+      "content": "Got it. $38.50 per share is a ~24.0% premium to $31.05 and implies about $1,349.5M EV at the same net debt (~9.50x). On timing: an LOI delivered by 2026-10-28 gives their board one day before the 2026-10-29 meeting, which is tight; you might give their banker a heads-up earlier. A 45-day exclusivity ask is common at this size, but expect pushback toward 30 days.",
+      "at": "2026-10-22T02:20:11.000Z"
+    },
+    {
+      "role": "user",
+      "content": "they'll push back for sure. what about break fee, i was going to propose 3% of equity value. also flag for me what diligence items matter most for a 3PL like nimbus",
+      "at": "2026-10-22T02:26:44.000Z"
+    },
+    {
+      "role": "assistant",
+      "content": "3% of ~$1,039.5M equity value is about $31.2M, inside the usual 2–4% band. For a third-party logistics company, the diligence items that usually matter most:\n\n1. Customer concentration and contract terms (renewal dates, termination rights)\n2. Quality of earnings: how much EBITDA is one-off fuel surcharge or pass-through revenue\n3. Labor: union agreements, driver turnover, any open organizing efforts\n4. Real estate and lease obligations at the main hubs\n5. Technology: WMS/TMS systems and any planned replatforming\n6. Insurance and claims history",
+      "at": "2026-10-22T02:27:30.000Z"
+    },
+    {
+      "role": "user",
+      "content": "good. customer concentration is the big one, their top customer is ~22% of revenue and that contract renews 2027-03-31. memphis hub has a union contract up next year too. We agreed internally that QoE goes to Ashby & Rowe (outside accountants), kickoff after LOI. pls draft me 3 bullet summary of terms for the team email",
+      "at": "2026-10-22T02:35:02.000Z"
+    },
+    {
+      "role": "assistant",
+      "content": "Here's a three-bullet summary for the team:\n\n- **Price:** $38.50 per share in cash for Nimbus Logistics (NMBL), a ~24% premium to the $31.05 close, implying ~9.5x LTM EBITDA of $142M\n- **Process:** LOI out by 2026-10-28, ahead of the Nimbus board meeting on 2026-10-29; 45 days of exclusivity requested; proposed break fee of 3% of equity value (~$31.2M)\n- **Diligence focus:** top-customer concentration (~22% of revenue, contract renews 2027-03-31), the Memphis hub union contract, and a quality-of-earnings review by Ashby & Rowe starting after the LOI",
+      "at": "2026-10-22T02:36:15.000Z"
+    },
+    {
+      "role": "user",
+      "content": "perfect ty. dont put falcon in the subject line lol, maya will kill me",
+      "at": "2026-10-22T02:41:37.000Z"
+    }
+  ]
+}
