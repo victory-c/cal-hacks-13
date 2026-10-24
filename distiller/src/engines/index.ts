@@ -28,9 +28,9 @@ export interface Distiller {
 const ENGINES: readonly DistillEngine[] = ["droid", "claude", "heuristic"];
 
 /**
- * Engine order: opts.engine, else DISTILLER, else "droid" when FACTORY_API_KEY is set, else
- * "claude" when ANTHROPIC_API_KEY is set, else "heuristic". Logs which, and says "simulated"
- * when it is.
+ * Engine order: opts.engine, else DISTILLER, else "claude" when ANTHROPIC_API_KEY is set, else
+ * "heuristic". Logs which, and says "simulated" when it is. "droid" only when asked for by name:
+ * in v2 FACTORY_API_KEY is the dispatcher's key, and Droid does not distill (see droid.ts).
  */
 export function createDistiller(opts: { engine?: DistillEngine } = {}): Distiller {
   const engine = resolveEngine(opts.engine);
@@ -53,7 +53,6 @@ export function resolveEngine(explicit?: string): DistillEngine {
     }
     return pick as DistillEngine;
   }
-  if (env("FACTORY_API_KEY")) return "droid";
   if (env("ANTHROPIC_API_KEY")) return "claude";
   return "heuristic";
 }

@@ -16,14 +16,17 @@ describe("createDistiller", () => {
     });
   });
 
-  test("ANTHROPIC_API_KEY alone → claude; FACTORY_API_KEY wins over it → droid", async () => {
+  test("ANTHROPIC_API_KEY → claude; FACTORY_API_KEY alone never picks droid (v2: it is the dispatcher's key)", async () => {
     await withEnv({ ...clean, ANTHROPIC_API_KEY: "test-anthropic" }, async () => {
       const { result } = await quiet(() => createDistiller());
       assert.ok(result instanceof ClaudeDistiller);
     });
     await withEnv({ ...clean, ANTHROPIC_API_KEY: "test-anthropic", FACTORY_API_KEY: "test-factory" }, async () => {
       const { result } = await quiet(() => createDistiller());
-      assert.ok(result instanceof DroidDistiller);
+      assert.ok(result instanceof ClaudeDistiller);
+    });
+    await withEnv({ ...clean, FACTORY_API_KEY: "test-factory" }, async () => {
+      assert.equal(resolveEngine(), "heuristic");
     });
   });
 
