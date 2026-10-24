@@ -1,0 +1,18 @@
+{
+  "title": "What does Axe Capital's offer for TMC look like?",
+  "principal": "wags",
+  "question": "What does Axe Capital's offer for TMC look like?",
+  "needed_fact_ids": [
+    "fct_570001",
+    "fct_570002",
+    "fct_570004"
+  ],
+  "answer_key": {
+    "must_include": [
+      "52.75",
+      "28%",
+      "tender offer"
+    ]
+  },
+  "notes": "Asked from the deal side (scope includes deal/stonewall)."
+}

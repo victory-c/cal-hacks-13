@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { fileURLToPath } from "node:url";
 import { describe, test } from "node:test";
 
-import { FINANCE_CASES_DIR, listCaseFiles, loadCases, parseCase } from "./cases.ts";
+import { FINANCE_CASES_DIR, FINANCE_EXAMPLES_DIR, listCaseFiles, loadCases, parseCase } from "./cases.ts";
 
 const FIXTURES = (name: string) => fileURLToPath(new URL(`../__fixtures__/finance/${name}/`, import.meta.url));
 
@@ -150,8 +150,9 @@ describe("loadCases", () => {
     assert.ok(included.cases.some((c) => c.id === "attack-00-example"));
   });
 
-  test("listCaseFiles ignores non-case json but keeps the schema quiet", () => {
-    const { files, ignored } = listCaseFiles(FINANCE_CASES_DIR);
+  test("the examples and the schema stay out of C6's directory", () => {
+    assert.ok(!listCaseFiles(FINANCE_CASES_DIR).files.some((f) => /-00-/.test(f)));
+    const { files, ignored } = listCaseFiles(FINANCE_EXAMPLES_DIR);
     assert.ok(files.includes("task-00-example.json"));
     assert.ok(!ignored.includes("case.schema.json"));
   });

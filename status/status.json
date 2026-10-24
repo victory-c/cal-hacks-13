@@ -1,6 +1,6 @@
 {
   "project": "Bullwark",
-  "updated": "2026-10-24T17:59:58Z",
+  "updated": "2026-10-24T23:29:24Z",
   "team": [
     {
       "id": "A",
@@ -50,19 +50,19 @@
       "id": "M1",
       "window": "Sat 04:00–09:00",
       "end": "2026-10-24T09:00:00-07:00",
-      "label": "Finance contract, permission foundations, ingest and synthetic fixtures"
+      "label": "Schema frozen (tiers, groups, scope rules, scopes), ingest and synthetic fixtures"
     },
     {
       "id": "M2",
       "window": "Sat 09:00–14:00",
       "end": "2026-10-24T14:00:00-07:00",
-      "label": "Permission-scoped handoff pipeline, triage and live feed"
+      "label": "Scope builder end to end, grouping at save, filtered handoff and live feed"
     },
     {
       "id": "M3",
       "window": "Sat 14:00–20:00",
       "end": "2026-10-24T20:00:00-07:00",
-      "label": "Agents, wall-crossings, deal updates, control room and evaluation sets"
+      "label": "Agent profiles, Droid lanes, living scopes, people and tiers, quarantine and evaluation sets"
     },
     {
       "id": "M4",
@@ -74,7 +74,7 @@
       "id": "M5",
       "window": "Sun 00:00–07:00",
       "end": "2026-10-25T07:00:00-07:00",
-      "label": "Polish, fallback recording, sponsor READMEs"
+      "label": "Polish, scope map, attack box, fallback recording, sponsor READMEs"
     },
     {
       "id": "M6",
@@ -89,18 +89,18 @@
       "owner": "A",
       "milestone": "M1",
       "priority": "must",
-      "state": "done",
-      "title": "Freeze finance fact, deal, entitlement, audit, REST and SSE contracts with Victor",
-      "note": "Contract frozen on a/scopes-server via merge of b/contract-v2 (38a7298 docs + B19 ingest). Gaps closed: per-person principal binding on sessions POST, GET one principal, scope-rule GET for agent creators + internal, scope.updated per affected agent, agents never see inbox/quarantine. Remaining contract questions for Victor: member own-fact edit endpoint, list-my-agents, scope reasons. Raised 10/24."
+      "state": "doing",
+      "title": "Freeze the contract with Victor: principals and tiers, groups and labels, scope rules, scopes, audit, REST and SSE",
+      "note": "Contract frozen on a/scopes-server via merge of b/contract-v2 (38a7298 docs + B19 ingest). Gaps closed: per-person principal binding on sessions POST, GET one principal, scope-rule GET for agent creators + internal, scope.updated per affected agent, agents never see inbox/quarantine. Remaining contract questions for Victor: member own-fact edit endpoint, list-my-agents, scope reasons. Raised 10/24. Not yet matched to docs/INTEGRATION.md (PRD v4.1) route paths and event names, e.g. PUT /api/scope-rules/:id vs PUT /api/principals/:id/rule."
     },
     {
       "id": "A2",
       "owner": "A",
       "milestone": "M1",
       "priority": "must",
-      "state": "done",
-      "title": "Fixture-backed REST and MCP stubs for the finance control room",
-      "note": "server/src/scopes.ts: all scopes routes live with real tier gates (neutral 403 before any lookup), code-level exclusion filtering, agent-subset check, audit + events. World state in distiller/fixtures/world/, 12 world facts in server/fixtures/. Stubs: fixture-seeded scopes, removal-only rebuilds, keyword handoff relevance — Moss/Jev builder still open (A4/A7)."
+      "state": "doing",
+      "title": "Fixture-backed REST and MCP stubs for the moderator console and member view",
+      "note": "server/src/scopes.ts: all scopes routes live with real tier gates (neutral 403 before any lookup), code-level exclusion filtering, agent-subset check, audit + events. World state in distiller/fixtures/world/, 12 world facts in server/fixtures/. Stubs: fixture-seeded scopes, removal-only rebuilds, keyword handoff relevance — Moss/Jev builder still open (A4/A7). Remaining for PRD v4.1: seed from fixtures/world/ (the server still seeds the Harbor Lane world in server/fixtures/), and the console routes in docs/INTEGRATION.md."
     },
     {
       "id": "A3",
@@ -117,7 +117,7 @@
       "milestone": "M2",
       "priority": "must",
       "state": "done",
-      "title": "Moss search over permission-filtered facts",
+      "title": "Moss index with group and label metadata; scope builds and handoffs filter by scope fact ids",
       "note": "Real scope builder and in-scope handoff search landed (4576d07, 1eb0270): one retriever query over the post-exclusion pool only, every hit re-checked against the scope's fact ids in code. Retriever is the labelled keyword stub standing in for Moss until credentials land (Q2); createRetriever() is the swap point and GET /health names the provider."
     },
     {
@@ -126,7 +126,7 @@
       "milestone": "M2",
       "priority": "must",
       "state": "done",
-      "title": "SSE events for control room, audit and urgent wall changes",
+      "title": "SSE events for the console: scope builds and changes, facts joining scopes, handoffs, audit",
       "note": "Audited every scopes route against PRD #15/#19: scope.stage (measured times), scope.updated (built / rule_changed / fact_joined / fact_left), principal.changed (added / tier_changed / agent_created / agent_deleted), handoff.served, quarantine.released and audit.logged were already emitted with their audit rows. Gap closed: POST /api/quarantine wrote its audit row but emitted nothing — it now emits quarantine.flagged (relay for lane B workers kept). No new event types; plain SSE unchanged. Tests assert event + audit row per route."
     },
     {
@@ -135,7 +135,7 @@
       "milestone": "M1",
       "priority": "must",
       "state": "done",
-      "title": "Deny-by-default deal entitlements and permission filter",
+      "title": "Scope builder: exclusions in code → Moss candidates → Jev yes/no → scope, with living updates",
       "note": "Deny-by-default enforced in code before any search: excluded groups and labels leave the pool before Moss or Jev see anything (allowedByRule in server/src/scopes.ts), scopes are fixed fact-id lists, agents are capped at their creator, living updates keep scopes current (4576d07). Expiring clearances were cut by the scopes PRD #14 — access changes are rule edits, not timed grants."
     },
     {
@@ -144,7 +144,7 @@
       "milestone": "M2",
       "priority": "must",
       "state": "done",
-      "title": "Handoff: permission → search → Jev → budget → audit",
+      "title": "Handoff: search inside the scope → Jev relevance → token budget → audit",
       "note": "server/src/scopes.ts runHandoff: fixed scope → retriever inside the scope's groups with in-code fact-id re-check → inject-nothing judge() check → one batched Jev relevance ask → budget cut in code → audit row with exactly the facts sent. Judge/retriever failures degrade to profile-only, never a refusal or leak. Offline providers are the labelled keyword retriever + fake judge (Moss id-filter and Jev creds still open under A4/Q2)."
     },
     {
@@ -153,53 +153,8 @@
       "milestone": "M4",
       "priority": "must",
       "state": "done",
-      "title": "Finance benchmark runner: four setups, leak and wrongly blocked rates, accuracy, tokens, latency and cost",
-      "note": "Four-setup runner in bench/src/finance/ (no-memory, shared-memory, bullwark-claude, bullwark-jev): leak detection (code + judge), missing-context, accuracy, tokens, latency, cost. Drives the real runHandoff. Awaits C6's 30 tasks + 60 attacks for real numbers; runs on partial sets."
-    },
-    {
-      "id": "A11",
-      "owner": "A",
-      "milestone": "M2",
-      "priority": "must",
-      "state": "done",
-      "title": "Restricted and watch list checks with neutral refusals",
-      "note": "cut by scopes PRD #14; replaced by task-built scopes"
-    },
-    {
-      "id": "A12",
-      "owner": "A",
-      "milestone": "M3",
-      "priority": "must",
-      "state": "done",
-      "title": "Wall-crossing request, pre-screen, approval, denial and expiry API",
-      "note": "cut by scopes PRD #14; replaced by task-built scopes"
-    },
-    {
-      "id": "A13",
-      "owner": "A",
-      "milestone": "M3",
-      "priority": "must",
-      "state": "done",
-      "title": "Exit checks for agent output",
-      "note": "cut by scopes PRD #14; replaced by task-built scopes"
-    },
-    {
-      "id": "A14",
-      "owner": "A",
-      "milestone": "M1",
-      "priority": "must",
-      "state": "done",
-      "title": "Generate Harbor Lane / Falcon / Nimbus synthetic world and fixture endpoints",
-      "note": "Every PRD item verified present and numerically coherent: two Falcon memos, meeting transcript, week of #hl-floor chat, Dan's ChatGPT session, lawyers' email with the planted instruction, Nimbus public news ($38.50 = (9.5x142-310)/27.0, 24% premium to $31.05; Q3 print consistent across news, meeting and facts). Filled gaps: fct_fa1c0004 distilled from the management meeting (it had no fact) and added to Dan's scope + audit fixtures; world README file table now covers falcon-management-meeting and falcon-loi-memo (future-dated on purpose: the live-ingest demo item). Edan (C5) reviews realism."
-    },
-    {
-      "id": "A15",
-      "owner": "A",
-      "milestone": "M3",
-      "priority": "must",
-      "state": "done",
-      "title": "Deal announced and terminated transitions with urgent updates",
-      "note": "cut by scopes PRD #14; replaced by task-built scopes"
+      "title": "Finance benchmark runner: four setups, leak and missing-context rates, accuracy, tokens, latency, cost and scope build time",
+      "note": "Four-setup runner in bench/src/finance/ (no-memory, shared-memory, bullwark-claude, bullwark-jev): leak detection (code + judge), missing-context, accuracy, tokens, latency, cost. Drives the real runHandoff. Awaits C6's 30 tasks + 60 attacks for real numbers; runs on partial sets. Runs C6's 90 Billions-world cases once A2 seeds fixtures/world/; until then the Bullwark setups fail them (unknown principals). Examples and case.schema.json moved to bench/examples/finance/."
     },
     {
       "id": "A16",
@@ -207,7 +162,7 @@
       "milestone": "M2",
       "priority": "must",
       "state": "done",
-      "title": "Pinned profile per person and agent: role, desk and current clearances",
+      "title": "Pinned profile per person and agent: name, tier and task (never the exclusions)",
       "note": "pinnedProfile() in server/src/scopes.ts: name, tier and the rule's task, well under 200 tokens, sent on every handoff including inject-nothing. Never exclusions, excluded group names or counts; tested against the rule's exclusion text."
     },
     {
@@ -217,7 +172,25 @@
       "priority": "stretch",
       "state": "done",
       "title": "Visual HTML PRD for review and handoff",
-      "note": "docs/prd/backlog/Bullwark_Web-MCP-Agents_SmallFinanceTeams.html, generated from docs/PRD.md (two tiers, task-built scopes)."
+      "note": "Moved to docs/history/ (a human-only record of earlier designs)."
+    },
+    {
+      "id": "A18",
+      "owner": "A",
+      "milestone": "M3",
+      "priority": "must",
+      "state": "done",
+      "title": "People and tiers: moderators add people, edit any scope rule and promote; members create only agent profiles",
+      "note": "POST /api/principals (add a person with a rule) and POST /api/principals/:id/tier, moderator-only with the neutral 403 for members and internal clients; no MCP tool writes principals, rules or tiers (server/src/scopes.ts, scopes.test.ts). Route paths still differ from docs/INTEGRATION.md (A1)."
+    },
+    {
+      "id": "A19",
+      "owner": "A",
+      "milestone": "M3",
+      "priority": "must",
+      "state": "done",
+      "title": "Agent profiles: scope built from and kept inside the creator's scope",
+      "note": "An agent scope is built from its creator's scope only and checked to be a subset in code at build time (500 if it escapes) and on every living update and rule-edit cascade (server/src/scopes.ts, scopes.test.ts)."
     },
     {
       "id": "B1",
@@ -234,7 +207,7 @@
       "milestone": "M3",
       "priority": "must",
       "state": "doing",
-      "title": "Droid agent runs inside the creator's scope: sandbox of scope facts, steps and files",
+      "title": "Droid agent runs: sandbox folder holding only the agent's scope as markdown, with steps and files streamed",
       "note": "Integrated on b/integration-v2 with triage, ingest and lane A's A2 stubs, and verified end to end (fake runtime, simulated): Leo dispatches agt_leodesk → scope rule, scope facts, handoff, 2 steps, outputs saved as Leo's memory and triaged; Dan dispatching Leo's agent gets 403. npm run dev now starts the dispatcher. Windows: POSIX-only tests skip with a reason; LOCKED folder modes do not hold there, so run real Droid on macOS. Remaining: one real droid exec run (no FACTORY_API_KEY on Henry's machine); a server-side refusal of a save whose facts left the scope (lane A)."
     },
     {
@@ -252,7 +225,7 @@
       "milestone": "M2",
       "priority": "must",
       "state": "doing",
-      "title": "Jev triage: keep, group and labels, instructions (quarantine) and relation to existing facts",
+      "title": "Jev triage: keep, group, labels, instructions aimed at an AI, relation to existing facts",
       "note": "Runs on real Jev (TypeSafe /v1/systemone, client rewritten to the documented API) on b/integration-v2. Measured end to end on the world (simulated heuristic writer, real Jev judge): the lawyers' email quarantined at inject p 0.98; memo, chat, transcript, news and Leo's agent output pass at 0.08-0.17; each batched triage call 106-191 ms; Priya, Leo and Leo's agent hold zero deal/falcon facts. Calibrated on real Jev: the injection question now asks about item.text only and excludes handling notes to people (a memo's 'do not paste into any AI tool' note had scored 0.57), and dispatcher sessions are judged on the agent's outputs only (our own task prompt had scored 0.30-0.86). A draft sent to inbox no longer retires a fact in another group. Remaining: the Claude writer live (no ANTHROPIC_API_KEY yet); public Nimbus news lands in inbox (the Nimbus alias belongs to deal/falcon)."
     },
     {
@@ -262,7 +235,7 @@
       "priority": "must",
       "state": "todo",
       "title": "ChatGPT MCP read connector configured and demo-tested",
-      "note": "Capture remains through the extension; enforce the requesting principal clearance."
+      "note": "Capture remains through the extension; the token maps to one person, so answers come only from their scope."
     },
     {
       "id": "B11",
@@ -333,7 +306,7 @@
       "milestone": "M3",
       "priority": "must",
       "state": "doing",
-      "title": "Route newly in-scope facts and scope narrowing to agent inboxes",
+      "title": "Route newly in-scope facts to agent inboxes; restart runs when a scope narrows",
       "note": "Integrated on b/integration-v2 against A2's scope routes; unit-tested (routing.test.ts, dispatcher.test.ts). Remaining: exercise a live scope.updated (rule edit) during a run end to end."
     },
     {
@@ -397,16 +370,16 @@
       "priority": "must",
       "state": "todo",
       "title": "Review synthetic-world realism and run finance capture sessions",
-      "note": "A14 generates the world; use only synthetic deal data."
+      "note": "C20 is the world; review it against how a hedge fund works and run capture sessions on it. Synthetic data only."
     },
     {
       "id": "C6",
       "owner": "C",
       "milestone": "M3",
       "priority": "must",
-      "state": "todo",
-      "title": "Write 30 legitimate finance tasks and 50 attacks with answer keys",
-      "note": "10 attacks per PRD style; A8 implements and runs the finance evaluator."
+      "state": "done",
+      "title": "Write 30 legitimate finance tasks and 60 attacks with answer keys",
+      "note": "bench/tasks/finance/: 60 attacks (10 per style) and 30 tasks in lane A's case format, checked against fixtures/world/ by web/src/cases.test.ts. Post-announcement, dead-deal and promotion cases wait on a state field in the evaluator."
     },
     {
       "id": "C7",
@@ -415,7 +388,7 @@
       "priority": "must",
       "state": "todo",
       "title": "QA after Saturday syncs at 09:00, 15:00 and 21:00",
-      "note": "Full demo run; rank failures, review neutral wording and check the wall."
+      "note": "Full demo run; rank failures and check that nothing outside a scope is ever mentioned, counted or named."
     },
     {
       "id": "C8",
@@ -468,8 +441,8 @@
       "milestone": "M3",
       "priority": "must",
       "state": "todo",
-      "title": "Control room: deals, clearances, access requests, feed and agent lanes",
-      "note": "Edan owns web/; build against agreed mock REST and SSE before connecting to the server."
+      "title": "Moderator console: people and tiers, scope builder, scope inspector, live feed and agent lanes",
+      "note": "Edan owns web/; build against agreed mock REST and SSE before connecting to the server. Includes the Add item form."
     },
     {
       "id": "C14",
@@ -486,7 +459,7 @@
       "milestone": "M5",
       "priority": "stretch",
       "state": "todo",
-      "title": "Wall map",
+      "title": "Scope map",
       "note": ""
     },
     {
@@ -496,7 +469,7 @@
       "priority": "stretch",
       "state": "todo",
       "title": "Judge attack box",
-      "note": ""
+      "note": "Judges attack as a member or by creating an agent."
     },
     {
       "id": "C17",
@@ -514,7 +487,25 @@
       "priority": "must",
       "state": "todo",
       "title": "Memory browser: view, edit and retire facts",
-      "note": "PRD must-ship #6. Retire moves a fact to cold with history kept; no hard delete. Needs fact edit and retire REST endpoints from A."
+      "note": "PRD must-ship #6. Members browse only their scope. Retire moves a fact to cold with history kept; needs fact edit and retire REST endpoints from A."
+    },
+    {
+      "id": "C19",
+      "owner": "C",
+      "milestone": "M3",
+      "priority": "must",
+      "state": "todo",
+      "title": "Member view: my agents, create an agent, my memory",
+      "note": "Members see only their own agents and scope; no people list, scope inspector or audit log."
+    },
+    {
+      "id": "C20",
+      "owner": "C",
+      "milestone": "M1",
+      "priority": "must",
+      "state": "done",
+      "title": "Synthetic demo world: Axe Capital / Stonewall / Taylor Mason Capital items and answer key",
+      "note": "fixtures/world/: 12 items in the Item shape, people, groups, scope rules, timeline and expected facts; checked by web/src/world.test.ts. Seeding Canon from it is A2."
     }
   ],
   "tracks": [
@@ -525,7 +516,7 @@
       "prize": "$8,000 / $5,000 / $3,000 + interviews",
       "proofs": [
         {
-          "label": "Video opens on neutral refusal",
+          "label": "Video opens on the question that doesn't leak",
           "done": false
         },
         {
@@ -553,7 +544,7 @@
           "done": false
         },
         {
-          "label": "Wall behavior shown without leaking deal information",
+          "label": "Scope inspector shows the wall held without hinting at hidden data",
           "done": false
         }
       ]
@@ -565,7 +556,7 @@
       "prize": "Surface per member + FDE mentorship",
       "proofs": [
         {
-          "label": "Measured leak versus wrongly blocked chart",
+          "label": "Measured leak versus missing-context chart",
           "done": false
         },
         {
@@ -585,7 +576,7 @@
       "prize": "$2,000 + credits",
       "proofs": [
         {
-          "label": "Droid dispatches isolated finance work agents",
+          "label": "Droid runs each agent in a scope-limited sandbox",
           "done": false
         },
         {
@@ -605,7 +596,7 @@
       "prize": "AirPods Max / Pro",
       "proofs": [
         {
-          "label": "Permission-scoped retrieval and measured latency",
+          "label": "Scope builds and in-scope handoffs on Moss, with measured latency",
           "done": false
         },
         {
@@ -629,7 +620,7 @@
           "done": false
         },
         {
-          "label": "Attack handling, quarantine and output checks",
+          "label": "Scopes in code, agent escalation and quarantine shown",
           "done": false
         }
       ]
@@ -744,10 +735,17 @@
       "state": "open",
       "text": "Make sure Henry and Edan both have repo access (collaborators now: victory-c, kokomeam)",
       "answer": ""
+    },
+    {
+      "id": "Q11",
+      "owner": "C",
+      "state": "open",
+      "text": "Henry: the finance case loader on a/scopes-server lists dan, priya and leo as members; update it to the Billions world (axe, ben, dollar-bill, wags) and add a state field so post-announcement cases can run",
+      "answer": ""
     }
   ],
   "cutList": [
-    "Wall map",
+    "Scope map",
     "Attack box",
     "Quarantine view",
     "Bitdeer",

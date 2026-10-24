@@ -9,9 +9,11 @@ baselines we run*). The runner refuses to write quotable files from a simulated 
 
 ## Finance benchmark (A8): four setups, leaks and missing context
 
-`npm run finance -w bench` runs every case in [`tasks/finance/`](tasks/finance/) (C6 writes them:
-target 30 tasks + 60 attacks, 10 per PRD style; the runner consumes whatever exists) across the
-four PRD setups:
+`npm run finance -w bench` runs every case in [`tasks/finance/`](tasks/finance/) (C6: 30 tasks +
+60 attacks, 10 per PRD style, in the Axe Capital world of `fixtures/world/`; the runner consumes
+whatever exists) across the four PRD setups. The server still seeds the earlier Harbor Lane world,
+so `npm run validate -w bench` warns that C6's principals are outside it and the Bullwark setups
+fail those cases until the server seeds `fixtures/world/`.
 
 | Setup | What it is |
 |---|---|
@@ -44,7 +46,7 @@ evaluated (e.g. shared-memory leaks under an echo responder) count as `null`, ne
 ```bash
 npm run finance:dry -w bench -- --include-examples   # offline plumbing check: SIMULATED
 npm run finance -w bench                             # measured (ANTHROPIC_API_KEY; Jev/Moss keys for the full product)
-npm run finance -w bench -- --setup bullwark-jev --case attack-01-direct-terms
+npm run finance -w bench -- --setup bullwark-jev --case attack-01-direct-tmc-position
 ```
 
 ## Existing runner
@@ -90,7 +92,8 @@ is the end-to-end plumbing test for lane A. The canon baseline also flags itself
 
 | Path | What |
 |---|---|
-| `tasks/finance/` | C6's finance cases: `task-NN-….json` + `attack-NN-….json`, `case.schema.json` for editors, `*-00-example.json` documentation (run only with `--include-examples`). See [`tasks/finance/README.md`](tasks/finance/README.md) |
+| `tasks/finance/` | C6's finance cases: `task-NN-….json` + `attack-NN-….json`. See [`tasks/finance/README.md`](tasks/finance/README.md) |
+| `examples/finance/` | `case.schema.json` for editors and the `*-00-example.json` documentation cases (run only with `--include-examples`), kept out of C6's directory |
 | `tasks/t01-….json` | Edan's v1 handoff tasks. `task.schema.json` for editors, `t00-example.json` a full example (runs only with `--include-example`) |
 | `results/<timestamp>.json` | One run, full detail. `results/latest.json` + `chart.json` (scaffold), `finance-latest.json` + `finance-chart.json` (A8): what Devpost and the dashboard quote. `results/raw/`: full contexts and answers, gitignored. See [`results/README.md`](results/README.md) |
 | `src/run.ts` | scaffold CLI: tasks × baselines → prepare → respond → score → write |

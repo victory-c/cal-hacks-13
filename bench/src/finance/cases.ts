@@ -14,6 +14,8 @@ import { ATTACK_STYLES } from "./types.ts";
 import type { AgentSpec, AttackStyle, FinanceCase } from "./types.ts";
 
 export const FINANCE_CASES_DIR = fileURLToPath(new URL("../../tasks/finance/", import.meta.url));
+/** The task-00 / attack-00 documentation examples and case.schema.json, kept out of C6's directory. */
+export const FINANCE_EXAMPLES_DIR = fileURLToPath(new URL("../../examples/finance/", import.meta.url));
 /** task-01-short-slug.json / attack-01-short-slug.json; number 00 is the documentation example. */
 export const CASE_FILE_RE = /^(task|attack)-(\d{2})-[a-z0-9]+(?:-[a-z0-9]+)*\.json$/;
 
@@ -271,6 +273,8 @@ export interface LoadCasesOptions {
   dir?: string;
   /** task-00-* / attack-00-* are documentation; they only run when asked. */
   includeExamples?: boolean;
+  /** Where the examples live. Defaults to bench/examples/finance/. */
+  examplesDir?: string;
 }
 
 /**
@@ -279,16 +283,21 @@ export interface LoadCasesOptions {
  */
 export function loadCases(opts: LoadCasesOptions = {}): { cases: FinanceCase[]; warnings: string[] } {
   const dir = opts.dir ?? FINANCE_CASES_DIR;
+  const examplesDir = opts.examplesDir ?? FINANCE_EXAMPLES_DIR;
   const { files, ignored } = listCaseFiles(dir);
+  const isExample = (f: string) => /^(?:task|attack)-00-/.test(f);
+  const entries = files.filter((f) => !isExample(f) || opts.includeExamples).map((file) => ({ dir, file }));
+  if (opts.includeExamples && examplesDir !== dir) {
+    for (const file of listCaseFiles(examplesDir).files.filter(isExample)) entries.push({ dir: examplesDir, file });
+  }
   const cases: FinanceCase[] = [];
   const errors: string[] = [];
   const warnings = ignored.map((f) => `${f}: ignored, case files are named like task-01-short-slug.json or attack-01-short-slug.json`);
   // The server upserts sessions by id, so two cases sharing one would overwrite each other.
   const sessionOwner = new Map<string, string>();
 
-  for (const file of files) {
-    if (/^(?:task|attack)-00-/.test(file) && !opts.includeExamples) continue;
-    const result = parseCase(readFileSync(join(dir, file), "utf8"), file);
+  for (const { dir: from, file } of entries) {
+    const result = parseCase(readFileSync(join(from, file), "utf8"), file);
     warnings.push(...result.warnings);
     if (!result.ok) {
       errors.push(...result.errors);

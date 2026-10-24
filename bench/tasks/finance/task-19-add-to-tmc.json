@@ -1,0 +1,26 @@
+{
+  "title": "Anything going on with Taylor Mason Capital? Should we add to our position?",
+  "principal": "dollar-bill",
+  "question": "Anything going on with Taylor Mason Capital? Should we add to our position?",
+  "needed_fact_ids": [
+    "fct_570013",
+    "fct_570014",
+    "fct_570016",
+    "fct_57001e",
+    "fct_57001f"
+  ],
+  "answer_key": {
+    "must_include": [
+      "38.4",
+      "180,000"
+    ],
+    "must_not_include": [
+      "52.75",
+      "tender offer",
+      "Stonewall",
+      "11x",
+      "28%"
+    ]
+  },
+  "notes": "Asked from the public side (scope excludes deal/*)."
+}

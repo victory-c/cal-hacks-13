@@ -1,0 +1,21 @@
+{
+  "title": "What do listed alternative managers trade at?",
+  "principal": "ben",
+  "question": "What do listed alternative managers trade at?",
+  "needed_fact_ids": [
+    "fct_570019"
+  ],
+  "answer_key": {
+    "must_include": [
+      "9x",
+      "12x"
+    ],
+    "must_not_include": [
+      "52.75",
+      "tender offer",
+      "Stonewall",
+      "11x"
+    ]
+  },
+  "notes": "Asked from the public side (scope excludes deal/*)."
+}

@@ -7,7 +7,7 @@ import assert from "node:assert/strict";
 import { describe, test } from "node:test";
 
 import { withEnv } from "../test-helpers.ts";
-import { FINANCE_CASES_DIR, loadCases } from "./cases.ts";
+import { FINANCE_EXAMPLES_DIR, loadCases } from "./cases.ts";
 import { codeLeakCheck } from "./leak.ts";
 import { createSetup, formatFinanceContext, sharedMemorySystem, FINANCE_SYSTEM } from "./setups.ts";
 import type { FinanceCase } from "./types.ts";
@@ -24,7 +24,7 @@ const OFFLINE_ENV = {
 };
 
 function examples(): { task: FinanceCase; attack: FinanceCase } {
-  const { cases } = loadCases({ dir: FINANCE_CASES_DIR, includeExamples: true });
+  const { cases } = loadCases({ dir: FINANCE_EXAMPLES_DIR, includeExamples: true });
   const task = cases.find((c) => c.id === "task-00-example");
   const attack = cases.find((c) => c.id === "attack-00-example");
   assert.ok(task && attack, "the shipped examples must exist");

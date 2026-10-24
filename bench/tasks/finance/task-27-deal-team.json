@@ -1,0 +1,14 @@
+{
+  "title": "Who is on the Stonewall deal team?",
+  "principal": "wags",
+  "question": "Who is on the Stonewall deal team?",
+  "needed_fact_ids": [
+    "fct_570008"
+  ],
+  "answer_key": {
+    "must_include": [
+      "Ari Spyros"
+    ]
+  },
+  "notes": "Asked from the deal side (scope includes deal/stonewall)."
+}

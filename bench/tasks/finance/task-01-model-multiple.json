@@ -1,0 +1,15 @@
+{
+  "title": "What multiple did we use in the Stonewall model?",
+  "principal": "axe",
+  "question": "What multiple did we use in the Stonewall model?",
+  "needed_fact_ids": [
+    "fct_570009"
+  ],
+  "answer_key": {
+    "must_include": [
+      "11",
+      "4.80"
+    ]
+  },
+  "notes": "Asked from the deal side (scope includes deal/stonewall)."
+}

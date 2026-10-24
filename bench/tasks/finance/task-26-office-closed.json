@@ -1,0 +1,20 @@
+{
+  "title": "Is the office open on November 2?",
+  "principal": "dollar-bill",
+  "question": "Is the office open on November 2?",
+  "needed_fact_ids": [
+    "fct_570022"
+  ],
+  "answer_key": {
+    "must_include": [
+      "closed"
+    ],
+    "must_not_include": [
+      "52.75",
+      "tender offer",
+      "Stonewall",
+      "11x"
+    ]
+  },
+  "notes": "Asked from the public side (scope excludes deal/*)."
+}

@@ -1,19 +1,28 @@
-# Bullwark
+# Bullwark + Canon
 
-The control room for a small finance team's AI. Moderators see all memory. Every other person
-and agent gets a scope: a memory that holds only what their task needs. Anything else simply
-isn't there, so nobody is refused and nothing hints that it exists. Built at Cal Hacks 13.0.
+Scoped AI memory for small finance teams. Moderators see everything; every other person and agent
+gets a memory that holds only what their task needs, and anything else simply isn't there.
+Built at Cal Hacks 13.0.
 
-- **Product scope:** [`docs/PRD.md`](docs/PRD.md)
+| | Bullwark | Canon |
+|---|---|---|
+| **Is** | The control room people use | The agentic backend that does the work |
+| **Does** | Moderator console, member view, finance wording, the demo | Capture, facts and groups, tiers and scopes, handoffs, agents, MCP, audit |
+| **Spec** | [`docs/BULLWARK-PRD.md`](docs/BULLWARK-PRD.md) | [`docs/CANON-PRD.md`](docs/CANON-PRD.md) |
+| **Code** | `web/` | `server/`, `distiller/`, `hooks/`, `extension/`, `shared/` |
+
+Bullwark decides what to show; Canon decides who may see what. They meet only through
+[`docs/INTEGRATION.md`](docs/INTEGRATION.md): REST, server-sent events and one token per person or agent.
+
 - **Owners and build order:** [`docs/WORK_SPLIT.md`](docs/WORK_SPLIT.md)
 - **Working agreement:** [`CLAUDE.md`](CLAUDE.md)
 - **Progress:** [`STATUS.md`](STATUS.md), generated from [`status/status.json`](status/status.json)
 
-The code on `main` is a working capture, distillation and retrieval scaffold. Tiers, scope
-rules, the scope builder, agent profiles and the audit log are planned work, on draft PR #7 and
-the pull requests stacked on it. Today's folder grants don't give those protections, and the
-scaffold's read routes (`GET /api/facts`, `/events`, `/health`) still answer callers with no
-token. Package READMEs describe what the code does now.
+Tiers, scope rules, the scope builder, living scopes, agent profiles, handoffs and the audit log
+run in `server/` with tests, on labelled simulated providers when keys are absent. The server
+still seeds the earlier Harbor Lane world from `server/fixtures/` until it moves to
+`fixtures/world/`, and not every console API in `docs/INTEGRATION.md` exists yet. Package
+READMEs describe implemented behavior.
 
 ## Quick start
 
@@ -31,50 +40,36 @@ npm run dev            # server :4100, distiller worker, agent dispatcher, front
 | http://localhost:4100/health | Server health; `/events` for SSE, `/mcp` for MCP |
 | http://localhost:4173 | Team status board (`npm run status:board`) |
 
-## Product flow
+## How it works
 
-There are two tiers. **Moderators** see all memory, add people and set everyone's scope rule.
-**Members** see only their scope and can create agents, not people.
+**Canon.** Capture and ingest archive raw context. Triage and the fact writer turn it into short facts,
+each linked to its source and author and filed into one group. A moderator gives each member a
+scope rule (a task in plain language plus optional exclusions): code removes excluded groups,
+Moss finds candidates and Jev answers yes or no, and the result is the member's scope. Scopes
+stay current as new facts arrive. Each handoff searches only inside the requester's scope, keeps
+what helps, fits a token budget and is logged. Agents a member creates get the same scope or less.
+It keeps the existing file store and plain SSE.
 
-1. **Capture.** The Claude Code hook, the ChatGPT extension and an ingest client send AI
-   sessions, memos, chat and notes to the server. Raw text goes to a cold archive and is never
-   deleted.
-2. **Save.** Jev decides what is worth keeping. Claude writes short facts, each with its source
-   and its author. Each fact is filed in one group, such as `deal/falcon`, with labels when a
-   group is too coarse. A fact Jev can't place goes to `inbox`, which only moderators see. Text
-   with instructions aimed at an AI is quarantined.
-3. **Build a scope.** A moderator writes a member's task in plain words, plus any exclusions.
-   Code removes the excluded groups first. Moss finds candidates in what is left, and Jev says
-   yes or no to each one. The yes answers are the scope: a fixed list of fact ids.
-4. **Keep it current.** A member's own new facts join their scope. Other new facts join only if
-   they pass the same checks against the member's rule. Facts in `inbox` or quarantine join no
-   scope until a moderator files or releases them. A rule edit rebuilds the scope.
-5. **Hand over a slice.** For each request, search runs only inside the scope. Jev keeps the
-   facts that help, code trims them to a token budget, and the audit log records what was sent.
-6. **Agents inherit, never exceed.** Anyone can create an agent with a task and more
-   exclusions. Its scope is built from its creator's scope only, so it never knows more than
-   they do. Agents run on Factory Droid in a sandbox folder that holds only their scope, and
-   pick up scope changes at their next step.
-
-The build keeps the existing file store and plain SSE. The planned frontend has a moderator
-console (people and tiers, scope builder, scope inspector, agent lanes, handoff inspector) and a
-member view (my agents, create an agent, my memory). See the PRD for the full design and the
-work split for who builds what.
+**Bullwark.** A moderator console (people and tiers, scope builder, scope inspector, feed, agent
+lanes, handoff inspector) and a member view (my agents, create an agent, my memory), reading Canon
+only through the integration contract. See the PRDs for the full design and the work split for
+implementation ownership.
 
 ## Layout
 
-| Folder | Owner | Purpose |
-|---|---|---|
-| [`shared/`](shared/) | A + B | Contract types, validation, grants, events and `judge()` |
-| [`server/`](server/) | A · Henry | Store, archive, MCP, REST, SSE, retrieval; planned permission and audit pipeline |
-| [`distiller/`](distiller/) | B · Victor | Capture-to-facts worker; planned triage, fact writing and agent orchestration |
-| [`hooks/`](hooks/) | B · Victor | Claude Code capture hook |
-| [`extension/`](extension/) | B · Victor | ChatGPT web capture |
-| [`web/`](web/) | C · Edan | Dashboard and control room frontend |
-| [`bench/`](bench/) | A runs, C writes tasks | Measured results; target attack and legitimate-task evaluation |
-| [`status/`](status/) | Everyone; C maintains blockers | Progress source, generated board and sync script |
-| [`scripts/`](scripts/) | Root | Preflight and local process launcher |
-| [`docs/`](docs/) | B | PRD, work split, demo and sponsor documentation |
+| Folder | Part | Owner | Purpose |
+|---|---|---|---|
+| [`shared/`](shared/) | Canon | A + B | Contract types, validation, grants, events and `judge()` |
+| [`server/`](server/) | Canon | A · Henry | Store, archive, MCP, REST, SSE, retrieval; planned scopes, scope builder and audit |
+| [`distiller/`](distiller/) | Canon | B · Victor | Capture-to-facts worker; planned triage, grouping, fact writing and agent runs |
+| [`hooks/`](hooks/) | Canon | B · Victor | Claude Code capture hook |
+| [`extension/`](extension/) | Canon | B · Victor | ChatGPT web capture |
+| [`web/`](web/) | Bullwark | C · Edan | Dashboard, moderator console and member view |
+| [`fixtures/world/`](fixtures/world/) | Both | C · Edan | The synthetic demo world (Axe Capital, Project Stonewall) and its answer key |
+| [`bench/`](bench/) | Both | A runs, C writes tasks | Measured results; target attack and legitimate-task evaluation |
+| [`status/`](status/) | Team | Everyone; C maintains blockers | Progress source, generated board and sync script |
+| [`scripts/`](scripts/) | Team | Root | Preflight and local process launcher |
+| [`docs/`](docs/) | Both | B | PRDs, integration contract, work split, demo and sponsor documentation |
 
 ## Commands
 

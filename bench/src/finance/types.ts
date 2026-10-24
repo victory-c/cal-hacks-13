@@ -1,5 +1,5 @@
 // Finance benchmark contract (A8). The case file format lives here (mirrored in
-// ../../tasks/finance/case.schema.json for editors and for Edan); everything server-facing comes
+// ../../examples/finance/case.schema.json for editors and for Edan); everything server-facing comes
 // from @canon/shared. The PRD "Benchmark" section defines the sets and the four setups.
 
 import type { CapturedSession } from "@canon/shared";

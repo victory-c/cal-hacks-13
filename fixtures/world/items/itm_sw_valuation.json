@@ -1,0 +1,9 @@
+{
+  "id": "itm_sw_valuation",
+  "kind": "memo",
+  "source": "Project Stonewall memo 2: valuation model",
+  "author": "axe",
+  "captured_at": "2026-10-24T17:00:25.000Z",
+  "replay": "Arrives live at 0:25; captured_at is reset to the moment it is posted.",
+  "text": "PROJECT STONEWALL — VALUATION (MODEL v5)\nAxe Capital · Deal team only\n\nBase case: 11.0x 2027 earnings of $4.80 per share = $52.75 per share, the offer price.\nBear case: 9.5x = $45.60. Bull case: 12.5x = $60.00.\nDiscounted cash flow range: $49 to $58 per share (9.5% cost of equity, 2% terminal growth).\nCost synergies: $85 million a year by year two, mostly overlapping trading, risk and back-office teams. Not priced into the offer.\nWalk-away price: $56.00 per share. Do not share outside the deal team.\n\nSensitivity: every 1x of multiple moves value by about $4.80 a share, or roughly $290 million of equity.\n\nPython model: stonewall_valuation.py in the deal folder."
+}
