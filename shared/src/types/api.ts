@@ -18,7 +18,13 @@ export const ROUTES = {
   events: "/events",
   /** MCP Streamable HTTP endpoint. */
   mcp: "/mcp",
-  /** POST upsert CapturedSession; GET /api/sessions/:id returns it from the cold archive. */
+  /**
+   * POST upsert CapturedSession; GET /api/sessions/:id returns it from the cold archive.
+   * Scopes: GET is moderators and internal clients only (a raw session holds more than any one
+   * scope). On POST the server binds `principal` to a per-person client's own principal (rejects a
+   * mismatch); operator and internal clients (ingest, dispatcher) may set it, e.g. the dispatcher
+   * posts an agent's outputs with principal = the agent's creator.
+   */
   sessions: "/api/sessions",
   /** GET list (?folder=&tier=); POST writes decided facts (distiller → store). */
   facts: "/api/facts",
@@ -29,9 +35,13 @@ export const ROUTES = {
   // dispatcher). Members never see groups, rules, other people's scopes or the audit log.
   /** GET GroupsResponse (moderator, internal). Triage reads it to file facts. */
   groups: "/api/groups",
-  /** GET Principal[] (moderator). POST AddPersonBody (moderator). POST /api/principals/:id/tier { tier } (moderator). */
+  /** GET Principal[] and GET /api/principals/:id (moderator, internal). POST AddPersonBody (moderator). POST /api/principals/:id/tier { tier } (moderator). */
   principals: "/api/principals",
-  /** GET /api/scope-rules/:principal, PUT ScopeRule (moderator; the creator for their own agents). A PUT rebuilds the scope. */
+  /**
+   * GET /api/scope-rules/:principal (moderator; the creator for their own agents; internal, so the
+   * dispatcher can read an agent's task). PUT ScopeRule (moderator; the creator for their own
+   * agents). A PUT rebuilds the scope, and every agent built from it.
+   */
   scopeRules: "/api/scope-rules",
   /** GET /api/scopes/:principal → Scope (moderator). GET /api/scopes/:principal/facts → Fact[] (internal: an agent's sandbox). */
   scopes: "/api/scopes",
