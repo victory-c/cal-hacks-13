@@ -38,6 +38,8 @@ function bail(msg) {
 }
 
 async function main() {
+  // Opt-out for anyone who has the project hook but doesn't want this session captured.
+  if (process.env.CANON_CAPTURE === "0") return debug("skip: CANON_CAPTURE=0");
   const payload = JSON.parse(await readStdin());
   const transcriptPath = payload.transcript_path ? resolve(process.cwd(), payload.transcript_path) : "";
   if (!transcriptPath || !existsSync(transcriptPath)) return debug(`skip: transcript not found (${transcriptPath || "none"})`);

@@ -10,7 +10,7 @@ import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { test } from "node:test";
 
-import { buildSession, gitInfo, makeTitle, parseTranscript, readDotEnv, sessionIdFor } from "../claude-code/lib.mjs";
+import { MESSAGE_MAX, buildSession, gitInfo, makeTitle, parseTranscript, readDotEnv, sessionIdFor, stripHarness } from "../claude-code/lib.mjs";
 import { capturePath, commandFor, mergeSettings, snippet, writeSettings } from "../claude-code/install.mjs";
 
 const HOOKS_DIR = resolve(dirname(fileURLToPath(import.meta.url)), "..");
@@ -23,8 +23,9 @@ PAYLOAD.transcript_path = resolve(HOOKS_DIR, PAYLOAD.transcript_path);
 
 const transcriptText = readFileSync(TRANSCRIPT, "utf8");
 const FIXTURE_LINES = transcriptText.trim().split("\n").length;
-// 13 lines → 6 messages: 3 tool_result-only turns, 1 isMeta, 1 sidechain, 1 system, 1 summary are dropped.
-const EXPECTED_MESSAGES = 6;
+// 13 lines → 4 messages (one per turn): tool_result-only, isMeta, sidechain, system and summary
+// lines are dropped, and the assistant lines between two user prompts merge into one message.
+const EXPECTED_MESSAGES = 4;
 
 // ---------- lib: parseTranscript ----------
 
@@ -32,12 +33,12 @@ test("fixture is a realistic 10–14 line transcript", () => {
   assert.ok(FIXTURE_LINES >= 10 && FIXTURE_LINES <= 14, `got ${FIXTURE_LINES} lines`);
 });
 
-test("parseTranscript keeps user/assistant turns and maps content", () => {
+test("parseTranscript keeps user/assistant turns, one message per turn", () => {
   const msgs = parseTranscript(transcriptText);
   assert.equal(msgs.length, EXPECTED_MESSAGES);
   assert.deepEqual(
     msgs.map((m) => m.role),
-    ["user", "assistant", "assistant", "user", "assistant", "assistant"],
+    ["user", "assistant", "user", "assistant"],
   );
   assert.match(msgs[0].content, /^Build the Claude Code capture hook/);
   assert.equal(msgs[0].at, "2026-10-24T03:12:05.000Z");
@@ -45,11 +46,11 @@ test("parseTranscript keeps user/assistant turns and maps content", () => {
   for (const m of msgs) assert.ok(typeof m.at === "string", "timestamp kept");
 });
 
-test("parseTranscript renders tool_use blocks and skips tool_result/isMeta/sidechain", () => {
-  const all = parseTranscript(transcriptText).map((m) => m.content).join("\n---\n");
-  assert.match(all, /\[tool: Read\]/);
-  assert.match(all, /\[tool: Write\]/);
-  assert.match(all, /\[tool: Edit\]/);
+test("parseTranscript summarises tools per turn and skips tool_result/isMeta/sidechain", () => {
+  const msgs = parseTranscript(transcriptText);
+  assert.match(msgs[1].content, /\[tools: Read, Write\]$/);
+  assert.match(msgs[3].content, /\[tools: Edit\]$/);
+  const all = msgs.map((m) => m.content).join("\n---\n");
   assert.doesNotMatch(all, /File created successfully/, "tool_result content leaked");
   assert.doesNotMatch(all, /local-command-caveat/, "isMeta line leaked");
   assert.doesNotMatch(all, /SIDECHAIN/, "isSidechain line leaked");
@@ -66,9 +67,48 @@ test("parseTranscript joins text blocks, drops thinking, survives bad lines", ()
   ].join("\n");
   const msgs = parseTranscript(lines);
   assert.equal(msgs.length, 1);
-  assert.equal(msgs[0].content, "a\nb");
+  assert.equal(msgs[0].content, "a\n\nb");
   assert.equal(msgs[0].at, undefined);
   assert.deepEqual(parseTranscript(""), []);
+});
+
+// Shapes copied from a real Claude Code 2.1 transcript: the prompt arrives as text blocks with a
+// <system-reminder> block in front, slash commands echo as tagged user lines, and one assistant
+// turn is spread over a line per block with tool_result user lines in between.
+test("parseTranscript handles real Claude Code transcript shapes", () => {
+  const j = (o) => JSON.stringify(o);
+  const lines = [
+    j({ type: "user", timestamp: "2026-10-24T08:00:00.000Z", message: { content: [
+      { type: "text", text: "<system-reminder>\nYou are operating in a git worktree.\n</system-reminder>" },
+      { type: "text", text: "Ship the capture hook and test it on a real session" },
+    ] } }),
+    j({ type: "user", isMeta: true, message: { content: "# Workflow authoring reference\n..." } }),
+    j({ type: "assistant", timestamp: "2026-10-24T08:00:02.000Z", message: { id: "m1", content: [{ type: "thinking", thinking: "plan" }] } }),
+    j({ type: "assistant", message: { id: "m1", content: [{ type: "tool_use", name: "Bash", input: {} }] } }),
+    j({ type: "user", message: { content: [{ type: "tool_result", content: "ok" }] } }),
+    j({ type: "assistant", message: { id: "m2", content: [{ type: "tool_use", name: "Bash", input: {} }, { type: "tool_use", name: "Edit", input: {} }] } }),
+    j({ type: "user", message: { content: [{ type: "tool_result", content: "ok" }] } }),
+    j({ type: "assistant", message: { id: "m3", content: [{ type: "text", text: "Captured. Decided to merge each turn into one message." }] } }),
+    j({ type: "attachment", attachment: {} }),
+    j({ type: "user", message: { content: "<command-name>/model</command-name>\n  <command-message>model</command-message>\n  <command-args>opus</command-args>" } }),
+    j({ type: "user", message: { content: "<local-command-stdout>Set model to opus</local-command-stdout>" } }),
+    j({ type: "user", timestamp: "2026-10-24T08:05:00.000Z", message: { content: "<system-reminder>note</system-reminder>\nNow open the PR" } }),
+  ].join("\n");
+  const msgs = parseTranscript(lines);
+  assert.deepEqual(msgs, [
+    { role: "user", content: "Ship the capture hook and test it on a real session", at: "2026-10-24T08:00:00.000Z" },
+    { role: "assistant", content: "Captured. Decided to merge each turn into one message.\n\n[tools: Bash ×2, Edit]", at: "2026-10-24T08:00:02.000Z" },
+    { role: "user", content: "Now open the PR", at: "2026-10-24T08:05:00.000Z" },
+  ]);
+});
+
+test("stripHarness removes injected tags; long messages are capped", () => {
+  assert.equal(stripHarness("<task-notification>done</task-notification>\n\n\n\nhi"), "hi");
+  assert.equal(stripHarness("keep <b>this</b>"), "keep <b>this</b>", "only harness tags are stripped");
+  const long = JSON.stringify({ type: "user", message: { content: "x".repeat(MESSAGE_MAX + 50) } });
+  const [msg] = parseTranscript(long);
+  assert.ok(msg.content.endsWith("…[truncated]"));
+  assert.ok(msg.content.length <= MESSAGE_MAX + 20);
 });
 
 // ---------- lib: ids, titles, session ----------
