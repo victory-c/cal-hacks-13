@@ -30,7 +30,8 @@
 // check and the writes run with no await in between. The event stream only makes a narrowing land
 // sooner: every scope read also checks the folder against what the server holds, and resync()
 // checks every run at once when the stream comes back after a gap (a step it could not check is
-// stopped until the run's own read succeeds).
+// stopped until the run's own read succeeds). Unseen facts join the handler's routing batch;
+// declined and pending facts are remembered per run, so later reads never ask twice.
 //
 // Every change is published through POST /api/events (agent.run / agent.step / agent.inbox) so the
 // dashboard draws one lane per agent and the audit log has the record. A run's reason is a fixed
@@ -40,12 +41,12 @@ import { randomBytes } from "node:crypto";
 import { join } from "node:path";
 
 import { DEFAULT_BUDGET_TOKENS, cutToBudget, env, newSessionId, nowIso, validateFact } from "@canon/shared";
-import type { AgentRun, AgentRuntime, AgentStep, CapturedSession, DispatchRequest, Fact, InboxItem, PostSessionResponse, Principal, RunState } from "@canon/shared";
+import type { AgentRun, AgentRuntime, AgentStep, CapturedSession, DispatchRequest, Fact, InboxItem, Judge, PostSessionResponse, Principal, RunState } from "@canon/shared";
 import type { BriefFact, BriefWriter } from "./brief.ts";
 import type { DispatchClient, RelayedEvent } from "./client.ts";
 import { errorMessage, log, warn } from "./log.ts";
-import type { RoutableRun } from "./routing.ts";
-import { NARROWED_TEXT, isActive, newInboxId, oneLine } from "./routing.ts";
+import type { RoutableRun, ScopedNewFacts } from "./routing.ts";
+import { NARROWED_TEXT, isActive, newInboxId, oneLine, routeNewFacts } from "./routing.ts";
 import { CancelledError, StepError } from "./runners/types.ts";
 import type { Runner, StepEvent, StepResult } from "./runners/types.ts";
 import {
@@ -154,6 +155,8 @@ interface RunRecord {
   factIds: Set<string>;
   /** Moves on every narrowing heard for this run; a scope read it overtook is read again. */
   scopeGen: number;
+  /** Previously written, judged or currently being judged, including declined facts. */
+  observed: Set<string>;
   /**
    * Moves on every addition heard for the agent's own scope. A read that would narrow the run and
    * that an addition overtook is read again: it may be from before a removed fact came back.
@@ -185,6 +188,7 @@ export class Dispatcher {
   private readonly maxRestarts: number;
   private outbox: Promise<void> = Promise.resolve();
   private publishFailures = 0;
+  private scopeRouter?: (agent: string, ids: readonly string[]) => Promise<void>;
 
   constructor(private readonly opts: DispatcherOptions) {
     this.maxSteps = opts.maxSteps ?? maxStepsFromEnv();
@@ -245,6 +249,7 @@ export class Dispatcher {
       phase: "scope",
       factIds: new Set(),
       scopeGen: 0,
+      observed: new Set(),
       addGen: 0,
       withdrawn: new Set(),
     };
@@ -293,7 +298,7 @@ export class Dispatcher {
    * fails the run. Never rejects. Returns how many of the checked runs are now narrowed.
    */
   async resync(): Promise<number> {
-    const recs = [...this.runs.values()].filter((r) => isActive(r.run) && !r.cancelReason && !r.narrowed && r.factIds.size > 0);
+    const recs = [...this.runs.values()].filter((r) => isActive(r.run) && !r.cancelReason && !r.narrowed);
     const narrowed = await Promise.all(
       recs.map(async (rec) => {
         // The step working from the folder as it was when the stream came back.
@@ -313,6 +318,34 @@ export class Dispatcher {
       }),
     );
     return narrowed.filter(Boolean).length;
+  }
+
+  /** Scope-read discoveries join the worker's event-driven routing batch. */
+  setScopeRouter(route: (agent: string, ids: readonly string[]) => Promise<void>): void {
+    this.scopeRouter = route;
+  }
+
+  /** Reserve pairs before asking, so concurrent reads and events never ask twice. */
+  async routeFacts(scoped: readonly ScopedNewFacts[], judge: Judge, gens?: ReadonlyMap<string, number>): Promise<number> {
+    const runs = this.routable().filter((r) => isActive(r) && (!gens || gens.get(r.run_id) === r.scope_gen));
+    const reserved = runs.map((r) => {
+      const rec = this.runs.get(r.run_id)!;
+      const ids = scoped.filter((s) => s.agent === r.agent).flatMap((s) => s.facts)
+        .filter((f) => !rec.factIds.has(f.id) && !rec.observed.has(f.id) && !rec.withdrawn.has(f.id)
+          && !rec.inbox.some((i) => i.fact_id === f.id)).map((f) => f.id);
+      const skip = [...rec.observed, ...rec.withdrawn, ...rec.inbox.flatMap((i) => i.fact_id ? [i.fact_id] : [])];
+      for (const id of ids) rec.observed.add(id);
+      return { rec, ids, gen: rec.scopeGen, run: { ...r, fact_ids: [...r.fact_ids, ...skip] } };
+    });
+    try {
+      const candidates = scoped.map((s) => ({ ...s, facts: s.facts.filter((f) =>
+        reserved.some((r) => r.run.agent === s.agent && r.ids.includes(f.id))) }));
+      const route = await routeNewFacts(candidates, reserved.map((r) => r.run), judge);
+      return this.deliver(route.items.filter((i) => reserved.some((r) => r.rec.run.id === i.run_id && r.gen === r.rec.scopeGen)));
+    } catch (err) {
+      for (const { rec, ids } of reserved) for (const id of ids) rec.observed.delete(id);
+      throw err;
+    }
   }
 
   /**
@@ -562,13 +595,24 @@ export class Dispatcher {
         }
       }
       if (facts === null) return null;
-      if (only?.size === 0) return [];
+      if (only && this.scopeRouter && !rec.narrowed && !rec.cancelReason) {
+        const discovered = facts.filter((f) => !rec.factIds.has(f.id) && !rec.observed.has(f.id)
+          && !rec.inbox.some((i) => i.fact_id === f.id));
+        if (discovered.length) {
+          await this.scopeRouter(rec.run.agent, discovered.map((f) => f.id));
+          // The judge awaited I/O: check a fresh scope before any write or narrowing.
+          continue;
+        }
+      }
+      if (only === CHECK_ONLY) return [];
+      const wanted = only ? new Set([...only, ...rec.inbox.flatMap((i) => i.kind === "new_fact" && i.fact_id ? [i.fact_id] : [])]) : undefined;
       const sb = this.sandboxOf(rec);
       const written: Fact[] = [];
       for (const f of facts) {
-        if (only && !only.has(f.id)) continue;
+        if (wanted && !wanted.has(f.id)) continue;
         writeFactFile(sb, f);
         rec.factIds.add(f.id);
+        rec.observed.add(f.id);
         written.push(f);
       }
       return written;
@@ -646,6 +690,10 @@ export class Dispatcher {
     rec.recheck = false;
     const written = await this.writeFromScope(rec, wanted);
     if (rec.narrowed || rec.cancelReason) return [];
+    // A delivery after the writes stays queued for the next checked read.
+    const arrived = rec.inbox.filter((i) => i.kind === "new_fact" && written?.some((f) => f.id === i.fact_id));
+    newFacts.push(...arrived);
+    rec.inbox = rec.inbox.filter((i) => !arrived.includes(i));
     const updates: string[] = [];
     for (const item of newFacts) {
       const f = written?.find((x) => x.id === item.fact_id);

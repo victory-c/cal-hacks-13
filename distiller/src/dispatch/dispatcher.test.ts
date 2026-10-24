@@ -1,3 +1,4 @@
+// Regression tests keep agent folders within server scope and replay history bounded.
 import assert from "node:assert/strict";
 import { existsSync, mkdtempSync, readdirSync, readFileSync, rmSync, statSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -951,6 +952,53 @@ describe("live routing through the worker handler (B18)", () => {
   });
 });
 
+describe("scope additions missed by the event stream", () => {
+  for (const reconnect of [true, false]) {
+    for (const outcome of ["needed", "declined", "left"] as const) {
+      test(`${reconnect ? "resync" : "the next scope read"} discovers an unannounced fact: ${outcome}`, async () => {
+        // Start empty too: reconnect must check runs without any fact files.
+        const server = fakeServer({ [DAN]: [] });
+        const { judge, asks } = judgeSaying(outcome === "declined" ? 0.1 : 0.9);
+        const ask = judge.ask.bind(judge);
+        judge.ask = async (state, questions) => {
+          const answers = await ask(state, questions);
+          if (outcome === "left") server.scopes.set(DAN, []);
+          return answers;
+        };
+        let entered!: () => void;
+        const inStep = new Promise<void>((resolve) => (entered = resolve));
+        let resume!: () => void;
+        const gate = new Promise<void>((resolve) => (resume = resolve));
+        const seen: string[][] = [];
+        const runner = new ScriptedRunner(async (req) => {
+          seen.push(listFactFiles(req.dir));
+          if (req.n === 1) {
+            entered();
+            await gate;
+          }
+          if (req.n === 3) writeFileSync(join(req.dir, "out", "result.md"), "Finished memo.\n");
+          return { done: req.n === 3, summary: req.n === 3 ? "DONE" : "CONTINUE" };
+        });
+        const d = make(server.client, runner);
+        const handler = createDispatchHandler({ dispatcher: d, client: server.client, judge, routeBatchMs: 0 });
+        const run = await d.dispatch({ agent: DAN, by: "dan" });
+        await inStep;
+        server.scopes.set(DAN, [falcon, falcon2]); // No scope.updated was delivered.
+        if (reconnect) await quiet(() => d.resync());
+        resume();
+        await quiet(() => d.settle());
+        await handler.settle();
+        assert.equal(d.get(run.id)!.state, "done", d.get(run.id)!.reason);
+        assert.equal(asks.length, 1, "later reads never re-ask declined or previously routed facts");
+        assert.equal(asks[0].length, 2, "one batched call covers both discoveries");
+        const expected = outcome === "needed" ? [falcon.id, falcon2.id] : [];
+        assert.deepEqual(seen, [[], expected, expected]);
+        assert.deepEqual(d.factsOf(run.id), expected);
+      });
+    }
+  }
+});
+
 describe("worker handler", () => {
   test("dispatch.requested runs once; a replayed request is skipped; a deleted agent is not run; a known agent's creator is used", async () => {
     const started: Array<{ agent: string; created_by?: string }> = [];
@@ -978,6 +1026,24 @@ describe("worker handler", () => {
       await handler.settle();
     });
     assert.deepEqual(started, [{ agent: DAN, created_by: "dan" }]);
+  });
+
+  test("the file ledger evicts old ids during use and compacts to its retained history", () => {
+    const path = join(root, "dispatched.log");
+    const keep = 3;
+    const ledger = fileLedger(path, keep);
+    for (let n = 0; n < 20; n++) {
+      ledger.add(`dsp_${n}`);
+      const retained = Array.from({ length: n + 1 }, (_, i) => `dsp_${i}`).filter((id) => ledger.has(id));
+      assert.deepEqual(retained, Array.from({ length: Math.min(n + 1, keep) }, (_, i) => `dsp_${Math.max(0, n - keep + 1) + i}`));
+      const lines = readFileSync(path, "utf8").trim().split("\n");
+      assert.ok(lines.length <= 2 * keep);
+      if (n === 6) assert.equal(lines.length, keep, "crossing the file bound compacts immediately");
+    }
+    const restarted = fileLedger(path, keep);
+    for (let n = 0; n < 20; n++) assert.equal(restarted.has(`dsp_${n}`), n >= 17);
+    assert.equal(readFileSync(path, "utf8").trim().split("\n").length, keep);
+    assert.deepEqual(readdirSync(root), ["dispatched.log"], "no temporary file remains");
   });
 
   test("a worker restarted inside the replay grace does not run a request it already ran (the ledger is on disk)", async () => {

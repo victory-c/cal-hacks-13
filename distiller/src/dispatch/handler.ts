@@ -17,9 +17,11 @@
 // Added facts are routed only from the server's own read of the agent's scope: an id in the event
 // that the scope read does not hold is never asked about or delivered. A narrowing heard while the
 // judge was thinking drops that run's items: its restart rebuilds the folder from the whole current
-// scope, so nothing that still belongs is lost.
+// scope, so nothing that still belongs is lost. Scope-read discoveries join this same batch;
+// the dispatcher remembers judged pairs, including declines.
 
-import { appendFileSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { randomBytes } from "node:crypto";
+import { appendFileSync, mkdirSync, readFileSync, renameSync, unlinkSync, writeFileSync } from "node:fs";
 import { dirname } from "node:path";
 
 import type { CanonEvent, Judge, Principal } from "@canon/shared";
@@ -36,7 +38,7 @@ export interface RequestLedger {
 }
 
 export interface HandlerOptions {
-  dispatcher: Pick<Dispatcher, "dispatch" | "deliver" | "routable" | "noteScopeChange">;
+  dispatcher: Pick<Dispatcher, "dispatch" | "deliver" | "routable" | "noteScopeChange"> & Partial<Pick<Dispatcher, "setScopeRouter" | "routeFacts">>;
   client: Pick<DispatchClient, "getScopeFacts">;
   judge: Judge;
   /** Skip events stamped more than this before the handler was created. Default 5000. */
@@ -92,10 +94,15 @@ export function createDispatchHandler(opts: HandlerOptions): DispatchHandler {
       }
       const wanted = byAgent.get(agent)!;
       // Never route a fact the agent's scope does not hold, whatever the event said.
-      const facts = scope.filter((f) => wanted.has(f.id));
+      const facts = opts.dispatcher.routeFacts ? scope : scope.filter((f) => wanted.has(f.id));
       if (facts.length) scoped.push({ agent, facts });
     }
     if (scoped.length === 0) return;
+    if (opts.dispatcher.routeFacts) {
+      const n = await opts.dispatcher.routeFacts(scoped, opts.judge, gens);
+      log(`new facts: ${n} new_fact item(s) for ${runs.length} run(s)`);
+      return;
+    }
     const route = await routeNewFacts(scoped, runs, opts.judge);
     // A narrowing heard meanwhile: that run restarts from its whole current scope instead.
     const now = new Map(opts.dispatcher.routable().map((r) => [r.run_id, r.scope_gen]));
@@ -130,6 +137,8 @@ export function createDispatchHandler(opts: HandlerOptions): DispatchHandler {
     pending.byAgent.set(principal, ids);
     return pending.done;
   };
+
+  opts.dispatcher.setScopeRouter?.(routeAdded);
 
   const handle = async (event: CanonEvent, replayed: boolean): Promise<void> => {
     switch (event.type) {
@@ -217,10 +226,21 @@ function memoryLedger(): RequestLedger {
  * A RequestLedger kept in a file (one JSON string per line), so a restarted worker skips the
  * requests it already ran even when the server's replay hands them back inside the grace. Only
  * the last `keep` ids are kept (the server replays a bounded buffer). A failed write is logged
- * once; the id still counts for this process.
+ * once; the id still counts for this process. Normal writes trim memory and compact the file
+ * atomically after twice the retained history has accumulated.
  */
 export function fileLedger(path: string, keep = 1000): RequestLedger {
+  if (!Number.isInteger(keep) || keep < 1) throw new Error("ledger keep must be a positive integer");
   let ids: string[] = [];
+  const compact = (kept: readonly string[]) => {
+    const temp = `${path}.${randomBytes(8).toString("hex")}.tmp`;
+    try {
+      writeFileSync(temp, kept.map((id) => `${JSON.stringify(id)}\n`).join(""), { encoding: "utf8", flag: "wx" });
+      renameSync(temp, path);
+    } finally {
+      try { unlinkSync(temp); } catch { /* Renamed, or never created. */ }
+    }
+  };
   try {
     ids = readFileSync(path, "utf8")
       .split("\n")
@@ -238,20 +258,28 @@ export function fileLedger(path: string, keep = 1000): RequestLedger {
   if (ids.length > keep) {
     ids = ids.slice(-keep);
     try {
-      writeFileSync(path, ids.map((id) => `${JSON.stringify(id)}\n`).join(""), "utf8");
+      compact(ids);
     } catch {
       // trimming is housekeeping; the next add() reports a write problem
     }
   }
   const seen = new Set(ids);
+  let lines = ids.length;
   let warned = false;
   return {
     has: (id) => seen.has(id),
     add: (id) => {
+      if (seen.has(id)) return;
       seen.add(id);
+      if (seen.size > keep) seen.delete(seen.values().next().value!);
       try {
         mkdirSync(dirname(path), { recursive: true });
         appendFileSync(path, `${JSON.stringify(id)}\n`, "utf8");
+        lines++;
+        if (lines > 2 * keep) {
+          compact([...seen]);
+          lines = seen.size;
+        }
       } catch (err) {
         if (warned) return;
         warned = true;
