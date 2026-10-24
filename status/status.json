@@ -1,0 +1,114 @@
+{
+  "project": "Canon",
+  "updated": "2026-10-23T21:30:00-07:00",
+  "team": [
+    { "id": "A", "role": "Builder: server & retrieval", "name": "TBD" },
+    { "id": "B", "role": "Builder: capture, distill & UI", "name": "TBD" },
+    { "id": "C", "role": "Story, QA & sponsors", "name": "TBD" }
+  ],
+  "deadlines": [
+    { "id": "draft", "label": "Devpost draft submitted", "at": "2026-10-24T23:59:00-07:00" },
+    { "id": "freeze", "label": "Code freeze", "at": "2026-10-25T07:00:00-07:00" },
+    { "id": "submit", "label": "Final submit (target)", "at": "2026-10-25T08:30:00-07:00" },
+    { "id": "hard", "label": "Devpost hard deadline", "at": "2026-10-25T09:00:00-07:00" },
+    { "id": "judging", "label": "Judging starts", "at": "2026-10-25T10:30:00-07:00" }
+  ],
+  "milestones": [
+    { "id": "M1", "window": "Fri 20:00–24:00", "end": "2026-10-24T00:00:00-07:00", "label": "Schema frozen; Claude Code can save + get context on local files" },
+    { "id": "M2", "window": "Sat 00:00–09:00", "end": "2026-10-24T09:00:00-07:00", "label": "Moss index, Droid distiller v0, dashboard shows live events" },
+    { "id": "M3", "window": "Sat 09:00–18:00", "end": "2026-10-24T18:00:00-07:00", "label": "ChatGPT capture + read, Jev both ways, grants, resume flow" },
+    { "id": "M4", "window": "Sat 18:00–24:00", "end": "2026-10-24T23:59:00-07:00", "label": "Benchmark chart, Devpost draft, first video cut" },
+    { "id": "M5", "window": "Sun 00:00–07:00", "end": "2026-10-25T07:00:00-07:00", "label": "Polish, fallback recording, sponsor READMEs" },
+    { "id": "M6", "window": "Sun 07:00–09:00", "end": "2026-10-25T09:00:00-07:00", "label": "Freeze, final video, submit, rehearse" }
+  ],
+  "tasks": [
+    { "id": "A1", "owner": "A", "milestone": "M1", "priority": "must", "state": "todo", "title": "Scaffold server/ and freeze the fact file schema", "note": "" },
+    { "id": "A2", "owner": "A", "milestone": "M1", "priority": "must", "state": "todo", "title": "MCP server with canon_save + canon_context over local files", "note": "" },
+    { "id": "A3", "owner": "A", "milestone": "M2", "priority": "must", "state": "todo", "title": "Cold archive for raw sessions", "note": "" },
+    { "id": "A4", "owner": "A", "milestone": "M2", "priority": "must", "state": "todo", "title": "Moss index over hot facts", "note": "Needs Moss credentials (blocker Q2)" },
+    { "id": "A5", "owner": "A", "milestone": "M2", "priority": "must", "state": "todo", "title": "SSE event stream for the dashboard", "note": "" },
+    { "id": "A6", "owner": "A", "milestone": "M3", "priority": "must", "state": "todo", "title": "Folder grants per client token (+ canon_whoami)", "note": "" },
+    { "id": "A7", "owner": "A", "milestone": "M3", "priority": "must", "state": "todo", "title": "Jev retrieval filter in canon_context, Claude fallback behind judge()", "note": "" },
+    { "id": "A8", "owner": "A", "milestone": "M4", "priority": "must", "state": "todo", "title": "Benchmark runner: 3 baselines, results JSON + chart data", "note": "Task set comes from C5" },
+    { "id": "A9", "owner": "A", "milestone": "M4", "priority": "stretch", "state": "todo", "title": "Team mode: second user + team/ folder", "note": "" },
+    { "id": "A10", "owner": "A", "milestone": "M5", "priority": "stretch", "state": "todo", "title": "Move event stream to SpacetimeDB", "note": "" },
+    { "id": "B1", "owner": "B", "milestone": "M2", "priority": "must", "state": "todo", "title": "Claude Code capture hook", "note": "" },
+    { "id": "B2", "owner": "B", "milestone": "M2", "priority": "must", "state": "todo", "title": "Droid distiller v0: session in, facts out", "note": "Depends on blocker Q1 (headless Droid)" },
+    { "id": "B3", "owner": "B", "milestone": "M2", "priority": "must", "state": "todo", "title": "Dashboard v0: live session + fact events", "note": "" },
+    { "id": "B4", "owner": "B", "milestone": "M3", "priority": "must", "state": "todo", "title": "Extension: live capture from ChatGPT web", "note": "" },
+    { "id": "B5", "owner": "B", "milestone": "M3", "priority": "must", "state": "todo", "title": "Jev save-time decisions: hot/cold, folder, dedupe/supersede", "note": "" },
+    { "id": "B6", "owner": "B", "milestone": "M3", "priority": "must", "state": "todo", "title": "ChatGPT MCP connector (read path) set up and demo-tested", "note": "" },
+    { "id": "B7", "owner": "B", "milestone": "M3", "priority": "must", "state": "todo", "title": "Token / latency / cost counter on dashboard", "note": "" },
+    { "id": "B8", "owner": "B", "milestone": "M3", "priority": "must", "state": "todo", "title": "Resume viewer: each line links to its source session", "note": "" },
+    { "id": "B9", "owner": "B", "milestone": "M4", "priority": "stretch", "state": "todo", "title": "Extension: capture from Claude + Gemini web", "note": "" },
+    { "id": "B10", "owner": "B", "milestone": "M4", "priority": "stretch", "state": "todo", "title": "Apify job-posting → requirements Actor", "note": "" },
+    { "id": "B11", "owner": "B", "milestone": "M5", "priority": "stretch", "state": "todo", "title": "Quarantine for prompt-injected facts", "note": "" },
+    { "id": "C1", "owner": "C", "milestone": "M1", "priority": "must", "state": "todo", "title": "Get sponsor answers: Droid headless, Moss creds, Jev access, track cap", "note": "Post answers in team chat + resolve blockers below" },
+    { "id": "C2", "owner": "C", "milestone": "M1", "priority": "must", "state": "todo", "title": "Workshop schedule (Factory, Moss, Anthropic, Microsoft) + attend", "note": "" },
+    { "id": "C3", "owner": "C", "milestone": "M3", "priority": "must", "state": "todo", "title": "Interview 5 students; 2 quotable lines + 1 surprising pain point", "note": "Anthropic named-community proof" },
+    { "id": "C4", "owner": "C", "milestone": "M3", "priority": "must", "state": "todo", "title": "Run real demo sessions in ChatGPT / Claude / Claude Code + persona doc", "note": "" },
+    { "id": "C5", "owner": "C", "milestone": "M3", "priority": "must", "state": "todo", "title": "Write 20 benchmark handoff tasks with answer keys", "note": "Spreadsheet → bench/tasks" },
+    { "id": "C6", "owner": "C", "milestone": "M3", "priority": "must", "state": "todo", "title": "QA: full demo run every 3 h, ranked break list", "note": "Starts Sat afternoon" },
+    { "id": "C7", "owner": "C", "milestone": "M4", "priority": "must", "state": "todo", "title": "Devpost draft submitted (problem, how it works, tracks, built-with)", "note": "Before Sat 23:59" },
+    { "id": "C8", "owner": "C", "milestone": "M4", "priority": "must", "state": "todo", "title": "Scale slide + sponsor README prose", "note": "" },
+    { "id": "C9", "owner": "C", "milestone": "M5", "priority": "must", "state": "todo", "title": "Demo video (≤3 min, opens on token counter) + fallback recording", "note": "" },
+    { "id": "C10", "owner": "C", "milestone": "M6", "priority": "must", "state": "todo", "title": "Final Devpost submit + track opt-ins", "note": "Target 08:30" },
+    { "id": "C11", "owner": "C", "milestone": "M6", "priority": "must", "state": "todo", "title": "Pitch rehearsal: 2-min version + hard-question answers", "note": "" }
+  ],
+  "tracks": [
+    { "id": "anthropic", "name": "Anthropic", "tier": "core", "prize": "$5k Claude credits + 1 yr Max 20x", "proofs": [
+      { "label": "Named community stated on Devpost", "done": false },
+      { "label": "Interview quote in pitch", "done": false },
+      { "label": "Claude's role + failure modes in README", "done": false },
+      { "label": "Private-folder refusal shown in demo", "done": false },
+      { "label": "Confirmed selectable on Devpost", "done": false }
+    ] },
+    { "id": "factory", "name": "Factory Droid SDK", "tier": "core", "prize": "$2,000", "proofs": [
+      { "label": "Droid runs in the product on our trigger", "done": false },
+      { "label": "Droid can only write to the fact store", "done": false },
+      { "label": "Plan + fact diffs visible on dashboard", "done": false },
+      { "label": "README: where and how Droid runs", "done": false }
+    ] },
+    { "id": "moss", "name": "Moss", "tier": "core", "prize": "AirPods Max / Pro", "proofs": [
+      { "label": "Moss is the retrieval layer in canon_context", "done": false },
+      { "label": "Retrieval latency on dashboard", "done": false },
+      { "label": "README section", "done": false }
+    ] },
+    { "id": "microsoft", "name": "Microsoft: Built for the Real World", "tier": "core", "prize": "Surface per member", "proofs": [
+      { "label": "Benchmark chart (accuracy vs tokens)", "done": false },
+      { "label": "Scale slide: personal → team → company", "done": false },
+      { "label": "Responsible design notes (folders, cold archive)", "done": false }
+    ] },
+    { "id": "general", "name": "Cal Hacks general", "tier": "add", "prize": "Overall, Most Technically Complex, Hacker's Choice", "proofs": [
+      { "label": "Devpost image + GitHub link", "done": false },
+      { "label": "Video demo uploaded", "done": false },
+      { "label": "Live demo works at the table", "done": false }
+    ] },
+    { "id": "mlh", "name": "MLH: Gemini API + GoDaddy domain", "tier": "add", "prize": "Swag", "proofs": [
+      { "label": "Gemini CLI captured as a client", "done": false },
+      { "label": "Domain registered", "done": false }
+    ] },
+    { "id": "spacetime", "name": "SpacetimeDB", "tier": "if-time", "prize": "$2,048 / $1,024 / $512", "proofs": [
+      { "label": "Event stream on SpacetimeDB", "done": false },
+      { "label": "Confirmed selectable on Devpost", "done": false }
+    ] },
+    { "id": "apify", "name": "Apify", "tier": "if-time", "prize": "$5k pool + $400 Best Actor", "proofs": [
+      { "label": "Job-posting Actor used by resume flow", "done": false },
+      { "label": "Actor published", "done": false }
+    ] },
+    { "id": "armadin", "name": "Armadin Best Security Hack", "tier": "if-time", "prize": "$996 + Apple headphones", "proofs": [
+      { "label": "Criteria checked on live site", "done": false },
+      { "label": "Injection quarantine in demo", "done": false }
+    ] }
+  ],
+  "blockers": [
+    { "id": "Q1", "owner": "C", "state": "open", "text": "Can the Factory Droid SDK run headless on our trigger?", "answer": "" },
+    { "id": "Q2", "owner": "C", "state": "open", "text": "Moss project credentials", "answer": "" },
+    { "id": "Q3", "owner": "C", "state": "open", "text": "Jev early access (TypeSafe AI)", "answer": "" },
+    { "id": "Q4", "owner": "C", "state": "open", "text": "Cap on number of tracks per project? (#0-ask-directors)", "answer": "" },
+    { "id": "Q5", "owner": "C", "state": "open", "text": "Are Anthropic and SpacetimeDB selectable on Devpost?", "answer": "" },
+    { "id": "Q6", "owner": "B", "state": "open", "text": "Can Hermes connect over MCP?", "answer": "" },
+    { "id": "Q7", "owner": "C", "state": "open", "text": "Fill in team names in status.json", "answer": "" }
+  ],
+  "cutList": ["Apify", "Team mode", "Gemini web capture", "SpacetimeDB"]
+}

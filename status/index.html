@@ -1,0 +1,342 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Canon Build Board</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Schibsted+Grotesk:wght@600;800&family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap">
+<style>
+/* Layout: countdown + progress header, blockers strip, milestone rail, one lane per owner, then track proof and cut list. */
+:root {
+  --bg: #f4f6f8; --surface: #ffffff; --fg: #142030; --muted: #5d6a79; --rule: #dbe1e8;
+  --accent: #1d5f8a; --accent-soft: #e2edf5;
+  --todo: #6b7785; --todo-soft: #eef1f4;
+  --doing: #1d5f8a; --doing-soft: #e2edf5;
+  --blocked: #a3302a; --blocked-soft: #f8e3e1;
+  --done: #1f7a4d; --done-soft: #e2f3ea;
+  --warn: #9a6a00; --warn-soft: #fbf1d9;
+  --display: "Schibsted Grotesk", "Helvetica Neue", Arial, sans-serif;
+  --body: "IBM Plex Sans", "Segoe UI", Roboto, sans-serif;
+  --mono: "IBM Plex Mono", ui-monospace, Menlo, Consolas, monospace;
+  color-scheme: light;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg: #0e141b; --surface: #151d27; --fg: #e2e8ef; --muted: #91a0b0; --rule: #263241;
+    --accent: #6fb3e0; --accent-soft: #15303f;
+    --todo: #9aa7b5; --todo-soft: #1c2631;
+    --doing: #6fb3e0; --doing-soft: #15303f;
+    --blocked: #f08a82; --blocked-soft: #3a1917;
+    --done: #5ccf94; --done-soft: #12301f;
+    --warn: #e2b54a; --warn-soft: #332810;
+    color-scheme: dark;
+  }
+}
+:root[data-theme="dark"] {
+  --bg: #0e141b; --surface: #151d27; --fg: #e2e8ef; --muted: #91a0b0; --rule: #263241;
+  --accent: #6fb3e0; --accent-soft: #15303f;
+  --todo: #9aa7b5; --todo-soft: #1c2631;
+  --doing: #6fb3e0; --doing-soft: #15303f;
+  --blocked: #f08a82; --blocked-soft: #3a1917;
+  --done: #5ccf94; --done-soft: #12301f;
+  --warn: #e2b54a; --warn-soft: #332810;
+  color-scheme: dark;
+}
+* { box-sizing: border-box; }
+html, body { margin: 0; }
+body {
+  background: var(--bg); color: var(--fg); font: 14px/1.5 var(--body);
+  padding-left: max(16px, env(safe-area-inset-left, 0px));
+  padding-right: max(16px, env(safe-area-inset-right, 0px));
+}
+.wrap { max-width: 1280px; margin: 0 auto; padding-block: 24px 64px; display: grid; gap: 24px; }
+.label { font-family: var(--mono); font-size: 11px; letter-spacing: .08em; text-transform: uppercase; color: var(--muted); }
+h1 { font-family: var(--display); font-weight: 800; font-size: 28px; margin: 0; letter-spacing: -.01em; }
+h2 { font-family: var(--display); font-weight: 600; font-size: 18px; margin: 0; }
+.num { font-variant-numeric: tabular-nums; }
+
+header.top { display: grid; grid-template-columns: minmax(0, 1.3fr) minmax(0, 1fr); gap: 16px; }
+.panel { background: var(--surface); border: 1px solid var(--rule); border-radius: 12px; padding: 18px 20px; min-width: 0; }
+.clock { display: grid; gap: 6px; }
+.clock .big { font-family: var(--mono); font-size: clamp(34px, 6vw, 56px); font-weight: 500; line-height: 1; letter-spacing: -.02em; }
+.clock .big.late { color: var(--blocked); }
+.clock .what { font-family: var(--display); font-weight: 600; font-size: 17px; }
+.deadlines { display: flex; flex-wrap: wrap; gap: 6px 14px; margin-top: 8px; font-size: 12px; color: var(--muted); }
+.deadlines span.past { text-decoration: line-through; opacity: .6; }
+.deadlines b { color: var(--fg); font-weight: 500; }
+.progress { display: grid; gap: 12px; align-content: start; }
+.bar { height: 10px; border-radius: 999px; background: var(--todo-soft); overflow: hidden; display: flex; }
+.bar i { display: block; height: 100%; }
+.bar .d { background: var(--done); } .bar .g { background: var(--doing); } .bar .b { background: var(--blocked); }
+.pct { font-family: var(--mono); font-size: 32px; line-height: 1; }
+.owners { display: grid; gap: 6px; }
+.owner-row { display: grid; grid-template-columns: 24px minmax(0, 1fr) auto; gap: 10px; align-items: center; font-size: 13px; }
+.owner-row .id { font-family: var(--mono); font-weight: 500; }
+.owner-row .meta { color: var(--muted); font-family: var(--mono); font-size: 12px; }
+
+.blockers { display: grid; gap: 8px; }
+.blockers h2 { display: flex; gap: 10px; align-items: baseline; }
+.blocker-list { display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 8px; }
+.blocker { border: 1px solid var(--rule); border-left: 3px solid var(--blocked); background: var(--surface); border-radius: 0 8px 8px 0; padding: 10px 12px; display: grid; gap: 2px; font-size: 13px; }
+.blocker .meta { font-family: var(--mono); font-size: 11px; color: var(--muted); }
+.blocker.resolved { border-left-color: var(--done); opacity: .7; }
+
+.rail { display: grid; grid-template-columns: repeat(6, minmax(0, 1fr)); gap: 8px; }
+.ms { background: var(--surface); border: 1px solid var(--rule); border-radius: 10px; padding: 10px 12px; display: grid; gap: 6px; align-content: start; }
+.ms.now { border-color: var(--accent); box-shadow: inset 0 0 0 1px var(--accent); }
+.ms.past.incomplete { border-color: var(--blocked); }
+.ms .top { display: flex; justify-content: space-between; gap: 8px; font-family: var(--mono); font-size: 11px; color: var(--muted); }
+.ms .t { font-size: 12px; line-height: 1.35; }
+.ms .bar { height: 6px; }
+
+.controls { display: flex; flex-wrap: wrap; gap: 8px 16px; align-items: center; }
+.seg { display: inline-flex; border: 1px solid var(--rule); border-radius: 8px; overflow: hidden; background: var(--surface); }
+.seg button { font: 500 12px var(--mono); border: 0; background: transparent; color: var(--muted); padding: 6px 12px; cursor: pointer; }
+.seg button[aria-pressed="true"] { background: var(--accent-soft); color: var(--accent); }
+.seg button:focus-visible, .check input:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.check { display: inline-flex; gap: 6px; align-items: center; font-size: 13px; color: var(--muted); cursor: pointer; }
+
+.lanes { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 14px; align-items: start; }
+.lane { display: grid; gap: 8px; min-width: 0; }
+.lane-head { display: grid; gap: 2px; padding: 0 2px 6px; border-bottom: 1px solid var(--rule); }
+.lane-head .name { font-family: var(--display); font-weight: 600; font-size: 16px; }
+.task { background: var(--surface); border: 1px solid var(--rule); border-radius: 10px; padding: 10px 12px; display: grid; gap: 6px; }
+.task.overdue { border-color: var(--warn); }
+.task .row { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+.task .tid { font-family: var(--mono); font-size: 11px; color: var(--muted); }
+.task .title { font-weight: 500; line-height: 1.35; }
+.task .note { font-size: 12px; color: var(--muted); }
+.task.done .title { color: var(--muted); }
+.pill { font-family: var(--mono); font-size: 10.5px; letter-spacing: .04em; padding: 1px 7px; border-radius: 999px; white-space: nowrap; }
+.s-todo { background: var(--todo-soft); color: var(--todo); }
+.s-doing { background: var(--doing-soft); color: var(--doing); }
+.s-blocked { background: var(--blocked-soft); color: var(--blocked); }
+.s-done { background: var(--done-soft); color: var(--done); }
+.p-stretch { background: transparent; color: var(--muted); border: 1px dashed var(--rule); }
+.p-late { background: var(--warn-soft); color: var(--warn); }
+.empty { color: var(--muted); font-size: 13px; padding: 8px 2px; }
+
+.tracks { display: grid; grid-template-columns: repeat(auto-fill, minmax(250px, 1fr)); gap: 10px; }
+.track { background: var(--surface); border: 1px solid var(--rule); border-radius: 10px; padding: 12px 14px; display: grid; gap: 6px; align-content: start; }
+.track .head { display: flex; justify-content: space-between; gap: 8px; align-items: baseline; }
+.track .name { font-weight: 600; }
+.track .prize { font-size: 12px; color: var(--muted); }
+.track ul { list-style: none; margin: 0; padding: 0; display: grid; gap: 3px; font-size: 12.5px; }
+.track li { display: grid; grid-template-columns: 16px minmax(0, 1fr); gap: 6px; }
+.track li.ok { color: var(--muted); }
+.tier-core { color: var(--done); } .tier-add { color: var(--accent); } .tier-if-time { color: var(--warn); }
+
+.bottom { display: grid; grid-template-columns: minmax(0, 2fr) minmax(0, 1fr); gap: 16px; align-items: start; }
+ol.cut { margin: 6px 0 0; padding-left: 20px; display: grid; gap: 2px; }
+.foot { color: var(--muted); font-size: 12px; display: flex; flex-wrap: wrap; gap: 6px 16px; }
+code { font-family: var(--mono); font-size: 12px; background: var(--todo-soft); padding: 1px 5px; border-radius: 4px; }
+.loadfail { display: grid; gap: 10px; }
+
+@media (max-width: 1000px) {
+  .rail { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+  .lanes { grid-template-columns: minmax(0, 1fr); }
+  .bottom, header.top { grid-template-columns: minmax(0, 1fr); }
+}
+@media (max-width: 520px) { .rail { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+</style>
+</head>
+<body>
+<div class="wrap" id="app">
+  <div class="panel loadfail" id="loading">
+    <h2>Loading status.json…</h2>
+    <p class="label">If this doesn't go away, the board was opened as a file.</p>
+  </div>
+</div>
+
+<template id="fail-tpl">
+  <div class="panel loadfail">
+    <h2>Couldn't read status.json</h2>
+    <p>Start the board from the repo root with <code>node status/serve.mjs</code> and open http://localhost:4173. Or load the file directly:</p>
+    <label class="check"><input type="file" id="file-input" accept="application/json,.json"> Choose status/status.json</label>
+  </div>
+</template>
+
+<script>
+(() => {
+  const app = document.getElementById("app");
+  const view = { owner: "all", hideDone: false, showStretch: true };
+  try {
+    Object.assign(view, JSON.parse(localStorage.getItem("canon-board-view") || "{}"));
+  } catch {}
+  const saveView = () => { try { localStorage.setItem("canon-board-view", JSON.stringify(view)); } catch {} };
+
+  let data = null;
+  const esc = (s) => String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+  const fmtTime = (iso) => new Date(iso).toLocaleString("en-US", { timeZone: "America/Los_Angeles", weekday: "short", hour: "2-digit", minute: "2-digit", hour12: false });
+  const countdown = (ms) => {
+    const sign = ms < 0 ? "-" : "";
+    ms = Math.abs(ms);
+    const h = Math.floor(ms / 3.6e6), m = Math.floor((ms % 3.6e6) / 6e4), s = Math.floor((ms % 6e4) / 1e3);
+    return `${sign}${String(h).padStart(2, "0")}:${String(m).padStart(2, "0")}:${String(s).padStart(2, "0")}`;
+  };
+  const ago = (iso) => {
+    const min = Math.round((Date.now() - Date.parse(iso)) / 6e4);
+    if (min < 1) return "just now";
+    if (min < 60) return `${min} min ago`;
+    return `${Math.floor(min / 60)} h ${min % 60} min ago`;
+  };
+  const counts = (list) => ({
+    total: list.length,
+    done: list.filter((t) => t.state === "done").length,
+    doing: list.filter((t) => t.state === "doing").length,
+    blocked: list.filter((t) => t.state === "blocked").length,
+  });
+  const bar = (c) => {
+    if (!c.total) return '<div class="bar"></div>';
+    const w = (n) => (100 * n / c.total).toFixed(1) + "%";
+    return `<div class="bar" role="img" aria-label="${c.done} of ${c.total} done"><i class="d" style="width:${w(c.done)}"></i><i class="g" style="width:${w(c.doing)}"></i><i class="b" style="width:${w(c.blocked)}"></i></div>`;
+  };
+
+  function render() {
+    if (!data) return;
+    const now = Date.now();
+    const msById = Object.fromEntries(data.milestones.map((m) => [m.id, m]));
+    const must = data.tasks.filter((t) => t.priority === "must");
+    const mc = counts(must);
+    const next = data.deadlines.find((d) => Date.parse(d.at) > now) || data.deadlines[data.deadlines.length - 1];
+    const msStart = (i) => (i === 0 ? -Infinity : Date.parse(data.milestones[i - 1].end));
+    const openBlockers = data.blockers.filter((b) => b.state === "open");
+
+    const header = `
+      <header class="top">
+        <div class="panel clock">
+          <div class="label">${esc(data.project)} build board · next deadline</div>
+          <div class="big num ${Date.parse(next.at) < now ? "late" : ""}" id="clock">${countdown(Date.parse(next.at) - now)}</div>
+          <div class="what">${esc(next.label)} · ${fmtTime(next.at)} PDT</div>
+          <div class="deadlines">${data.deadlines.map((d) => `<span class="${Date.parse(d.at) < now ? "past" : ""}"><b>${fmtTime(d.at)}</b> ${esc(d.label)}</span>`).join("")}</div>
+        </div>
+        <div class="panel progress">
+          <div class="label">Must-ship progress</div>
+          <div style="display:flex;align-items:baseline;gap:10px"><span class="pct num">${mc.total ? Math.round(100 * mc.done / mc.total) : 0}%</span><span class="label num">${mc.done}/${mc.total} done · ${mc.doing} doing · ${mc.blocked} blocked</span></div>
+          ${bar(mc)}
+          <div class="owners">${data.team.map((p) => {
+            const c = counts(must.filter((t) => t.owner === p.id));
+            return `<div class="owner-row"><span class="id">${esc(p.id)}</span><span>${esc(p.name === "TBD" ? p.role : `${p.name} · ${p.role}`)}</span><span class="meta num">${c.done}/${c.total}</span></div>`;
+          }).join("")}</div>
+        </div>
+      </header>`;
+
+    const blockers = `
+      <section class="blockers" aria-label="Blockers">
+        <h2>Blockers <span class="label">${openBlockers.length} open</span></h2>
+        <div class="blocker-list">${data.blockers
+          .slice().sort((a, b) => (a.state === b.state ? 0 : a.state === "open" ? -1 : 1))
+          .map((b) => `<div class="blocker ${b.state}"><span class="meta">${esc(b.id)} · owner ${esc(b.owner)} · ${esc(b.state)}</span><span>${esc(b.text)}</span>${b.answer ? `<span class="meta">→ ${esc(b.answer)}</span>` : ""}</div>`).join("")}</div>
+      </section>`;
+
+    const rail = `
+      <section aria-label="Milestones" style="display:grid;gap:8px">
+        <h2>Milestones</h2>
+        <div class="rail">${data.milestones.map((m, i) => {
+          const c = counts(must.filter((t) => t.milestone === m.id));
+          const isNow = now >= msStart(i) && now < Date.parse(m.end);
+          const isPast = now >= Date.parse(m.end);
+          const cls = ["ms", isNow ? "now" : "", isPast ? "past" : "", isPast && c.done < c.total ? "incomplete" : ""].join(" ");
+          return `<div class="${cls}"><div class="top"><span>${esc(m.id)}${isNow ? " · now" : ""}</span><span class="num">${c.done}/${c.total}</span></div><div class="label">${esc(m.window)}</div><div class="t">${esc(m.label)}</div>${bar(c)}</div>`;
+        }).join("")}</div>
+      </section>`;
+
+    const owners = view.owner === "all" ? data.team : data.team.filter((p) => p.id === view.owner);
+    const lanes = `
+      <section style="display:grid;gap:12px" aria-label="Tasks">
+        <div class="controls">
+          <h2>Tasks</h2>
+          <div class="seg" role="group" aria-label="Filter by owner">
+            ${["all", ...data.team.map((p) => p.id)].map((id) => `<button type="button" data-owner="${esc(id)}" aria-pressed="${view.owner === id}">${id === "all" ? "All" : esc(id)}</button>`).join("")}
+          </div>
+          <label class="check"><input type="checkbox" id="hide-done" ${view.hideDone ? "checked" : ""}> Hide done</label>
+          <label class="check"><input type="checkbox" id="show-stretch" ${view.showStretch ? "checked" : ""}> Show stretch</label>
+        </div>
+        <div class="lanes" style="${owners.length === 1 ? "grid-template-columns:minmax(0,1fr)" : ""}">${owners.map((p) => {
+          const list = data.tasks
+            .filter((t) => t.owner === p.id)
+            .filter((t) => !(view.hideDone && t.state === "done"))
+            .filter((t) => view.showStretch || t.priority === "must");
+          const c = counts(data.tasks.filter((t) => t.owner === p.id && t.priority === "must"));
+          return `<div class="lane">
+            <div class="lane-head"><span class="label">${esc(p.id)} · ${c.done}/${c.total} must done</span><span class="name">${esc(p.name === "TBD" ? p.role : p.name)}</span>${p.name === "TBD" ? "" : `<span class="label">${esc(p.role)}</span>`}</div>
+            ${list.length ? list.map((t) => {
+              const ms = msById[t.milestone];
+              const overdue = t.state !== "done" && ms && now > Date.parse(ms.end);
+              return `<div class="task ${t.state} ${overdue ? "overdue" : ""}">
+                <div class="row"><span class="tid">${esc(t.id)} · ${esc(ms ? ms.window : t.milestone)}</span><span class="pill s-${esc(t.state)}">${esc(t.state)}</span>${t.priority === "stretch" ? '<span class="pill p-stretch">stretch</span>' : ""}${overdue ? '<span class="pill p-late">past due</span>' : ""}</div>
+                <div class="title">${esc(t.title)}</div>
+                ${t.note ? `<div class="note">${esc(t.note)}</div>` : ""}
+              </div>`;
+            }).join("") : '<div class="empty">Nothing to show with these filters.</div>'}
+          </div>`;
+        }).join("")}</div>
+      </section>`;
+
+    const tracks = `
+      <section style="display:grid;gap:10px" aria-label="Sponsor track proof">
+        <h2>Sponsor track proof</h2>
+        <div class="tracks">${data.tracks.map((tr) => {
+          const done = tr.proofs.filter((p) => p.done).length;
+          return `<div class="track">
+            <div class="head"><span class="name">${esc(tr.name)}</span><span class="label tier-${esc(tr.tier)}">${esc(tr.tier)}</span></div>
+            <div class="prize">${esc(tr.prize)} · <span class="num">${done}/${tr.proofs.length}</span> proofs</div>
+            <ul>${tr.proofs.map((p) => `<li class="${p.done ? "ok" : ""}"><span aria-hidden="true">${p.done ? "✓" : "○"}</span><span>${esc(p.label)}</span></li>`).join("")}</ul>
+          </div>`;
+        }).join("")}</div>
+      </section>`;
+
+    const bottom = `
+      <div class="bottom">
+        ${tracks}
+        <section class="panel" aria-label="Cut order">
+          <h2>Cut order when behind</h2>
+          <ol class="cut">${data.cutList.map((c) => `<li>${esc(c)}</li>`).join("")}</ol>
+        </section>
+      </div>
+      <div class="foot"><span>Updated ${fmtTime(data.updated)} PDT (${ago(data.updated)})</span><span>Edit <code>status/status.json</code>, then run <code>node status/sync.mjs</code></span><span>Re-reads every 30 s</span></div>`;
+
+    app.innerHTML = header + blockers + rail + lanes + bottom;
+
+    app.querySelectorAll("[data-owner]").forEach((b) => b.addEventListener("click", () => { view.owner = b.dataset.owner; saveView(); render(); }));
+    document.getElementById("hide-done").addEventListener("change", (e) => { view.hideDone = e.target.checked; saveView(); render(); });
+    document.getElementById("show-stretch").addEventListener("change", (e) => { view.showStretch = e.target.checked; saveView(); render(); });
+  }
+
+  function tick() {
+    if (!data) return;
+    const el = document.getElementById("clock");
+    if (!el) return;
+    const now = Date.now();
+    const next = data.deadlines.find((d) => Date.parse(d.at) > now) || data.deadlines[data.deadlines.length - 1];
+    el.textContent = countdown(Date.parse(next.at) - now);
+  }
+
+  async function load() {
+    try {
+      const res = await fetch("status.json?ts=" + Date.now(), { cache: "no-store" });
+      if (!res.ok) throw new Error(res.status);
+      const next = await res.json();
+      if (JSON.stringify(next) !== JSON.stringify(data)) { data = next; render(); }
+    } catch {
+      if (data) return;
+      app.innerHTML = "";
+      app.appendChild(document.getElementById("fail-tpl").content.cloneNode(true));
+      document.getElementById("file-input").addEventListener("change", async (e) => {
+        const f = e.target.files[0];
+        if (!f) return;
+        try { data = JSON.parse(await f.text()); render(); }
+        catch { e.target.insertAdjacentHTML("afterend", " <span style=\"color:var(--blocked)\">That file isn't valid JSON. Run node status/sync.mjs to see the error.</span>"); }
+      });
+    }
+  }
+
+  load();
+  setInterval(load, 30000);
+  setInterval(tick, 1000);
+})();
+</script>
+</body>
+</html>

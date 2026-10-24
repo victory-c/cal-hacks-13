@@ -1,0 +1,11 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "status-board",
+      "runtimeExecutable": "node",
+      "runtimeArgs": ["status/serve.mjs"],
+      "port": 4173
+    }
+  ]
+}
