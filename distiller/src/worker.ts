@@ -64,7 +64,13 @@ export function createHandler(opts: HandlerOptions): Handler {
     const previous = chains.get(id) ?? Promise.resolve();
     const job = previous.catch(() => {}).then(async () => {
       const next = await fetched;
-      if (next) await processSession(next.session, next.claim, opts, processed);
+      if (!next) return;
+      // A newer revision claimed while this one waited in the queue: skip the model calls too.
+      if (!processed.isLatest(id, next.claim)) {
+        log(`session ${id}: a newer revision is queued, skipping this one`);
+        return;
+      }
+      await processSession(next.session, next.claim, opts, processed);
     });
     chains.set(id, job);
     return track(job.finally(() => {
