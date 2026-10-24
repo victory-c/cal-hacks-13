@@ -4,11 +4,12 @@
 other package imports it (`import { ... } from "@canon/shared"`, never a relative path). Pure
 TypeScript, zero dependencies, runs under `tsx` with no build step.
 
-The finance contract (A1) adds wall labels, deals, principals, expiring entitlements, the
-restricted and watch lists, the compliance review queue, audit events and agent dispatch types
-(`src/types/walls.ts`, `src/types/agents.ts`, optional fields on facts and sessions). They are
-additive and types only: the server's enforcement (A6, A7, A11) is separate work, and folder
-grants remain what the server enforces today. Coordinate with both builders before changing them.
+The scopes contract (A1) adds two tiers, principals and agent profiles, groups (a fact's
+`folder` is its group, now any slug path such as `deal/falcon`) and labels, scope rules, scopes,
+quarantine, audit events and agent-run types (`src/types/scopes.ts`, `src/types/agents.ts`,
+optional `labels`, `author` and `happened` on facts). They are types only: the server's scope
+builder and scope filtering are separate work, and folder grants remain what the server enforces
+today. Coordinate with both builders before changing them.
 
 ## Frozen vs free
 

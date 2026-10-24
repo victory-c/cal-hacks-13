@@ -17,21 +17,19 @@ export const EVENT_TYPES = [
   "fact.retired",
   "context.served",
   "access.denied",
-  // Finance contract (A1). Listened for, not rendered yet: the reducer passes them through.
+  // Scopes contract (A1). Listened for, not rendered yet: the reducer passes them through.
   "triage.decided",
   "quarantine.flagged",
-  "review.created",
-  "review.resolved",
+  "quarantine.released",
+  "scope.stage",
+  "scope.updated",
+  "principal.changed",
   "handoff.served",
-  "refusal",
-  "deal.status_changed",
-  "entitlement.changed",
   "audit.logged",
   "dispatch.requested",
   "agent.run",
   "agent.step",
   "agent.inbox",
-  "exit_check",
 ] as const satisfies readonly CanonEventType[];
 
 // The typecheck fails here when the contract gains an event type the list above lacks.
@@ -179,21 +177,19 @@ export function reduce(state: State, e: CanonEvent): State {
       return { ...state, denied: insertNewestFirst(state.denied, e), seen: new Set(state.seen).add(key) };
     }
 
-    // Finance events: the control-room views (lane C) will render these.
+    // Scope events: the moderator console and member view (lane C) will render these.
     case "triage.decided":
     case "quarantine.flagged":
-    case "review.created":
-    case "review.resolved":
+    case "quarantine.released":
+    case "scope.stage":
+    case "scope.updated":
+    case "principal.changed":
     case "handoff.served":
-    case "refusal":
-    case "deal.status_changed":
-    case "entitlement.changed":
     case "audit.logged":
     case "dispatch.requested":
     case "agent.run":
     case "agent.step":
     case "agent.inbox":
-    case "exit_check":
       return state;
 
     default:

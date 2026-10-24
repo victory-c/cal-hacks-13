@@ -20,9 +20,9 @@ currently runs. A planned feature is not implemented until its code and validati
 
 | Lane | Owner | Responsibility | Folders |
 |---|---|---|---|
-| A | Henry Lai | Walls, entitlements, neutral refusals, handoff pipeline, audit log, synthetic-world fixtures, benchmark runner | `server/`, `bench/`; shared contract with B |
-| B | Victor Chun | Capture, triage, fact writer, Droid dispatch, live routing, story and sponsor documentation | `hooks/`, `extension/`, `distiller/`, `docs/`; shared contract with A |
-| C | Edan Wong | Control room frontend, task and attack sets, QA, finance interviews, sponsor answers and submission logistics | `web/`, `status/`, `bench/tasks/` |
+| A | Henry Lai | Tiers, scope rules, scope builder, living scopes, handoff pipeline, audit log, Moss index, synthetic-world fixtures, benchmark runner | `server/`, `bench/`; shared contract with B |
+| B | Victor Chun | Capture, triage into groups, fact writer, Droid agent runs, live routing, story and sponsor documentation | `hooks/`, `extension/`, `distiller/`, `docs/`; shared contract with A |
+| C | Edan Wong | Moderator console and member view, task and attack sets, QA, finance interviews, sponsor answers and submission logistics | `web/`, `status/`, `bench/tasks/` |
 
 Work in the relevant lane. Coordinate shared interfaces with the affected owners; the user's
 explicit task authorization takes precedence over routine lane boundaries.
@@ -30,28 +30,34 @@ explicit task authorization takes precedence over routine lane boundaries.
 ## Decisions
 
 - Target: small finance teams of 10–50 people. Demo: Harbor Lane Partners, Project Falcon,
-  Nimbus Logistics, Maya (compliance), Dan (banker), Priya (research), Leo (trader). All data is synthetic.
+  Nimbus Logistics, Maya (compliance, moderator), Dan (banker), Priya (research), Leo (trader),
+  all members. All data is synthetic.
 - Keep the existing file store and plain SSE. A database migration is outside the current build.
 - Keep packages separate over HTTP. The frontend uses REST and SSE and never imports server code.
 - Guaranteed capture paths are the Claude Code hook and ingest API; ChatGPT extension is cut first
   if capture work runs late.
-- Code enforces access before search or relevance. Jev flags, ranks and pre-screens; compliance
-  approves wall-crossings and uncertain labels. Models never grant access.
+- Access is decided when a scope is built: excluded groups and labels are removed in code, then
+  Moss and Jev pick from what remains, and the scope is a fixed list of fact ids. At question time
+  code only searches inside that list. Moderators manage people and rules; models never grant
+  access, and an agent never holds more than its creator.
+- No refusals and no existence signals: nothing outside a scope is named, counted or hinted at.
+  Restricted and watch lists, wall-crossings, deal-status workflows and output exit checks are cut.
 - Facts retain their sources and history; raw sessions stay in the cold archive.
-- Droid runs dispatched finance agents in separate folders containing only permitted context.
+- Droid runs each agent in its own folder holding only its scope's facts as markdown files.
   At the 11:00 Saturday gate, use the Claude Agent SDK fallback if Droid cannot do the work.
 - At the 09:00 Saturday gate, use the Claude fallback behind `judge()` if Jev access is unavailable.
 - Core tracks: Hyphenate, Anthropic, Microsoft and Factory. Add-ons are in the PRD; each must
   do real work before we claim an integration.
-- Cut order: wall map → attack box → quarantine view → Bitdeer → ChatGPT extension.
+- Cut order: scope map → attack box → quarantine view → Bitdeer → ChatGPT extension.
 
 ## Architecture and contracts
 
 ```text
-capture / ingest → cold archive → triage → fact writer → facts with wall labels
-request → permission filter → search → relevance → token budget → audit log → permitted slice
-dispatch → permitted brief → isolated agent folder → work steps + inbox updates → exit check
-REST + SSE → control room, agent lanes, handoff inspector
+capture / ingest → cold archive → triage → fact writer → facts with a group and labels (or quarantine / inbox)
+scope rule → exclusions (code) → Moss → Jev yes/no → scope (fixed fact ids, kept current)
+request → Moss + keyword inside the scope → Jev relevance → token budget → audit log → slice
+agent profile (scope ⊆ creator's) → sandbox of scope facts → work steps + inbox updates
+REST + SSE → moderator console, member view, agent lanes, scope and handoff inspectors
 ```
 
 The implemented contracts live in `shared/src/types/`: facts, sessions, MCP inputs and outputs,
@@ -61,16 +67,17 @@ events, grants, judge questions and REST bodies. Keep these and their consumers 
 
 Facts currently use markdown frontmatter plus an optional body, stored at
 `data/facts/<folder>/<id>.md`; raw sessions are `data/sessions/<id>.json`. The serializer and
-validator in `shared/src/fact-file.ts` define the exact format. Folder grants in the scaffold
-are not deal entitlements. The finance contract (A1) adds the types: `walls.ts` (wall labels,
-deals, principals, expiring entitlements, lists, review queue, audit), `agents.ts` (dispatch
-runs, steps, inboxes), optional `wall` and `happened` on facts, and the finance events and REST
-bodies. Types are not enforcement: the permission filter, lists, audit and dashboard APIs must be
-implemented and tested before finance access claims are made.
+validator in `shared/src/fact-file.ts` define the exact format. A fact's `folder` is its group
+(`deal/falcon`, `market/public`, `inbox`). The scopes contract (A1, PR #7) adds `scopes.ts`
+(tiers, principals, groups, scope rules, scopes, quarantine, audit), `agents.ts` (agent runs,
+steps, inboxes), optional `labels`, `author` and `happened` on facts, and the scope events and
+REST bodies. Folder grants in the scaffold are not scopes, and types are not enforcement: the
+scope builder, scope filtering and audit must be implemented and tested before access claims.
 
 Batch candidate questions into one `judge.ask()` per decision. Apply thresholds in code.
-Security uncertainty means restrict or send to compliance; content cannot lower its own label.
-Use neutral refusals, quarantine suspected instructions, and check outputs before they cross a wall.
+Security uncertainty means exclude, quarantine or file to `inbox`; a "maybe" on an exclusion
+counts as excluded. Never refuse in a way that reveals something exists; quarantine suspected
+instructions aimed at an AI.
 
 ## Run and verify
 

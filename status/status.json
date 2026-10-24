@@ -1,6 +1,6 @@
 {
   "project": "Bullwark",
-  "updated": "2026-10-24T12:31:33Z",
+  "updated": "2026-10-24T13:21:32Z",
   "team": [
     {
       "id": "A",
@@ -211,6 +211,15 @@
       "note": "PRD must-ship #7 (about 200 tokens). Sent on every handoff, including when the inject-nothing check sends no facts."
     },
     {
+      "id": "A17",
+      "owner": "A",
+      "milestone": "M1",
+      "priority": "stretch",
+      "state": "done",
+      "title": "Visual HTML PRD for review and handoff",
+      "note": "docs/prd/backlog/Bullwark_Web-MCP-Agents_SmallFinanceTeams.html, generated from docs/PRD.md (two tiers, task-built scopes)."
+    },
+    {
       "id": "B1",
       "owner": "B",
       "milestone": "M1",
@@ -224,9 +233,9 @@
       "owner": "B",
       "milestone": "M3",
       "priority": "must",
-      "state": "doing",
-      "title": "Droid finance-agent dispatch with isolated context, steps and files",
-      "note": "Built and tested on b/dispatch (stacked on PR #7); awaiting review and lane-A routes. Remaining: one real droid exec run (no droid or FACTORY_API_KEY here yet) to confirm stream-json fields; the Q1 gate picks Droid or the Claude runner."
+      "state": "todo",
+      "title": "Droid agent runs inside the creator's scope: sandbox of scope facts, steps and files",
+      "note": "Reworking b/dispatch (PR #9) for the scopes PRD: agent profiles, no sides or exit check. Gate Sat 11:00 (Q1); fallback drops the Factory track."
     },
     {
       "id": "B4",
@@ -243,8 +252,8 @@
       "milestone": "M2",
       "priority": "must",
       "state": "todo",
-      "title": "Jev triage: keep, confidential, deal, instructions and relation to existing facts",
-      "note": "Uncertain labels go to compliance; planted instructions are quarantined."
+      "title": "Jev triage: keep, group and labels, instructions (quarantine) and relation to existing facts",
+      "note": "Reworking b/triage (PR #10) for the scopes PRD: unsure group goes to inbox (moderators only); planted instructions are quarantined."
     },
     {
       "id": "B6",
@@ -269,36 +278,36 @@
       "owner": "B",
       "milestone": "M4",
       "priority": "must",
-      "state": "todo",
+      "state": "doing",
       "title": "Devpost text: finance problem, product, real integrations and limits",
-      "note": "Draft by Sat 23:59; C8 handles logistics."
+      "note": "Story docs merged into b/contract-v2 (#13); rewriting them for the scopes PRD. Remaining: resolve every [[...]] marker before submit."
     },
     {
       "id": "B13",
       "owner": "B",
       "milestone": "M5",
       "priority": "must",
-      "state": "todo",
+      "state": "doing",
       "title": "Small-team-to-company scale slide and sponsor README evidence",
-      "note": "State what runs today and what is simulated."
+      "note": "Story docs merged into b/contract-v2 (#13); rewriting the scale slide and sponsor lines for the scopes PRD."
     },
     {
       "id": "B14",
       "owner": "B",
       "milestone": "M4",
       "priority": "must",
-      "state": "todo",
-      "title": "Video script and voiceover opening on the neutral refusal",
-      "note": "C9 records footage and backup; show compliance record and wall behavior."
+      "state": "doing",
+      "title": "Video script and voiceover opening on the question that doesn't leak",
+      "note": "Story docs merged into b/contract-v2 (#13); rewriting them for the scopes PRD (new demo script, no refusals)."
     },
     {
       "id": "B15",
       "owner": "B",
       "milestone": "M6",
       "priority": "must",
-      "state": "todo",
+      "state": "doing",
       "title": "Two-minute finance pitch and answers to judge questions",
-      "note": "Use the finance interview quote from C4."
+      "note": "Story docs merged into b/contract-v2 (#13); rewriting the pitch for the scopes PRD demo. Needs C4's quote and measured numbers."
     },
     {
       "id": "B16",
@@ -315,17 +324,17 @@
       "milestone": "M2",
       "priority": "must",
       "state": "doing",
-      "title": "Claude fact writer with source links, dates, history and wall labels",
-      "note": "Built and tested on b/writer (stacked on PR #7); awaiting review and lane-A routes. The wall labels are on b/triage and land with that PR."
+      "title": "Claude fact writer with source, author, dates and history",
+      "note": "Merged into b/contract-v2 (#11). Follow-up for the scopes PRD: suggest a group and labels instead of folders."
     },
     {
       "id": "B18",
       "owner": "B",
       "milestone": "M3",
       "priority": "must",
-      "state": "doing",
-      "title": "Route new facts and urgent wall updates to agent inboxes",
-      "note": "Built and tested on b/dispatch (stacked on PR #7); awaiting review and lane-A routes. Remaining: an end-to-end run on the live server once it emits fact.saved and deal.status_changed and relays agent events."
+      "state": "todo",
+      "title": "Route newly in-scope facts and scope narrowing to agent inboxes",
+      "note": "Reworking with b/dispatch (PR #9): new facts that join an agent's scope reach it at its next step; a narrowed scope restarts the run in a fresh folder."
     },
     {
       "id": "B19",

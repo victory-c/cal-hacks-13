@@ -121,10 +121,8 @@ describe("parseFactFile", () => {
   });
 
   test("ignores unknown frontmatter keys", () => {
-    const text = serializeFactFile(base).replace("tier: hot", "tier: hot\naliases: []\ntags: canon");
-    assert.throws(() => parseFactFile(text), /lists are not part of the fact file format/);
-    const ok = serializeFactFile(base).replace("tier: hot", "tier: hot\ntags: canon");
-    assert.deepEqual(parseFactFile(ok), base);
+    const text = serializeFactFile(base).replace("tier: hot", "tier: hot\naliases: [a, b]\ntags: canon");
+    assert.deepEqual(parseFactFile(text), base);
   });
 
   test("fails loudly on malformed files", () => {
@@ -133,13 +131,13 @@ describe("parseFactFile", () => {
     assert.throws(() => parseFactFile("---\nid fct_1\n---\n"), /line 2: expected "key: value"/);
     assert.throws(() => parseFactFile('---\nstatement: "unterminated\n---\n'), /line 2: unterminated double-quoted string/);
     assert.throws(() => parseFactFile(serializeFactFile(base).replace("tier: hot", "tier: warm")), /Invalid fact file: tier must be hot\|cold/);
-    assert.throws(() => parseFactFile(serializeFactFile(base).replace("folder: career/projects", "folder: careers")), /folder must be/);
+    assert.throws(() => parseFactFile(serializeFactFile(base).replace("folder: career/projects", "folder: Careers")), /folder must be/);
   });
 });
 
 describe("validateFact", () => {
-  test("accepts every folder shape from the contract", () => {
-    for (const folder of ["career", "projects/canon", "private/health/sleep", "inbox"]) {
+  test("accepts every folder (group) shape from the contract", () => {
+    for (const folder of ["career", "projects/canon", "private/health/sleep", "inbox", "deal/falcon", "research/logistics", "market/public"]) {
       assert.equal(validateFact({ ...base, folder }).ok, true, folder);
     }
   });
@@ -148,7 +146,7 @@ describe("validateFact", () => {
     const r = validateFact({
       id: "fact_1",
       statement: "",
-      folder: "careers",
+      folder: "Careers",
       tier: "warm",
       jev_keep: "0.9",
       source: { client: "", session: 7 },
@@ -187,20 +185,31 @@ test("factPath is facts/<folder>/<id>.md", () => {
   assert.equal(factPath({ id: "fct_1", folder: "inbox" }), "facts/inbox/fct_1.md");
 });
 
-describe("finance wall fields", () => {
-  test("wall, wall_reason and happened roundtrip; a fact without them stays unlabeled", () => {
-    const walled: Fact = { ...base, wall: "deal_falcon", wall_reason: "code name Falcon", happened: "2026-10-20" };
-    const text = serializeFactFile(walled);
-    assert.match(text, /\nwall: deal_falcon\n/);
-    assert.deepEqual(parseFactFile(text), walled);
-    assert.equal(parseFactFile(serializeFactFile({ ...base, wall: "public" })).wall, "public");
-    assert.equal(parseFactFile(serializeFactFile(base)).wall, undefined);
+describe("scope fields: group, labels, author, happened", () => {
+  test("a deal fact in its group with labels, author and happened roundtrips", () => {
+    const fact: Fact = { ...base, folder: "deal/falcon", labels: ["nimbus", "valuation"], author: "dan", happened: "2026-10-20" };
+    const text = serializeFactFile(fact);
+    assert.match(text, /\nfolder: deal\/falcon\n/);
+    assert.match(text, /\nlabels: \[nimbus, valuation\]\n/);
+    assert.match(text, /\nauthor: dan\n/);
+    assert.deepEqual(parseFactFile(text), fact);
+    const plain = parseFactFile(serializeFactFile(base));
+    assert.equal(plain.labels, undefined);
+    assert.equal(plain.author, undefined);
   });
 
-  test("rejects a wall that is neither public nor a deal id, and a bad happened date", () => {
-    const v = validateFact({ ...base, wall: "falcon", happened: "Oct 20" });
+  test("reads an empty label list as no labels and drops duplicate labels", () => {
+    const text = serializeFactFile(base).replace("\n---\n", "\nlabels: []\n---\n");
+    assert.equal(parseFactFile(text).labels, undefined);
+    const r = validateFact({ ...base, labels: ["nimbus", "nimbus"] });
+    assert.ok(r.ok && r.fact.labels?.length === 1);
+  });
+
+  test("rejects labels that are not slugs, quoted or nested list items, an empty author and a bad happened date", () => {
+    const v = validateFact({ ...base, labels: ["Nimbus Logistics"], author: " ", happened: "Oct 20" });
     assert.equal(v.ok, false);
-    assert.ok(!v.ok && v.errors.some((e) => e.startsWith("wall must be")));
-    assert.ok(!v.ok && v.errors.some((e) => e.startsWith("happened must be")));
+    for (const field of ["labels", "author", "happened"]) assert.ok(!v.ok && v.errors.some((e) => e.startsWith(`${field} must be`)), field);
+    const quoted = serializeFactFile(base).replace("\n---\n", '\nlabels: ["a, b"]\n---\n');
+    assert.throws(() => parseFactFile(quoted), /list items must be plain names/);
   });
 });
