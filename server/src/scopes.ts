@@ -366,14 +366,15 @@ export async function handleScopesRoute(
     return false;
   }
 
-  // ---- /api/scope-rules/:principal (moderator; the creator for their own agents).
+  // ---- /api/scope-rules/:principal (moderator; the creator for their own agents; GET also
+  // internal, so the dispatcher can read an agent's task).
   if (path.startsWith(`${ROUTES.scopeRules}/`)) {
     const target = decodeURIComponent(path.slice(ROUTES.scopeRules.length + 1));
     const targetPrincipal = state.principals.get(target);
     const isCreator = targetPrincipal?.kind === "agent" && targetPrincipal.created_by === callerId;
     // A member asking about anything that is not their own agent gets the same bytes whether the
     // target exists or not. Members never read their own rule: exclusions are never shown to them.
-    if (!isModerator && !isCreator) return sendJson(res, 403, MODERATORS_ONLY), true;
+    if (!isModerator && !isCreator && !(isInternal && method === "GET")) return sendJson(res, 403, MODERATORS_ONLY), true;
     if (method === "GET") {
       const rule = state.rules.get(target);
       if (!rule) throw new HttpError(404, `no scope rule for "${target}"`);

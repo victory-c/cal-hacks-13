@@ -145,8 +145,11 @@ function parseDecision(raw: unknown, fact: Fact, where: string): SaveDecision {
  * POST /api/facts: the distiller files decided facts. All entries are validated before any
  * write. "supersede"/"merge" retires the old fact to cold (Jev never deletes) and emits
  * fact.retired; every new fact emits fact.saved.
+ *
+ * `groups` are the server's own group ids (GET /api/groups). The distiller files triaged facts
+ * into them on top of its folder grant; it can never write a group the server does not list.
  */
-export async function postFacts(deps: ApiDeps, client: string, body: unknown): Promise<PostFactsResponse> {
+export async function postFacts(deps: ApiDeps, client: string, body: unknown, groups: readonly string[] = []): Promise<PostFactsResponse> {
   const grant = grantFor(deps.grants, client);
   if (!grant) throw new HttpError(403, `no grants for client "${client}"`);
   if (!isRecord(body) || !Array.isArray(body.facts)) throw new HttpError(400, "body must be { facts: [{ fact, decision }] }");
@@ -159,7 +162,8 @@ export async function postFacts(deps: ApiDeps, client: string, body: unknown): P
   });
 
   for (const { fact } of entries) {
-    if (!canWrite(grant, fact.folder)) {
+    const listedGroup = client === "distiller" && groups.includes(fact.folder);
+    if (!canWrite(grant, fact.folder) && !listedGroup) {
       deps.bus.emit({ type: "access.denied", client, tool: "POST /api/facts", folder: fact.folder });
       throw new HttpError(403, `${client} cannot write ${fact.folder}`);
     }

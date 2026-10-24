@@ -353,3 +353,95 @@ describe("server over HTTP", () => {
     }
   });
 });
+
+describe("POST /api/facts into scope groups", () => {
+  let dir: string;
+  let running: RunningServer;
+
+  const groupTokens = new Map([...tokens, ["tok-leo", "leo"], ["tok-maya", "maya"], ["tok-dsp", "dispatcher"]]);
+
+  before(async () => {
+    dir = await mkdtemp(join(tmpdir(), "canon-groups-"));
+    running = await startServer({ port: 0, dataDir: dir, tokens: groupTokens, grants: [...DEMO_GRANTS], judge: new FakeJudge(), retriever: new KeywordRetriever(), log: () => {} });
+  });
+  after(async () => {
+    await running.close();
+    await rm(dir, { recursive: true, force: true });
+  });
+
+  const post = (token: string, fact: Fact) =>
+    fetch(`${running.url}/api/facts`, {
+      method: "POST",
+      headers: { authorization: `Bearer ${token}`, "content-type": "application/json" },
+      body: JSON.stringify({ facts: [{ fact, decision: decision("add", undefined, fact.folder) }] }),
+    });
+
+  test("the distiller files into the server's listed groups, never an unlisted one", async () => {
+    const inGroup: Fact = { ...factA, id: "fct_9a0b0001", folder: "deal/falcon" };
+    assert.equal((await post("tok-dist", inGroup)).status, 200);
+    assert.equal(running.store.getFact(inGroup.id)?.folder, "deal/falcon");
+
+    const unlisted: Fact = { ...factA, id: "fct_9a0b0002", folder: "deal/osprey" };
+    assert.equal((await post("tok-dist", unlisted)).status, 403);
+    assert.equal(running.store.getFact(unlisted.id), undefined);
+
+    const other: Fact = { ...inGroup, id: "fct_9a0b0003" };
+    assert.equal((await post("tok-gpt", other)).status, 403, "only the distiller files into groups");
+    assert.equal(running.store.getFact(other.id), undefined);
+  });
+
+  const factIds = async (token?: string) => {
+    const res = await fetch(`${running.url}/api/facts`, token ? { headers: { authorization: `Bearer ${token}` } } : {});
+    return ((await res.json()) as { facts: Fact[] }).facts.map((f) => f.id);
+  };
+
+  /** Every SSE data frame the stream replays (the ring holds what the tests above emitted). */
+  const replayed = async (token?: string): Promise<CanonEvent[]> => {
+    const ctrl = new AbortController();
+    const res = await fetch(`${running.url}/events`, { signal: ctrl.signal, headers: token ? { authorization: `Bearer ${token}` } : {} });
+    const reader = res.body!.getReader();
+    let text = "";
+    const deadline = Date.now() + 300;
+    while (Date.now() < deadline) {
+      const chunk = await Promise.race([reader.read(), new Promise<null>((r) => setTimeout(() => r(null), 100))]);
+      if (!chunk || chunk.done) break;
+      text += new TextDecoder().decode(chunk.value);
+    }
+    ctrl.abort();
+    return text
+      .split("\n")
+      .filter((l) => l.startsWith("data: "))
+      .map((l) => JSON.parse(l.slice(6)) as CanonEvent);
+  };
+
+  test("a deal fact reaches neither a tokenless caller nor a member: not in GET /api/facts, not on /events", async () => {
+    assert.ok(!(await factIds()).includes("fct_9a0b0001"), "tokenless");
+    assert.ok(!(await factIds("tok-leo")).includes("fct_9a0b0001"), "member");
+    assert.ok((await factIds("tok-dist")).includes("fct_9a0b0001"), "the distiller reads the groups it files into");
+
+    const deal = (events: CanonEvent[]) => events.filter((e) => e.type === "fact.saved" && e.fact.folder === "deal/falcon");
+    assert.equal(deal(await replayed()).length, 0, "tokenless stream");
+    assert.equal(deal(await replayed("tok-leo")).length, 0, "member stream");
+    assert.equal(deal(await replayed("tok-maya")).length, 1, "a moderator sees it");
+  });
+
+  test("the public stream drops scopes events and strips titles", async () => {
+    running.bus.emit({ type: "session.captured", session: { id: "ses_9a0b0001", client: "chatgpt", title: "Falcon LOI terms", messages: 2, ended: true } });
+    running.bus.emit({ type: "triage.decided", session_id: "ses_9a0b0001", statement: "Falcon at $38.50", decision: "fact" } as never);
+    const pub = await replayed();
+    assert.ok(!JSON.stringify(pub).includes("Falcon"), JSON.stringify(pub));
+    assert.ok(pub.some((e) => e.type === "session.captured" && e.session.id === "ses_9a0b0001"), "the capture itself still shows");
+    assert.ok(JSON.stringify(await replayed("tok-dist")).includes("Falcon LOI terms"), "internal workers see everything");
+  });
+
+  test("the dispatcher reads an agent's scope rule but cannot change it", async () => {
+    const rule = await fetch(`${running.url}/api/scope-rules/agt_leodesk`, { headers: { authorization: "Bearer tok-dsp" } });
+    assert.equal(rule.status, 200);
+    const put = await fetch(`${running.url}/api/scope-rules/agt_leodesk`, {
+      method: "PUT",
+      headers: { authorization: "Bearer tok-dsp", "content-type": "application/json" },
+      body: JSON.stringify(await rule.json()),
+    });
+    assert.equal(put.status, 403);
+  });
+});

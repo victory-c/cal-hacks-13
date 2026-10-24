@@ -12,8 +12,13 @@ import type { CanonEvent } from "@canon/shared";
 export type EventInput = CanonEvent extends infer E ? (E extends { at: string } ? Omit<E, "at"> & { at?: string } : never) : never;
 
 type Listener = (e: CanonEvent) => void;
-/** True when a subscriber may see this event. */
-export type EventFilter = (e: CanonEvent) => boolean;
+/** True when a subscriber may see this event, false when not, or a redacted copy to send instead. */
+export type EventFilter = (e: CanonEvent) => boolean | CanonEvent;
+
+function viewOf(filter: EventFilter, e: CanonEvent): CanonEvent | undefined {
+  const v = filter(e);
+  return v === true ? e : v === false ? undefined : v;
+}
 
 const HEARTBEAT_MS = 15_000;
 
@@ -55,7 +60,10 @@ export class EventBus {
 
   /** Writes one SSE frame per entry with the ring id as the SSE id. */
   private writeReplay(res: ServerResponse, filter: EventFilter): void {
-    for (const r of this.ring) if (filter(r.event)) res.write(formatSseEvent(r.event, String(r.id)));
+    for (const r of this.ring) {
+      const v = viewOf(filter, r.event);
+      if (v) res.write(formatSseEvent(v, String(r.id)));
+    }
   }
 
   /**
@@ -75,7 +83,8 @@ export class EventBus {
     this.writeReplay(res, filter);
     // Live events after the replay carry the same monotonically increasing id.
     const unsubscribe = this.subscribe((e) => {
-      if (filter(e)) res.write(formatSseEvent(e, String(this.seq)));
+      const v = viewOf(filter, e);
+      if (v) res.write(formatSseEvent(v, String(this.seq)));
     });
     const heartbeat = setInterval(() => res.write(": ping\n\n"), HEARTBEAT_MS);
     heartbeat.unref();

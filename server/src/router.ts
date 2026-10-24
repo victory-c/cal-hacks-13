@@ -5,7 +5,7 @@ import type { IncomingMessage, ServerResponse } from "node:http";
 
 import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/streamableHttp.js";
 
-import { ROUTES, canRead, folderAllows, grantFor } from "@canon/shared";
+import { INTERNAL_CLIENTS, ROUTES, canRead, folderAllows, grantFor } from "@canon/shared";
 import type { CanonEvent, Folder } from "@canon/shared";
 
 import * as api from "./api.ts";
@@ -53,13 +53,15 @@ export function createRouter(deps: RouterDeps): Handler {
       if (method === "GET" && path === ROUTES.health) return sendJson(res, 200, api.health(deps));
 
       // The dashboard has no token, so these three read-only routes accept a missing one, but a
-      // tokenless caller never sees `private/` (CLAUDE.md: nothing external reads it). A valid
-      // token narrows GET /api/facts to the client's read grant; an unknown token is still a 401.
+      // tokenless caller only sees the scaffold folders: never `private/` (CLAUDE.md: nothing
+      // external reads it), `inbox` or a scope group. A valid token narrows GET /api/facts to the
+      // client's read grant; an unknown token is still a 401. Only internal clients and
+      // moderators get the full event stream: anyone else could read a deal off fact.saved.
       if (method === "GET" && (path === ROUTES.events || path === ROUTES.facts || path === ROUTES.grants)) {
         const viewer = optionalAuth(req, deps.tokens);
         if (viewer === "unknown") return sendJson(res, 401, UNKNOWN_TOKEN);
         if (path === ROUTES.events) {
-          attachSse(res, deps.bus, viewer ? undefined : publicEvent);
+          attachSse(res, deps.bus, viewer && seesEverything(deps, viewer.client) ? undefined : publicEvent);
           return;
         }
         if (path === ROUTES.grants) return sendJson(res, 200, api.grants(deps));
@@ -82,7 +84,10 @@ export function createRouter(deps: RouterDeps): Handler {
           const id = decodeURIComponent(path.slice(ROUTES.sessions.length + 1));
           return sendJson(res, 200, await api.getSession(deps, client, id));
         }
-        if (method === "POST" && path === ROUTES.facts) return sendJson(res, 200, await api.postFacts(deps, client, await readJsonBody(req)));
+        if (method === "POST" && path === ROUTES.facts) {
+          const groups = deps.world.groups.map((g) => g.id);
+          return sendJson(res, 200, await api.postFacts(deps, client, await readJsonBody(req), groups));
+        }
         if (path === ROUTES.mcp && (method === "POST" || method === "GET" || method === "DELETE")) return handleMcp(deps, client, req, res);
       }
 
@@ -107,16 +112,61 @@ function optionalAuth(req: IncomingMessage, tokens: Map<string, string>): { clie
   return authenticate(req, tokens) ?? "unknown";
 }
 
-/** What a tokenless caller (the dashboard, a curl) may see: every folder but `private/`. */
-const publicFolder = (folder: Folder): boolean => !folderAllows(["private"], folder);
+/**
+ * What a tokenless caller (the scaffold dashboard, a curl) may see: the scaffold folders only.
+ * Never `private/`, `inbox` (moderators only) or a scope group such as `deal/falcon`.
+ */
+const PUBLIC_FOLDERS = ["career", "projects", "team"];
+const publicFolder = (folder: Folder): boolean => folderAllows(PUBLIC_FOLDERS, folder);
 
-/** The tokenless SSE view: the same rule applied to the one event that carries a whole fact. */
-const publicEvent = (e: CanonEvent): boolean => e.type !== "fact.saved" || publicFolder(e.fact.folder);
+/**
+ * The public SSE view: scaffold events with every free-text field that could name a deal removed
+ * (a session title, a distill plan, a context task); a fact or a denial only for a public folder;
+ * no scopes, triage, quarantine, audit or agent events at all.
+ */
+const publicEvent = (e: CanonEvent): boolean | CanonEvent => {
+  switch (e.type) {
+    case "server.started":
+    case "distill.started":
+    case "fact.retired":
+      return true;
+    case "session.captured": {
+      const { title: _title, ...session } = e.session;
+      return { ...e, session };
+    }
+    case "distill.finished": {
+      const { plan: _plan, ...rest } = e;
+      return rest;
+    }
+    case "context.served":
+      return { ...e, task: "" };
+    case "fact.saved":
+      return publicFolder(e.fact.folder);
+    case "access.denied":
+      return publicFolder(e.folder);
+    default:
+      return false;
+  }
+};
 
-/** A token's view of GET /api/facts is its read grant; undefined when the client has no grant. */
+/** Internal workers and moderators read the whole event stream. */
+function seesEverything(deps: RouterDeps, client: string): boolean {
+  if ((INTERNAL_CLIENTS as readonly string[]).includes(client)) return true;
+  const principal = grantFor(deps.grants, client)?.principal;
+  const p = principal ? deps.world.principals.get(principal) : undefined;
+  return p?.kind === "person" && p.tier === "moderator";
+}
+
+/**
+ * A token's view of GET /api/facts is its read grant; undefined when the client has no grant.
+ * The distiller also reads the server's listed groups, so triage sees every stored fact it files
+ * against (duplicates and relations across groups).
+ */
 function grantView(deps: RouterDeps, client: string): ((folder: Folder) => boolean) | undefined {
   const grant = grantFor(deps.grants, client);
-  return grant ? (folder) => canRead(grant, folder) : undefined;
+  if (!grant) return undefined;
+  const groups = client === "distiller" ? deps.world.groups.map((g) => g.id) : [];
+  return (folder) => canRead(grant, folder) || groups.includes(folder);
 }
 
 /**
