@@ -37,6 +37,7 @@ import {
   readItem,
   resolvePrincipal,
   sessionIdFor,
+  toPosix,
   walk,
 } from "./lib.mjs";
 
@@ -152,11 +153,11 @@ export function collect(paths, root) {
       const base = root ? resolve(root) : abs;
       for (const rel of walk(abs)) {
         const file = resolve(abs, rel);
-        items.push({ abs: file, rel: relative(base, file), key: realpathSync(file) });
+        items.push({ abs: file, rel: toPosix(relative(base, file)), key: realpathSync(file) });
       }
     } else {
       if (!isIngestible(abs)) throw new Error(`${p}: not an ingestible file (README or unsupported extension)`);
-      items.push({ abs, rel: relative(root ? resolve(root) : dirname(abs), abs), key: realpathSync(abs) });
+      items.push({ abs, rel: toPosix(relative(root ? resolve(root) : dirname(abs), abs)), key: realpathSync(abs) });
     }
   }
   const byId = new Map();

@@ -957,7 +957,7 @@ function humanize(rel) {
   return basename(file, extname(file)).replace(/[-_]+/g, " ").trim() || rel;
 }
 
-function toPosix(p) {
+export function toPosix(p) {
   return String(p).split(sep).join("/");
 }
 
