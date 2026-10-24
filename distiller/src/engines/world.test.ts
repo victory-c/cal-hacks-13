@@ -92,9 +92,12 @@ function allText(s: CapturedSession): string {
 }
 
 describe("synthetic world fixtures", () => {
+  // World state the server's scopes stubs load (A2). Their shapes are pinned by server tests.
+  const STATE_FILES = ["audit.json", "principals.json", "quarantine.json", "scope-rules.json", "scopes.json"];
+
   test("the folder holds exactly the files these tests know about", () => {
     const json = readdirSync(WORLD).filter((f) => f.endsWith(".json")).sort();
-    assert.deepEqual(json, ["groups.json", ...SESSIONS.map((s) => s.file)].sort(), "a new fixture needs a line in SESSIONS");
+    assert.deepEqual(json, ["groups.json", ...STATE_FILES, ...SESSIONS.map((s) => s.file)].sort(), "a new session fixture needs a line in SESSIONS; world state belongs in STATE_FILES");
   });
 
   test("every session validates as a CapturedSession with the kind, client, principal and external the demo expects", () => {

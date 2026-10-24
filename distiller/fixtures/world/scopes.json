@@ -1,0 +1,59 @@
+{
+  "scopes": [
+    {
+      "principal": "dan",
+      "fact_ids": [
+        "fct_fa1c0001",
+        "fct_fa1c0002",
+        "fct_fa1c0003",
+        "fct_ab110001",
+        "fct_ab110002",
+        "fct_ab110003",
+        "fct_0f0e0001",
+        "fct_0f0e0002"
+      ],
+      "built_at": "2026-10-24T12:10:00.000Z",
+      "rule_updated_at": "2026-10-24T12:00:00.000Z"
+    },
+    {
+      "principal": "priya",
+      "fact_ids": [
+        "fct_ab110001",
+        "fct_ab110002",
+        "fct_ab110003",
+        "fct_10610001",
+        "fct_10610002",
+        "fct_0f0e0001",
+        "fct_0f0e0002"
+      ],
+      "built_at": "2026-10-24T12:10:00.000Z",
+      "rule_updated_at": "2026-10-24T12:00:00.000Z"
+    },
+    {
+      "principal": "leo",
+      "fact_ids": [
+        "fct_ab110001",
+        "fct_ab110002",
+        "fct_ab110003",
+        "fct_de5c0001",
+        "fct_de5c0002",
+        "fct_0f0e0001",
+        "fct_0f0e0002"
+      ],
+      "built_at": "2026-10-24T12:10:00.000Z",
+      "rule_updated_at": "2026-10-24T12:00:00.000Z"
+    },
+    {
+      "principal": "agt_leodesk",
+      "fact_ids": [
+        "fct_ab110001",
+        "fct_ab110002",
+        "fct_ab110003",
+        "fct_de5c0001",
+        "fct_de5c0002"
+      ],
+      "built_at": "2026-10-24T12:15:00.000Z",
+      "rule_updated_at": "2026-10-24T12:05:00.000Z"
+    }
+  ]
+}

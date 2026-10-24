@@ -1,0 +1,80 @@
+{
+  "entries": [
+    {
+      "id": "aud_0a000001",
+      "at": "2026-10-23T01:15:00.000Z",
+      "kind": "quarantine",
+      "actor": "distiller",
+      "principal": "dan",
+      "detail": "Outside counsel email (ses_10240004) held: instructions aimed at an AI (p 0.97). It joins no scope until a moderator releases it."
+    },
+    {
+      "id": "aud_0a000002",
+      "at": "2026-10-24T11:55:00.000Z",
+      "kind": "person.added",
+      "actor": "maya",
+      "principal": "dan",
+      "detail": "Dan added as a member (deal desk)."
+    },
+    {
+      "id": "aud_0a000003",
+      "at": "2026-10-24T11:56:00.000Z",
+      "kind": "person.added",
+      "actor": "maya",
+      "principal": "priya",
+      "detail": "Priya added as a member (research)."
+    },
+    {
+      "id": "aud_0a000004",
+      "at": "2026-10-24T11:57:00.000Z",
+      "kind": "person.added",
+      "actor": "maya",
+      "principal": "leo",
+      "detail": "Leo added as a member (trading desk)."
+    },
+    {
+      "id": "aud_0a000005",
+      "at": "2026-10-24T12:10:00.000Z",
+      "kind": "scope.built",
+      "actor": "maya",
+      "principal": "dan",
+      "fact_ids": ["fct_fa1c0001", "fct_fa1c0002", "fct_fa1c0003", "fct_ab110001", "fct_ab110002", "fct_ab110003", "fct_0f0e0001", "fct_0f0e0002"],
+      "detail": "Scope built for Dan's Falcon task: no exclusions."
+    },
+    {
+      "id": "aud_0a000006",
+      "at": "2026-10-24T12:10:00.000Z",
+      "kind": "scope.built",
+      "actor": "maya",
+      "principal": "priya",
+      "fact_ids": ["fct_ab110001", "fct_ab110002", "fct_ab110003", "fct_10610001", "fct_10610002", "fct_0f0e0001", "fct_0f0e0002"],
+      "detail": "Scope built for the sector note: deal/* removed in code before any model ran."
+    },
+    {
+      "id": "aud_0a000007",
+      "at": "2026-10-24T12:10:00.000Z",
+      "kind": "scope.built",
+      "actor": "maya",
+      "principal": "leo",
+      "fact_ids": ["fct_ab110001", "fct_ab110002", "fct_ab110003", "fct_de5c0001", "fct_de5c0002", "fct_0f0e0001", "fct_0f0e0002"],
+      "detail": "Scope built for the trading desk: deal/* removed in code before any model ran."
+    },
+    {
+      "id": "aud_0a000008",
+      "at": "2026-10-24T12:05:00.000Z",
+      "kind": "agent.created",
+      "actor": "leo",
+      "principal": "agt_leodesk",
+      "detail": "Leo created the desk assistant. Its scope is built from Leo's scope only."
+    },
+    {
+      "id": "aud_0a000009",
+      "at": "2026-10-24T12:15:00.000Z",
+      "kind": "scope.built",
+      "actor": "leo",
+      "principal": "agt_leodesk",
+      "fact_ids": ["fct_ab110001", "fct_ab110002", "fct_ab110003", "fct_de5c0001", "fct_de5c0002"],
+      "detail": "Agent scope built from Leo's scope: deal/* removed in code; checked to be a subset of its creator's."
+    }
+  ]
+}
