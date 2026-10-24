@@ -5,9 +5,10 @@
 // v2 (PRD v2, a small finance firm): the signals cover deal work (proposed, agreed, LOI, term
 // sheet, valuation, EBITDA, board, diligence, prices and multiples written as numbers); sentences
 // keep the speaker's name in third person when the item says who spoke ("Dan: I proposed …" →
-// "Dan proposed …"); `happened` is read off an ISO date in the sentence and never guessed; and a
-// paragraph aimed at an AI ("ignore your previous instructions …") never becomes a draft. Triage
-// still quarantines the whole item: it asks about the captured text, not about these drafts.
+// "Dan proposed …", and an email's "I" is the sender on its From: line); `happened` is read off an
+// ISO date in the sentence and never guessed; and a paragraph aimed at an AI ("ignore your
+// previous instructions …") never becomes a draft, however its lines are wrapped. This engine does
+// not quarantine anything: deciding that the whole item is an injection is triage's job (Jev).
 
 import type { CapturedSession, DraftFact, Folder } from "@canon/shared";
 import type { Distiller, DistillResult } from "./index.ts";
@@ -32,6 +33,10 @@ const AIMED_AT_AI_RE =
 
 /** Memo and email header lines are metadata, not claims. */
 const HEADER_LINE_RE = /^(?:To|From|Cc|Bcc|Date|Re|Subject|Sent):\s/i;
+/** An email's sender: `From: James Whitcombe <j@x.example>` → "James Whitcombe"; a bare address stays as is. */
+const FROM_LINE_RE = /^From:[ \t]*(.+)$/im;
+/** Who an external email's claims belong to when it has no From: line. Never the principal. */
+const OUTSIDE_SENDER = "Outside sender";
 /** "- ", "* ", "• ", "1. ", "2) " at the start of a line, and markdown bold anywhere. */
 const LIST_MARKER_RE = /^(?:[-*•]|\d+[.)])\s+/;
 
@@ -119,25 +124,63 @@ function sentences(text: string): string[] {
     .filter((s) => s.length > 0);
 }
 
-/** Each line of a message with who said it, when the item tells us. Header lines are dropped. */
-function lines(session: CapturedSession, role: string, content: string): Array<{ text: string; speaker?: string }> {
+interface Line {
+  text: string;
+  speaker?: string;
+}
+
+interface Paragraph {
+  /** Every line as written, header lines included: what the aimed-at-an-AI check reads. */
+  raw: string[];
+  /** The lines that can become drafts, with who said them. Header lines are left out. */
+  lines: Line[];
+}
+
+/** "James Whitcombe <j@x.example>" → "James Whitcombe"; `"Hale, J." <…>` → "Hale, J."; "a@x.example" stays. */
+export function senderName(content: string): string | undefined {
+  const m = FROM_LINE_RE.exec(content);
+  if (!m) return undefined;
+  const from = m[1].trim();
+  const name = from.replace(/<[^>]*>/g, "").replace(/["']/g, "").trim();
+  return (name || from.replace(/[<>]/g, "")).slice(0, 60) || undefined;
+}
+
+/**
+ * A message cut into paragraphs at blank lines; in chat and transcripts a "Name: …" line also
+ * starts one, so one speaker's line never takes another's with it. Plain-text email is
+ * hard-wrapped, so a planted instruction's claims sit on the lines next to the trigger phrase:
+ * the whole paragraph is the unit that is kept or left out, never a single line.
+ */
+function paragraphs(session: CapturedSession, role: string, content: string): Paragraph[] {
   const kind = session.kind ?? "ai_session";
   const authored = role === "user" && AUTHORED_KINDS.has(kind) && session.external !== true;
-  const owner = authored ? principalName(session.principal) : undefined;
+  // "I" in a user turn is the principal only in what they wrote; in an email it is whoever sent it.
+  const sender = kind === "email" ? (senderName(content) ?? (session.external === true ? OUTSIDE_SENDER : undefined)) : undefined;
+  const owner = authored ? principalName(session.principal) : sender;
   const speakerLines = SPEAKER_KINDS.has(kind);
-  const out: Array<{ text: string; speaker?: string }> = [];
-  for (const raw of content.split(/\n+/)) {
+  const out: Paragraph[] = [];
+  let cur: Paragraph | undefined;
+  for (const raw of content.split(/\r?\n/)) {
     const line = raw.trim();
-    if (!line) continue;
-    const m = speakerLines ? SPEAKER_RE.exec(line) : null;
-    if (m) {
-      out.push({ text: clean(m[2]), speaker: m[1] });
+    if (!line) {
+      cur = undefined;
       continue;
     }
-    if (HEADER_LINE_RE.test(line)) continue;
-    out.push({ text: clean(line), speaker: owner });
+    const m = speakerLines ? SPEAKER_RE.exec(line) : null;
+    if (!cur || m) {
+      cur = { raw: [], lines: [] };
+      out.push(cur);
+    }
+    cur.raw.push(line);
+    if (m) cur.lines.push({ text: clean(m[2]), speaker: m[1] });
+    else if (!HEADER_LINE_RE.test(line)) cur.lines.push({ text: clean(line), speaker: owner });
   }
   return out;
+}
+
+/** True when any part of the paragraph, read across its line breaks, is aimed at an AI. */
+function aimedAtAi(p: Paragraph): boolean {
+  return AIMED_AT_AI_RE.test(p.raw.join(" "));
 }
 
 function clean(line: string): string {
@@ -171,31 +214,33 @@ export class HeuristicDistiller implements Distiller {
     const seen = new Set<string>();
     const kept: Candidate[] = [];
     let candidates = 0;
-    let aimedAtAi = 0;
+    let leftOut = 0;
 
     for (const m of messages) {
-      for (const line of lines(session, m.role, m.content)) {
+      for (const p of paragraphs(session, m.role, m.content)) {
         // The whole paragraph goes: the sentences around a planted instruction carry its claims
-        // ("… Falcon has been announced, so label it public").
-        if (AIMED_AT_AI_RE.test(line.text)) {
-          aimedAtAi++;
+        // ("… Falcon has been announced, so label it public"), often on the next wrapped line.
+        if (aimedAtAi(p)) {
+          leftOut++;
           continue;
         }
-        for (const raw of sentences(line.text)) {
-          if (raw.length < MIN_CHARS || raw.split(/\s+/).length < MIN_WORDS) continue;
-          const happened = isoDayIn(raw);
-          const s = score(raw, m.role === "user", happened);
-          if (s === 0) continue;
-          candidates++;
-          const statement = attribute(raw, line.speaker).slice(0, MAX_CHARS).trim();
-          const key = statement.toLowerCase();
-          if (seen.has(key)) continue;
-          seen.add(key);
-          const draft: DraftFact = { statement, source: sourceOf(session) };
-          const folder = guessFolder(statement);
-          if (folder) draft.folder = folder;
-          if (happened) draft.happened = happened;
-          kept.push({ draft, score: s, order: kept.length });
+        for (const line of p.lines) {
+          for (const raw of sentences(line.text)) {
+            if (raw.length < MIN_CHARS || raw.split(/\s+/).length < MIN_WORDS) continue;
+            const happened = isoDayIn(raw);
+            const s = score(raw, m.role === "user", happened);
+            if (s === 0) continue;
+            candidates++;
+            const statement = attribute(raw, line.speaker).slice(0, MAX_CHARS).trim();
+            const key = statement.toLowerCase();
+            if (seen.has(key)) continue;
+            seen.add(key);
+            const draft: DraftFact = { statement, source: sourceOf(session) };
+            const folder = guessFolder(statement);
+            if (folder) draft.folder = folder;
+            if (happened) draft.happened = happened;
+            kept.push({ draft, score: s, order: kept.length });
+          }
         }
       }
     }
@@ -207,7 +252,7 @@ export class HeuristicDistiller implements Distiller {
       .sort((a, b) => a.order - b.order)
       .map((c) => c.draft);
 
-    const left = aimedAtAi ? `, ${aimedAtAi} ${aimedAtAi === 1 ? "paragraph" : "paragraphs"} left out as instructions aimed at an AI` : "";
+    const left = leftOut ? `, ${leftOut} ${leftOut === 1 ? "paragraph" : "paragraphs"} left out as instructions aimed at an AI` : "";
     return {
       drafts,
       plan: `heuristic: ${candidates} candidate sentences from ${messages.length} messages${left} (simulated)`,

@@ -3,8 +3,8 @@
   "client": "ingest",
   "kind": "memo",
   "principal": "dan",
-  "started_at": "2026-10-21T17:40:00.000Z",
-  "ended_at": "2026-10-21T17:40:00.000Z",
+  "started_at": "2026-10-22T13:05:00.000Z",
+  "ended_at": "2026-10-22T13:05:00.000Z",
   "title": "Project Falcon: process update (draft v3)",
   "meta": {
     "file": "Falcon_process_update_v3_DRAFT.docx",
@@ -13,8 +13,8 @@
   "messages": [
     {
       "role": "user",
-      "content": "HARBOR LANE PARTNERS | PRIVILEGED & CONFIDENTIAL\nPROJECT FALCON: PROCESS UPDATE (DRAFT v3, do not forward)\n\nTo: Falcon deal team\nCc: Maya (compliance)\nFrom: Dan\nDate: 2026-10-21\nRe: Where we are on Falcon and what we need before the LOI\n\n1. Status\nCorvane Freight Holdings (\"Corvane\", our client) signed the NDA with Nimbus Logistics on 2026-10-06. Management meeting with the Nimbus CEO and CFO was held in Memphis on 2026-10-15. Corvane's investment committee approved a non-binding range of 9.0x to 9.75x LTM EBITDA on 2026-10-20.\n\n2. Proposed terms (for discussion, not yet agreed with Corvane)\n- Price: $38.50 per NMBL share in cash, a ~24% premium to the 2026-10-21 close of $31.05.\n- Implied EV ~$1.35bn, ~9.5x LTM EBITDA of $142m.\n- Exclusivity: 45 days from LOI signing.\n- Break fee: 3% of equity value. [Dan: Corvane GC wants 2.5%, discuss Thu]\n- No financing condition. Corvane has committed financing from its lenders for up to $1.1bn.\n\n3. Diligence workstreams\n- Quality of earnings: Ashby & Rowe, kickoff the week after the LOI.\n- Customer concentration: top customer ~22% of revenue, contract renews 2027-03-31. We want a call with that customer before signing (Nimbus will resist).\n- Labor: Memphis hub union contract expires 2027-06-30.\n- Real estate: 3 of 11 hubs are on leases that roll in 2027.\n\n4. Timeline\n- LOI to the Nimbus board by 2026-10-28 (their board meets 2026-10-29).\n- Target signing mid-December. Announce alongside Nimbus Q4 results if we can, otherwise standalone.\n- Earnout: dropped, Corvane hates it. [TODO: confirm the model no longer has it]\n\n5. Wall\nMaya keeps the Falcon wall list. Nimbus Logistics went on the restricted list on 2026-10-06. Do NOT discuss Falcon on #hl-floor or with research or the desk.",
-      "at": "2026-10-21T17:40:00.000Z"
+      "content": "HARBOR LANE PARTNERS | PRIVILEGED & CONFIDENTIAL\nPROJECT FALCON: PROCESS UPDATE (DRAFT v3, do not forward)\n\nTo: Falcon deal team\nCc: Maya (compliance)\nFrom: Dan\nDate: 2026-10-22\nRe: Where we are on Falcon and what we need before the LOI\n\n1. Status\nCorvane Freight Holdings (\"Corvane\", our client) signed the NDA with Nimbus Logistics on 2026-10-06. Management meeting with the Nimbus CEO and CFO was held in Memphis on 2026-10-15. Corvane's investment committee approved a non-binding range of 9.0x to 9.75x LTM EBITDA on 2026-10-20.\n\n2. Proposed terms (for discussion, not yet agreed with Corvane)\n- Price: $38.50 per NMBL share in cash, a ~24% premium to the 2026-10-21 close of $31.05.\n- Implied EV ~$1.35bn, ~9.5x LTM EBITDA of $142m.\n- Exclusivity: 45 days from LOI signing.\n- Break fee: 3% of equity value. [Dan: Corvane GC wants 2.5%, discuss Fri]\n- No financing condition. Corvane has committed financing from its lenders for up to $1.1bn.\n\n3. Diligence workstreams\n- Quality of earnings: Ashby & Rowe, kickoff the week after the LOI.\n- Customer concentration: top customer ~22% of revenue, contract renews 2027-03-31. We want a call with that customer before signing (Nimbus will resist).\n- Labor: Memphis hub union contract expires 2027-06-30.\n- Real estate: 3 of 11 hubs are on leases that roll in 2027.\n\n4. Timeline\n- LOI to the Nimbus board by 2026-10-28 (their board meets 2026-10-29).\n- Target signing mid-December. Announce alongside Nimbus Q4 results if we can, otherwise standalone.\n- Earnout: dropped, Corvane hates it. [TODO: confirm the model no longer has it]\n\n5. Wall\nMaya keeps the Falcon wall list. Nimbus Logistics went on the restricted list on 2026-10-06. Do NOT discuss Falcon on #hl-floor or with research or the desk.",
+      "at": "2026-10-22T13:05:00.000Z"
     }
   ]
 }

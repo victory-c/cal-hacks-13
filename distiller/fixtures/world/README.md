@@ -36,9 +36,14 @@ fake public third-party logistics company, ticker NMBL). The deal's code name is
 - An item's `principal` is whose context it is: the author of a memo or note, the person in an AI
   session, the mailbox an email thread came from. The firm-wide channel has none on purpose, so
   triage meets the "unknown, treat cautiously" case.
-- Timeline: NDA 2026-10-06, management meeting 2026-10-15, Corvane IC range 2026-10-20, memo
-  2026-10-21, Dan's ChatGPT session the evening of 2026-10-21 (PDT), Nimbus Q3 print 2026-10-22,
-  lawyers' reply 2026-10-22, LOI due 2026-10-28, Nimbus board 2026-10-29.
+- Timeline: NDA 2026-10-06, management meeting 2026-10-15, Corvane IC range 2026-10-20, Dan's
+  ChatGPT session the evening of 2026-10-21 (PDT, after that day's close of $31.05), where he
+  settles on $38.50 a share; his draft v3 memo to the deal team the next morning, 2026-10-22, before
+  the market opens; Nimbus Q3 print 2026-10-22, lawyers' reply 2026-10-22, LOI due 2026-10-28,
+  Nimbus board 2026-10-29.
+- Harbor Lane is in California. Timestamps in these files are UTC (`Z`); the Claude writer shows
+  them in the firm's time zone (`FIRM_TZ`, default `America/Los_Angeles`), so Dan's 19:19 PDT
+  decision on 2026-10-21 is dated 2026-10-21, not 2026-10-22.
 - The deal numbers agree with each other (9.5x of $142m LTM EBITDA, $310m net debt and 27.0m
   shares give about $38.50 per share, a 24% premium to $31.05). They are synthetic data, never
   results: no benchmark or dashboard number comes from this folder.
