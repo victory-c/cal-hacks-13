@@ -1,6 +1,6 @@
 # Pitch: Canon (2 minutes live, then "try your own")
 
-**Owner:** Victor (task B23). Timings follow the demo script in [`PRD.md`](PRD.md). The video
+**Owner:** Victor (task B15). Timings follow the demo script in [`PRD.md`](PRD.md). The video
 ([`VIDEO_SCRIPT.md`](VIDEO_SCRIPT.md)) uses the same beats, so its clips stand in for any live
 beat that breaks. Judging is Sun 10:30–12:30, and the whole team stays at the table.
 
@@ -20,12 +20,12 @@ competitor's numbers.
 |---|---|---|
 | 0:00 | Desk assistant as Leo. The question is already typed; press Enter. Then switch to Maya's control room. | "Leo's a trader. He asks his AI: anything going on with Nimbus Logistics, should we add? *(refusal appears)* It says no, and nothing else. *(point at Maya's panel)* But compliance just got the full record: who asked, what, and which deal." |
 | 0:15 | Control room overview: deals, who is over each wall, live feed. The banner "Synthetic data · decision support, not legal compliance" stays on screen for the whole pitch ([[CHECK: banner shipped in `web/`; if not, tape a card under the screen]]). | "Canon is the control room for a small finance team's AI. Built for Maya, an invented compliance officer at a thirty-person firm. All our data is synthetic." |
-| 0:25 | Event feed: Dan's ChatGPT session and the new memo arrive; triage rows flag Falcon. Then the lawyers' email lands in Quarantine. | "Context comes in live: Dan's ChatGPT session about deal terms, and a new memo. Jev asks yes-or-no questions about each one and flags both as Falcon. Claude writes the facts, and code puts them behind the wall. This email from the target's lawyers hides an instruction to the AI. Quarantined." |
+| 0:25 | Event feed: Dan's ChatGPT session (through the extension, or the ingest client if the extension is cut) and the new memo arrive; triage rows flag Falcon. Then the lawyers' email lands in Quarantine. | "Context comes in live: Dan's ChatGPT session about deal terms, and a new memo. Jev asks yes-or-no questions about each one and flags both as Falcon. Claude writes the facts, and code puts them behind the wall. This email from the target's lawyers hides an instruction to the AI. Quarantined." |
 | 0:45 | Dan types the task. Two Droid lanes start. Open the inspector on the research agent's handoff and hover the "cut: wall" row. | "Dan types one task. Canon dispatches two Droid agents in separate sandboxes. The deal analyst gets Falcon facts; the research analyst gets public facts only. Here's the inspector: this Falcon fact was cut by the wall, not by relevance. The permission check is plain code, and it runs before search and before any model sees the request." |
 | 1:10 | Priya's access request in Maya's queue with Jev's pre-screen. Maya sets an expiry and approves. Wall map updates. | "Priya asks to join Falcon. Jev rates it borderline, so a person decides. Maya approves it with an expiry date, and the wall map updates." |
 | 1:25 | Maya sets Falcon to announced. Leo asks again and gets an answer. Research lane shows the urgent inbox item. | "Falcon is announced. Restrictions lift. Leo asks again and gets his answer, and the research agent picks up the public facts at its next step. No restart." |
 | 1:40 | Benchmark chart: leak rate against wrongly-blocked rate, one point per setup. | "We attacked it fifty times, in five styles. Canon with Jev leaked [[BENCH: leaks out of 50, Canon + Jev]]. Shared memory, told to respect the wall, leaked [[BENCH: leaks out of 50, shared memory]]. And Canon wrongly blocked [[BENCH: wrongly blocked rate, Canon + Jev]] of real tasks." |
-| 1:55 | Positioning line, then the scale path. | "Other memory tools ask what's relevant. Canon first asks what you're allowed to know. It's decision support for Maya, not legal compliance, and anything simulated is labeled. Small finance teams now, a company version next." |
+| 1:55 | Positioning line, then the scale slide ([`SCALE_SLIDE.md`](SCALE_SLIDE.md)). | "Other memory tools ask what's relevant. Canon first asks what you're allowed to know. It's decision support for Maya, not legal compliance, and anything simulated is labeled. Small finance teams now, a company version next." |
 | 2:00 | Edan turns the attack-box laptop to the judges. | "Your turn. Try to get Project Falcon out of it." |
 
 About 305 spoken words. The times are cue points from the PRD; the close is the tightest beat
@@ -165,10 +165,24 @@ when a deal dies. Its steps and files are the agent lanes you just saw.
 The compliance officer at a 10–50 person finance firm. It replaces the wall-crossing spreadsheet,
 manual briefings, and "paste everything into the prompt." It fills two seats: a compliance
 analyst and a research assistant that never crosses the wall. The path to production is the
-scale path: several desks and SSO next, then a company version with org-wide policies, retention
-and regulator-ready exports.
+scale path ([`SCALE_SLIDE.md`](SCALE_SLIDE.md)): several desks and SSO next, then a company
+version with org-wide policies, retention and regulator-ready exports. Only the small-team version
+runs today.
 
-**18. How fast is it?**
+**18. Can Maya delete a fact?**
+No hard deletes. The memory browser lets her view, edit and retire facts, and a retired fact moves
+to cold storage with its history kept. The raw capture stays in the archive too, so nothing is
+lost. [[CHECK: memory browser shipped (C18); if not, say retiring is planned
+and that facts are replaced, never deleted]]
+
+**19. Where does the data live?**
+In local files on the machine running Canon: one markdown file per fact, raw captures in a cold
+archive, and plain server-sent events to the dashboard. There is no database. (If they ask for
+more:) Text does leave the machine for model calls. At save time the judge and Claude's writer
+read the captured text. At handoff, only facts the permission filter allowed reach search and
+Jev.
+
+**20. How fast is it?**
 [[BENCH: time to first reply per handoff, Canon + Jev]] per handoff in our benchmark, and the
 live counter shows each handoff as it happens: [[LIVE COUNTER: latency]]. Moss search is
 [[LIVE COUNTER: Moss search latency]] of that.

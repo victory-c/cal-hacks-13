@@ -1,6 +1,6 @@
 {
   "project": "Canon",
-  "updated": "2026-10-24T11:55:58.971470+00:00",
+  "updated": "2026-10-24T12:37:42Z",
   "team": [
     {
       "id": "A",
@@ -269,36 +269,36 @@
       "owner": "B",
       "milestone": "M4",
       "priority": "must",
-      "state": "todo",
+      "state": "doing",
       "title": "Devpost text: finance problem, product, real integrations and limits",
-      "note": "Draft by Sat 23:59; C8 handles logistics."
+      "note": "Built and tested on b/story (stacked on PR #7); awaiting review and lane-A routes. Remaining: resolve every [[SHIPPED?]], [[CHECK]], [[BENCH]] and [[QUOTE]] marker in docs/DEVPOST.md by the Sat 23:59 draft and code freeze."
     },
     {
       "id": "B13",
       "owner": "B",
       "milestone": "M5",
       "priority": "must",
-      "state": "todo",
+      "state": "doing",
       "title": "Small-team-to-company scale slide and sponsor README evidence",
-      "note": "State what runs today and what is simulated."
+      "note": "Built and tested on b/story (stacked on PR #7); awaiting review and lane-A routes. Remaining: flip SPONSORS.md and README markers as PRs merge, and build the slide image from docs/SCALE_SLIDE.md once bench numbers exist."
     },
     {
       "id": "B14",
       "owner": "B",
       "milestone": "M4",
       "priority": "must",
-      "state": "todo",
+      "state": "doing",
       "title": "Video script and voiceover opening on the neutral refusal",
-      "note": "C9 records footage and backup; show compliance record and wall behavior."
+      "note": "Built and tested on b/story (stacked on PR #7); awaiting review and lane-A routes. Remaining: fill bench and live-counter placeholders and confirm the shot list against the shipped control room before C9 records."
     },
     {
       "id": "B15",
       "owner": "B",
       "milestone": "M6",
       "priority": "must",
-      "state": "todo",
+      "state": "doing",
       "title": "Two-minute finance pitch and answers to judge questions",
-      "note": "Use the finance interview quote from C4."
+      "note": "Built and tested on b/story (stacked on PR #7); awaiting review and lane-A routes. Remaining: add C4's interview quote and measured numbers, then rehearse with C11."
     },
     {
       "id": "B16",

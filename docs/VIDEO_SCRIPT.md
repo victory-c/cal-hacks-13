@@ -1,6 +1,6 @@
 # Video script: Canon (3:00 max)
 
-**Script:** Victor (task B23). **Footage:** Edan records it (C9), plus the full-demo backup
+**Script:** Victor (task B14). **Footage:** Edan records it (C9), plus the full-demo backup
 recording. **Voiceover:** Victor. Source of the beats: the demo script in [`PRD.md`](PRD.md).
 The live pitch in [`PITCH.md`](PITCH.md) follows the same order, so footage can stand in for any
 live beat that breaks.
@@ -51,7 +51,7 @@ emails anywhere in frame. Mouse moves slowly; pause 1 s before each click.
 | S2 | Maya's control room. The refusal row appears in the live feed and the review/audit panel lights up with who, what, which deal. | 8 s | Zoom in (post) on "deal: Project Falcon" so viewers see compliance gets the full reason and Leo didn't. |
 | S3 | Title card on a plain background: "Canon: the control room for a small finance team's AI". | 4 s | Made in post. |
 | S4 | Quote card: [[QUOTE: from Edan's notes]], with the speaker's role (no name unless they agreed). | 3 s | If there is no quote with permission, cut S4 and give the time to beat 3. |
-| S5 | Event feed while Dan's ChatGPT session and a new Falcon memo arrive. Triage rows show the Falcon label and Jev's probabilities. | 12 s | Use the extension on a real ChatGPT tab with synthetic text, or the ingest client. Say which on the end card. |
+| S5 | Event feed while Dan's ChatGPT session and a new Falcon memo arrive. Triage rows show the Falcon label and Jev's probabilities. | 12 s | Dan's ChatGPT session comes in through the ChatGPT extension on a real ChatGPT tab with synthetic text, or, if the extension is cut, through the ingest client (`hooks/ingest/`, as an AI session). Say which on the end card. |
 | S6 | The lawyers' email arrives and lands in Quarantine. Open it to show the planted line highlighted. | 8 s | Keep the planted instruction readable for 2 s. |
 | S7 | Dan types in the control room: "Prep Falcon board materials and update our logistics sector note." Two agent lanes start. | 12 s | Both lanes in frame, steps and files appearing (memo file, Python valuation, sector note). |
 | S8 | Handoff inspector for the research agent: the candidate list, a Falcon fact with "cut: wall" and no Jev probability, kept facts with their probabilities, final tokens. | 12 s | Hover the "cut: wall" row. This is the "permission before relevance" shot; make it slow. |
@@ -60,7 +60,7 @@ emails anywhere in frame. Mouse moves slowly; pause 1 s before each click.
 | S11 | Leo asks the same question again and gets an answer. Then the research lane shows the urgent inbox item and its next step using the now-public facts. | 14 s | Split screen in post if both don't fit. |
 | S12 | Benchmark chart from `bench/results/chart.json`: leak rate against wrongly-blocked rate, one point per setup. | 12 s | Record only after a real (not simulated) bench run. If only a simulated run exists, cut beat 7's numbers and say "benchmark in progress." |
 | S13 | Audit log view filtered to Project Falcon. Scroll slowly through handoff, refusal, access and status rows. | 8 s | |
-| S14 | Positioning card, then the scale path: small team → mid-size firm → company version. | 8 s | Made in post. |
+| S14 | Positioning card, then the scale path: small team → mid-size firm → company version. | 8 s | Made in post from [`SCALE_SLIDE.md`](SCALE_SLIDE.md). Only the small-team column runs today; keep its "design, not built" tag on the other two. |
 | S15 | End card (below). | 5 s | Made in post. |
 
 **Backup shot (record it, keep it out of the main cut):** S16, deal terminated. Maya marks

@@ -1,9 +1,10 @@
 # Devpost draft: Canon
 
-**Owner:** Victor (task B23). **Draft due:** Sat 10/24 23:59 PDT. **Final submit:** Sun 08:30.
+**Owner:** Victor (task B12). **Draft due:** Sat 10/24 23:59 PDT. **Final submit:** Sun 08:30.
 Edan pastes it into Devpost and handles the logistics (C8, C10). Source of truth for the story:
-[`PRD.md`](PRD.md) (v2). Video: [`VIDEO_SCRIPT.md`](VIDEO_SCRIPT.md). Pitch:
-[`PITCH.md`](PITCH.md). Where each sponsor runs: [`SPONSORS.md`](SPONSORS.md).
+[`PRD.md`](PRD.md). Video: [`VIDEO_SCRIPT.md`](VIDEO_SCRIPT.md). Pitch:
+[`PITCH.md`](PITCH.md). Scale slide: [`SCALE_SLIDE.md`](SCALE_SLIDE.md). Where each sponsor runs:
+[`SPONSORS.md`](SPONSORS.md).
 
 **How to use this file**
 
@@ -85,7 +86,7 @@ on every piece of context:
    the source. Code gives each fact a wall label (a deal, or public) from fixed rules plus the
    judge's answers, and from then on the label only moves up: no model can lower a wall or
    grant access. Anything uncertain goes to Maya's review queue.
-   [[SHIPPED? Anthropic: v2 writer; Armadin: triage and labels]]
+   [[SHIPPED? Anthropic: finance writer; Armadin: triage and labels]]
 4. **Hand over the slice.** When a person or agent needs context, code first removes every fact
    they aren't cleared for. Only then does search run, and Jev keeps the few facts that help
    with the task, cut to a token budget. Every handoff is logged.
@@ -99,6 +100,9 @@ Maya runs it from the control room: the deals and who is over each wall, pending
 requests with approve and deny, a live event feed, one lane per agent, and a handoff inspector
 that shows every candidate fact, Jev's probability for it, what was cut and why, and the final
 token count. [[SHIPPED? Hyphenate: server and control room]]
+
+Maya can also open the memory browser to view and edit facts, or retire one. A retired fact moves
+to cold storage with its history kept; nothing is ever hard-deleted. [[SHIPPED? Memory browser]]
 
 **Other memory tools ask what's relevant. Canon first asks what you're allowed to know, then
 what's relevant.**
@@ -115,8 +119,11 @@ capture → Jev triage → Claude writer → [permission filter] → Moss + keyw
 
 - **Capture.** A Claude Code hook (`hooks/claude-code/`) posts the live transcript on every
   turn. A Chrome extension (`extension/`) captures ChatGPT web sessions while you type. An
-  ingest client brings in memos, team chat, meeting notes and email. All of them post to one
-  endpoint, and the raw text lands in a cold archive that nothing deletes.
+  ingest client brings in memos, team chat, meeting notes, email and exported AI sessions. All of
+  them post to one endpoint, and the raw text lands in a cold archive that nothing deletes. The
+  extension is the first capture path we cut if time runs short; if it is cut, Dan's ChatGPT
+  session in the demo goes in through the ingest client instead.
+  [[CHECK: which path carried Dan's ChatGPT session in the demo: extension or ingest client]]
   [[SHIPPED? Ingest client]]
 - **Jev triage.** The distiller worker (`distiller/`) listens on the server's event stream. For
   each captured item it sends Jev **one** batched request with every question for every draft
@@ -133,7 +140,7 @@ capture → Jev triage → Claude writer → [permission filter] → Moss + keyw
   Claude answers those two questions. Either way a 20% chance of "confidential" counts as yes,
   and the label only moves toward more restricted. No model can lower a label or grant access;
   only Maya or a deal-status change can. Old facts are replaced, never deleted, so history
-  stays. [[SHIPPED? Anthropic: v2 writer; Armadin: triage and labels]]
+  stays. [[SHIPPED? Anthropic: finance writer; Armadin: triage and labels]]
 - **Permission filter, before anything else.** When a person or agent asks for context, plain
   code drops every fact whose wall they aren't cleared for. Access is deny by default. An agent's
   clearance is its side of the wall intersected with the live clearances of the person it works
@@ -152,10 +159,11 @@ capture → Jev triage → Claude writer → [permission filter] → Moss + keyw
 - **Droid dispatch.** A person types one task in the control room. The dispatcher splits it into
   agent runs, one per side of the wall. Each agent gets its slice through the same pipeline, as
   its own principal. Claude writes a short brief from that slice. Canon creates a sandbox folder
-  per agent holding only the allowed files, and runs Factory Droid headless (`droid exec`) at a
-  restricted autonomy level: it can read and write files and run local commands, like Python
-  for the numbers, inside its own folder, and nothing outside it.
-  [[CHECK: the `droid exec` autonomy level we ship, and that it runs Python but can't reach the network (blocker Q1)]]
+  per agent, outside the repo and Canon's data, holding only the allowed files, and runs Factory
+  Droid headless with `droid exec --auto low`, the lowest level that lets it create and edit
+  files. On macOS a sandbox profile also stops it from reading the repo, Canon's data or another
+  agent's folder. When a run ends, its folder is locked and kept as the run's record.
+  [[CHECK: at the Factory booth, that `--auto low` is fine for headless finance runs, whether it runs Python for the numbers at that level, and whether it can reach the network (blocker Q1)]]
   Each task runs as a few short Droid steps. Every step, file and result streams into that
   agent's lane on the dashboard and becomes its audit record.
   [[SHIPPED? Factory Droid; Anthropic: briefs and runner]]
@@ -173,7 +181,9 @@ capture → Jev triage → Claude writer → [permission filter] → Moss + keyw
 `distiller/`, `hooks/`, `extension/`, `web/`, `bench/`), each its own process talking over HTTP
 and Server-Sent Events. The contract between them is code in `shared/src/types/`, frozen in the
 first hour so three people could build in parallel against fakes. Facts are plain markdown files
-with YAML front matter, so the whole store opens in Obsidian. Every model sits behind one
+with YAML front matter, so the whole store opens in Obsidian, and raw captures sit next to them
+as JSON in a cold archive. There is no database: local files plus plain SSE carry the whole
+build. Every model sits behind one
 `judge()` interface with three implementations: Jev, a Claude fallback (`claude-haiku-5-5`) and
 an offline fake that labels itself simulated. Swapping is a config change. Model APIs (Claude,
 Jev) are called with plain `fetch` rather than SDKs, and the only third-party runtime
@@ -206,7 +216,7 @@ token per client.
   wall label could come out wrong. We pushed every security threshold the safe way, sent unsure
   deals to Maya, added an exit check on every agent output, and built paraphrase and indirect
   attacks into our test set to measure what still gets through.
-  [[SHIPPED? Armadin: filter and exit check; Microsoft: v2 setups]]
+  [[SHIPPED? Armadin: filter and exit check; Microsoft: finance setups]]
 - **Updating agents that are already running.** We designed each agent task as a few short Droid
   steps with an inbox in between, so a wall change takes effect at the next step whether or not
   the runtime accepts messages mid-run.
@@ -266,6 +276,9 @@ token per client.
 | Mid-size firm | Several desks and several compliance staff, single sign-on, connectors to email, chat and document storage |
 | Company version | Org-wide policies per agent, retention rules, regulator-ready exports, set up with a forward-deployed engineer |
 
+Only the first row is what we built; the other two are design. Our scale slide marks which
+parts of the first row are real and which ran simulated.
+
 Next steps after the hackathon: talk to more compliance officers at small firms, run Canon on
 their real (redacted) workflows, replace the synthetic connectors with real email and chat, and
 flag when two teammates' notes contradict each other.
@@ -277,7 +290,7 @@ chrome-extension, claude-code-hooks, esbuild, tsx, node-test, obsidian,
 [[SHIPPED? Jev: client, verified against TypeSafe's docs and used in the demo, not the Claude fallback]] jev, typesafe-ai,
 [[SHIPPED? Factory Droid]] factory-droid,
 [[SHIPPED? Moss]] moss,
-[[CHECK: dashboard stack Edan shipped, e.g. next.js, shadcn-ui]],
+[[CHECK: anything Edan added to the `web/` dashboard beyond TypeScript and esbuild]],
 [[CHECK: bitdeer-model-studio, only if it shipped]], [[CHECK: mana, only if used]]
 
 ## Sponsor tracks
@@ -305,21 +318,22 @@ label, and it can only move up. When the Claude fallback judge runs, Claude Haik
 "is this confidential?" and "which deal?" questions, and a 20% chance counts as yes. The risk
 left is a deal fact that both the alias rules and the judge miss; the paraphrase and indirect
 attacks in our benchmark and the exit check measure it.
-[[SHIPPED? Anthropic: v2 writer; Anthropic: briefs and runner; Armadin: triage and labels]]
+[[SHIPPED? Anthropic: finance writer; Anthropic: briefs and runner; Armadin: triage and labels]]
 
 **Microsoft: Built for the Real World.** Canon is a finance agent system built for production
 habits: deny by default, an audit log of every handoff, humans approving anything uncertain, and
 measured usefulness. Our benchmark compares four setups (no memory, shared memory, Canon with a
 Claude filter, Canon with Jev) on leak rate, wrongly-blocked rate, task accuracy, tokens, latency
 and cost. Results: [[CHECK: link to bench/results/latest.json from a run that is not simulated]].
-The scale path goes from one firm to a company version.
-[[SHIPPED? Microsoft: v2 setups; Hyphenate: server and control room]]
+The scale path goes from one firm to a company version, and our scale slide marks what is built
+and what is design.
+[[SHIPPED? Microsoft: finance setups; Hyphenate: server and control room]]
 
 **Factory Droid SDK.** Droid runs every agent Canon dispatches. It isn't a chat wrapper: a
-person's task triggers the dispatcher, which runs Droid headless (`droid exec`) at a restricted
-autonomy level, in a sandbox folder that holds only its side of the wall, where it can edit
-files and run Python but touch nothing outside it. Each task runs as a few short steps with an
-inbox in between. Each step, file and result streams into the agent's lane on the dashboard.
+person's task triggers the dispatcher, which runs Droid headless (`droid exec --auto low`) in a
+sandbox folder outside the repo that holds only its side of the wall, where it can create and
+edit files. [[CHECK: Python at `--auto low`, from the Factory booth (blocker Q1)]] Each task runs
+as a few short steps with an inbox in between. Each step, file and result streams into the agent's lane on the dashboard.
 Canon controls exactly what each Droid can see and touch, and can cancel it when a deal dies.
 The dispatcher is in `distiller/src/dispatch/`. [[SHIPPED? Factory Droid]]
 
@@ -355,16 +369,18 @@ for legal compliance.
 
 | Part | State at submit |
 | --- | --- |
-| Capture from Claude Code, ChatGPT web and the ingest client | [[CHECK: real / not shipped]] |
+| Capture: Claude Code hook, ChatGPT web (extension, or the ingest client if the extension is cut), memos, chat and email through the ingest client | [[CHECK: real / not shipped]] |
+| Storage and events | Local files and plain SSE, no database |
 | Jev triage and relevance | [[CHECK: real Jev / Claude fallback / simulated fake judge]] |
 | Claude fact writer and briefs | [[CHECK: real / simulated]] |
 | Permission filter, lists, neutral refusals, audit log | [[CHECK: real / not shipped]] |
 | Moss search | [[CHECK: real Moss / keyword fallback]] |
 | Droid agents | [[CHECK: real `droid exec` / Claude fallback runner / simulated fake runner]] |
+| Memory browser (view, edit, retire) | [[CHECK: real / not shipped]] |
 | Benchmark numbers | From our own runs only: [[CHECK: link to bench/results/latest.json]] |
 
 ## Links
 
 - Repo: [[CHECK: GitHub URL]]
 - Video: [[CHECK: video URL]]
-- Demo deck or scale slide: [[CHECK: link]]
+- Scale slide: [[CHECK: link to the slide built from docs/SCALE_SLIDE.md]]
