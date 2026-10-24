@@ -69,6 +69,16 @@ describe("aliasHits", () => {
     for (const text of ["Nothing goes to market. Public comment only through Corvane IR.", "capital market public issuance", "market, public", "market\npublic", "market - public"]) {
       assert.deepEqual(aliasHits(text, [market]).groups, [], JSON.stringify(text));
     }
+    // A camelCase boundary ends an id, so a file name that runs it into other words still names it.
+    const bareFalcon = { id: "deal/falcon", aliases: [] };
+    for (const text of ["DealFalconModel.xlsx", "Saved as myDealFalcon_v2.xlsx", "DEALFalconModel.xlsx", "deal_falconModel.xlsx"]) {
+      assert.deepEqual(aliasHits(text, [bareFalcon]).groups, ["deal/falcon"], text);
+    }
+    assert.deepEqual(aliasHits("MarketPublicNotes.docx", [market]).groups, ["market/public"]);
+    // Only a real boundary: a longer word is still not the id.
+    for (const text of ["DealFalconer.xlsx", "dealfalconer", "SupermarketPublic", "MarketPublicity", "Deal Falcon Model"]) {
+      assert.deepEqual(aliasHits(text, [bareFalcon, market]).groups, [], text);
+    }
     // An alias keeps the looser rule: "Project  Falcon" across a line break still names Falcon.
     assert.deepEqual(aliasHits("Nimbus.\nLogistics", [{ id: "deal/x", aliases: ["Nimbus Logistics"] }]).groups, ["deal/x"]);
   });

@@ -7,13 +7,14 @@ A worker process on the server's event stream. It never imports
 server code: everything goes over HTTP as the `distiller` client (`CANON_TOKEN_DISTILLER`).
 
 ```
-SSE session.captured ─▶ GET /api/sessions/:id ─▶ engine.distill() ─▶ triage() ─────────────────────▶ POST /api/facts
-                        (cold archive)            DraftFact[] + plan    one Jev request per item:       facts in their group
-                                                                        inject · keep · group ·         (or inbox), with labels,
-                        GET /api/facts (hot) ─┐                         labels · relation               author, decision.triage
-                        GET /api/groups ──────┴─▶ aliases (code hint) ─▶ thresholds + filing rules    ─▶ POST /api/quarantine
-                                                                                                          held items only
-                                                                                                       ─▶ POST /api/events
+SSE session.captured ─▶ GET /api/sessions/:id ─▶ engine.distill(item, { groups }) ─▶ triage() ──────▶ POST /api/facts
+                        (cold archive)            DraftFact[] + plan, each draft     one Jev request    facts in their group
+                                                  with a group and labels (hints)    per item: inject · (or inbox), with labels,
+                        GET /api/groups ─────────▶ (once per item: the same list ──▶ keep · group ·     author, happened,
+                                                    for the writer and triage)       labels · relation  decision.triage
+                        GET /api/facts (every tier) ───────────────────────────────▶ aliases (code      ─▶ POST /api/quarantine
+                                                                                     hint), thresholds,    held items only
+                                                                                     filing rules       ─▶ POST /api/events
                                                                                                           triage.decided · quarantine.flagged
 ```
 
@@ -26,12 +27,11 @@ logged and skipped; the loop never dies.
 | File | What |
 |---|---|
 | `src/index.ts` | Entrypoint: `loadEnv()`, picks engine + judge (`triageJudge()`), subscribes to `/events`, clean SIGINT. |
-| `src/worker.ts` | `createHandler({ client, distiller, judge, live })`: the flow above, testable with fakes. Also `loadContext()` and `deliver()`, shared with the CLI. |
+| `src/worker.ts` | `createHandler({ client, distiller, judge, live })`: the flow above, testable with fakes. Also `loadGroups()` (degrades to no list), `loadFacts()` (every tier), `loadContext()` and `deliver()`, shared with the CLI. |
 | `src/client.ts` | Typed fetch client: `getSession`, `listFacts`, `postFacts`; the scopes routes `getGroups` (checked by `parseGroups`: a body it cannot use throws), `postQuarantine`, `publishEvent` (RELAYED_EVENTS only). Bearer auth, 10 s timeout, errors say status + body. |
 | `src/triage.ts` | Save-time triage into groups: one batched `judge.ask()`, thresholds and filing rules applied by us. Pure given a `Judge`. Also `financeFakeJudge()`, the offline judge. |
 | `src/groups.ts` | `aliasHits()`: which groups a text names, by their aliases, matched in code on folded text. A filing hint, never a filing. Pure. |
 | `src/engines/` | `Distiller` interface, `createDistiller()`, the three engines (below). |
-| `src/decide.ts` | The earlier save-time decisions (tier, folder, dedupe). The worker no longer calls it; triage reuses its exact-duplicate rule. |
 | `src/cli.ts` | Run the pipeline on a recorded item; `--post` files the result on the server like the worker does. |
 | `fixtures/session.sample.json` | A Claude Code session (ships the capture hook, decides folders, targets backend internships). An existing compatibility transcript, not the finance demo world. |
 | `fixtures/world/` | The synthetic finance world (Harbor Lane Partners, Project Falcon): the groups (`groups.json`) and five captured items. All made up; see its README. `src/engines/world.test.ts` checks it against the contract. |
@@ -68,8 +68,8 @@ logged error, not a silent downgrade.
 | Engine | Real? | Needs | Where it plugs in |
 |---|---|---|---|
 | `droid` | **No, placeholder.** Picked only by `DISTILLER=droid`; constructs, and `distill()` throws `NotConfiguredError`. Droid runs dispatched agents (B2), not fact writing. | `FACTORY_API_KEY` | `src/engines/droid.ts` |
-| `claude` | Yes. The fact writer: `claude-sonnet-5-5`, one strict `emit_facts` tool (statement, folder, happened, detail), at most 16 facts, raw Messages API over `fetch` (no SDK dependency). | `ANTHROPIC_API_KEY` | `src/engines/claude.ts` |
-| `heuristic` | **No, simulated.** Keyword sentences (deal words such as agreed, proposed, LOI, EBITDA, and prices or multiples written as numbers), the speaker named in third person, `happened` from an ISO date in the sentence, paragraphs aimed at an AI left out, max 8. | nothing | `src/engines/heuristic.ts` |
+| `claude` | Yes. The fact writer: `claude-sonnet-5-5`, one strict `emit_facts` tool (statement, group from the item's group list or null, labels, happened, detail), at most 16 facts, raw Messages API over `fetch` (no SDK dependency). | `ANTHROPIC_API_KEY` | `src/engines/claude.ts` |
+| `heuristic` | **No, simulated.** Keyword sentences (deal words such as agreed, proposed, LOI, EBITDA, and prices or multiples written as numbers), the speaker named in third person, `happened` from an ISO date in the sentence, a group when the sentence names exactly one group's aliases, paragraphs aimed at an AI left out, max 8. | nothing | `src/engines/heuristic.ts` |
 
 **The Claude fact writer.** The system prompt asks for one claim per fact, in third person with
 names (in an AI session the user is the principal; an external email's claims belong to its
@@ -103,11 +103,15 @@ remain usable for development.
 **One `judge.ask()` per captured item** (CLAUDE.md rule). The state is the item (kind, client,
 `external`, principal, its text: title plus `role: content` per message), the server's groups (id,
 description, aliases), the labels already in use, the numbered drafts (with the writer's
-suggested group and labels) and up to 40 existing hot facts (id, statement, group, labels). Past
+suggested group and labels) and up to 40 existing facts (id, statement, group, labels). The
+worker reads every stored fact, hot and cold: a kept fact below 0.6 is stored cold, and its group
+and labels must still bind a copy of it. A fact another stored fact supersedes is retired history
+and is not shown to the judge. Past
 24 000 characters the text keeps its head and tail, and the cut middle is scanned in code (on
-folded text) for sentences that read like orders to an AI or like forwarding something out; up to
+folded text) for sentences that read like orders to an AI or like sending something out; up to
 8 of them are spliced in where the cut is. That scan knows the usual phrasings only ("ignore your
-instructions", "AI assistant: …", "forward … to"), so an order worded otherwise in the cut part
+instructions", "AI assistant: …", "copy … to an outside address", "forward … to"), the same ones
+the offline judge acts on, so an order worded otherwise in the cut part
 never reaches the `inject` question: the judge has not read the whole item, and every draft from
 it waits in `inbox` (filing rule 4). A
 sentence longer than 280 characters is cut to a window that starts just before the match, so
@@ -139,7 +143,8 @@ author's, until a moderator files it. Code disputes a confident pick of group G 
    `ProjectFalcon`, `FalconModel.xlsx` and "Falcon" with a zero-width space inside all name
    `deal/falcon`. A group id's words match only across `/`, `_`, `-`, `\` or nothing (`market/public`,
    `market_public.csv`, `MarketPublic`), never across a space or sentence punctuation, so prose
-   such as "nothing goes to market. Public comment …" names no group. An alias is a hint, never a
+   such as "nothing goes to market. Public comment …" names no group. A camelCase boundary ends an
+   id too, so `DealFalconModel.xlsx` names `deal/falcon` even when the group has no aliases. An alias is a hint, never a
    filing: an alias of G with Jev unsure is still inbox.
 2. **The draft names no group and its item names any group other than G**, even when the item
    names G too. The same check runs once over the whole captured item. A writer often paraphrases
@@ -152,13 +157,16 @@ author's, until a moderator files it. Code disputes a confident pick of group G 
 4. **The item was too long for the judge to read whole** (over 24 000 characters, see above): an
    order to an AI in the cut part may not have reached the `inject` question.
 
-**An exact duplicate** of a stored fact merges into it whatever the judge says (the `decide.ts`
-rule) and is filed in that fact's group, so a moderator's filing holds when the same item is
-distilled again; a duplicate of an inbox fact stays in inbox. Only the statements are compared, so
-the merged fact writes back the stored fact's content: its statement, `detail` and `author`. The
+**An exact duplicate** of a stored fact, hot or cold, merges into it whatever the judge says and
+is filed in that fact's group, so a moderator's filing holds when the same item is distilled
+again; a duplicate of an inbox fact stays in inbox. When several stored facts share the statement,
+a live hot one wins, then a live cold one, then a retired one. Only the statements are compared, so
+the merged fact writes back the stored fact's content: its statement, `detail`, `author` and
+`source` (the session that supplied that content). The
 draft's own detail never rides into that group unchecked (a public close in `market/public` cannot
 pick up Falcon terms from a memo's detail), and a new author never makes the stored content their
-own fact. The `reason` says when the draft's detail or author was not taken.
+own fact. The `reason` says when the draft's detail or author was not taken; `triage.decided`
+records the repeat (its `session_id` and `relation_to`).
 
 **Every written fact** (`fact` or `inbox`) carries `folder` = its group, `labels`, `author` (the
 item's principal; unset when the principal is unknown, never guessed), `happened` (a
@@ -223,7 +231,7 @@ CLI say "simulated".
 - **`contradicts` counts as relating**, like same, replaces and adds detail: a line that
   contradicts a Falcon fact is Falcon information.
 - **An exact duplicate follows its stored fact's group**, not Jev's pick, and writes back that
-  fact's content (statement, detail, author): nothing new reaches the group, and a moderator's
+  fact's content (statement, detail, author, source): nothing new reaches the group, and a moderator's
   filing would otherwise be undone on every re-distill. A new detail on a duplicate statement is
   not kept hot (the raw item stays in the cold archive).
 - **The relation → action mapping holds for inbox facts too**: a fact that replaces a filed fact
@@ -235,8 +243,11 @@ CLI say "simulated".
   keeps every label of the fact it retires, so a moderator's label holds through a re-distill
   even when it is past the 8 candidates or Jev says no to it.
 - **`new` proposes the writer's suggested group** (`DraftFact.folder`) when it is a well-formed id
-  that is not already a group; the engines still suggest the scaffold's folders (`team`,
-  `projects`), so until B17's follow-up the proposal is often absent or coarse.
+  that is not already a group. The writers now suggest only ids from the list they are given
+  (B17), so in practice `new` comes with no proposal and the moderator names the group.
+- **The writer's group and labels are hints.** The worker fetches `GET /api/groups` once per item
+  and passes the same list to `engine.distill()` and to triage. The suggestion goes into the
+  state (`suggested_group`, `suggested_labels`); Jev picks, and the filing rules above decide.
 - **A quarantined draft's decision** says `group: "inbox"` and no labels: nothing from it is
   written, and its Jev answers came from a state that held an injection.
 - **A missing `external`, `kind` or `principal` is unknown, not the friendly default.** The
@@ -257,8 +268,9 @@ CLI say "simulated".
   unknown origin and every fact is written without an `author`, so living scopes cannot add a
   member's own facts to their scope. The distiller's grant must let it write every group (today
   it writes only `career`, `projects`, `team`, `private` and `inbox`, so a fact in `deal/falcon`
-  would be a 403 once `GET /api/groups` exists) and `GET /api/facts?tier=hot` must return facts
-  from every group to the distiller, or the relation and duplicate rules cannot see them.
+  would be a 403 once `GET /api/groups` exists) and `GET /api/facts` (no tier: the worker reads
+  hot and cold) must return facts from every group to the distiller, or the relation and duplicate
+  rules cannot see them.
 - Long items: past 24 000 characters the judge reads the head, the tail and the suspect sentences
   code finds in the middle, so every draft from such an item waits in `inbox` (a long email thread
   with quoted history included). Once Jev's request size limit is known, raise the cap or ask

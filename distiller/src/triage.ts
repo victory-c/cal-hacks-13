@@ -17,7 +17,8 @@
 //               the item was too long for the judge to read whole (MAX_TEXT_CHARS): an order to an
 //               AI in the cut part may not have reached the injection question
 //             An exact duplicate stays in its stored fact's group and keeps that fact's content
-//             (statement, detail, author), so a moderator's filing holds and nothing new moves.
+//             (statement, detail, author, source), so a moderator's filing holds and nothing new
+//             moves. Stored facts are hot and cold alike: a cold copy binds as much as a hot one.
 //   labels    each candidate label (the writer's suggestions, then labels already in use) is a
 //             yes/no; LABEL_RE is checked in code. A label only ever lets an exclusion remove a
 //             fact, so a neutral answer applies it, and a merge or supersede keeps every label of
@@ -53,7 +54,6 @@ import type {
   TriageDecision,
   TriageOutcome,
 } from "@canon/shared";
-import { normalizeStatement } from "./decide.ts";
 import { aliasHits, foldText, matchForms } from "./groups.ts";
 import type { AliasHits, GroupNames } from "./groups.ts";
 import { log } from "./log.ts";
@@ -66,7 +66,12 @@ export interface TriageInput {
   session: CapturedSession;
   /** What the engine proposed from it. May be empty: the injection question is still asked. */
   drafts: DraftFact[];
-  /** Facts already in the store, for the relation questions, the labels in use and the group rule. */
+  /**
+   * Facts already in the store, hot and cold (the worker asks for every tier), for the
+   * exact-duplicate rule, the relation questions, the labels in use and the group rule. A kept
+   * fact below KEEP_HOT is stored cold, and its group and labels still bind a copy of it. A fact
+   * another listed fact supersedes is retired history: the judge is not asked about it.
+   */
   existing: Fact[];
   /** The server's groups (GET /api/groups): the options for "which group?" and the aliases code checks. */
   groups: Group[];
@@ -167,16 +172,13 @@ export async function triage(input: TriageInput, judge: Judge): Promise<TriageRe
   const groupsKnown = input.groupsKnown ?? true;
   const groups = groupsKnown ? usableGroups(input.groups) : [];
   const groupIds = groups.map((g) => g.id);
-  const existing = input.existing.slice(-MAX_EXISTING);
+  // A fact another listed fact supersedes is retired history: the judge sees only live ones.
+  const retiredIds = new Set(input.existing.flatMap((f) => (typeof f?.supersedes === "string" ? [f.supersedes] : [])));
+  const live = input.existing.filter((f) => !retiredIds.has(f?.id));
+  const existing = live.slice(-MAX_EXISTING);
   const existingIds = existing.map((f) => f.id);
-  // A draft that repeats a stored fact word for word merges into it whatever the judge says
-  // (decide.ts rule). Scans the whole store, not only the 40 the judge sees; last one wins.
-  const byStatement = new Map<string, Fact>();
-  for (const f of input.existing) {
-    const key = normalizeStatement(f.statement);
-    if (key) byStatement.set(key, f);
-  }
-  const inUse = labelsInUse(input.existing);
+  const byStatement = exactIndex(input.existing, retiredIds);
+  const inUse = labelsInUse(live);
   const candidates = drafts.map((d) => labelCandidates(d, inUse));
 
   const text = itemText(session);
@@ -269,6 +271,33 @@ function usableGroups(groups: readonly Group[]): Group[] {
     seen.add(g.id);
     return true;
   });
+}
+
+/** Lowercase, letters and digits only, single spaces: "Prefer TS." equals "prefer  ts". */
+export function normalizeStatement(s: string): string {
+  return s.toLowerCase().replace(/[^\p{L}\p{N}]+/gu, " ").trim();
+}
+
+/**
+ * The exact-duplicate index. A draft that repeats a stored fact word for word merges into it
+ * whatever the judge says: a re-distilled or replayed item merges into what it already produced
+ * and never files a second copy, and the stored fact's group holds. Built over every fact passed
+ * in, hot and cold, not only the 40 the judge sees: a kept fact below KEEP_HOT is stored cold,
+ * and its group binds a copy of it as much as a hot one's would. When several share a statement,
+ * a live hot one wins, then a live cold one, then a retired one (a merge leaves the retired copy
+ * behind with the same statement; merging into that again would leave the live copy standing next
+ * to the new one). The last one listed wins a tie.
+ */
+function exactIndex(facts: readonly Fact[], retired: ReadonlySet<string>): Map<string, Fact> {
+  const rank = (f: Fact) => (retired.has(f.id) ? 0 : f.tier === "hot" ? 2 : 1);
+  const out = new Map<string, Fact>();
+  for (const f of facts) {
+    const key = typeof f?.statement === "string" ? normalizeStatement(f.statement) : "";
+    if (!key) continue;
+    const prev = out.get(key);
+    if (!prev || rank(f) >= rank(prev)) out.set(key, f);
+  }
+  return out;
 }
 
 /** Labels on stored facts that pass LABEL_RE, most used first (ties in first-seen order). */
@@ -435,11 +464,14 @@ function decideDraft(draft: DraftFact, i: number, got: Map<string, Answer>, ctx:
   const fact: Fact = { id: newFactId(), statement: draft.statement, folder: group, tier, jev_keep: keep_p, source: draft.source, updated: today() };
   if (action !== "add" && target) fact.supersedes = target.id;
   if (exact) {
-    // An exact duplicate writes back the stored fact's content: its statement, detail and author.
-    // The draft's own detail is new content nothing checked against that group (only the
-    // statements were compared), and a new author would make the stored content their own fact,
-    // which joins their scope whatever their rule excludes.
+    // An exact duplicate writes back the stored fact's content: its statement, detail and author,
+    // and the source that content came from. The draft's own detail is new content nothing checked
+    // against that group (only the statements were compared), and a new author would make the
+    // stored content their own fact, which joins their scope whatever their rule excludes. The
+    // source stays the stored one so the fact still points at the session that supplied what it
+    // says; the repeat is recorded on triage.decided (session_id, relation_to).
     fact.statement = exact.statement;
+    if (isSource(exact.source)) fact.source = { ...exact.source };
     if (typeof exact.detail === "string" && exact.detail) fact.detail = exact.detail;
     if (typeof exact.author === "string" && exact.author) fact.author = exact.author;
   } else {
@@ -454,6 +486,13 @@ function decideDraft(draft: DraftFact, i: number, got: Map<string, Answer>, ctx:
   const save: SaveDecision = { tier, folder: group, action, keep_p, folder_p: group_p, judge: ctx.judge, triage: decision };
   if (fact.supersedes) save.supersedes = fact.supersedes;
   return { draft, decision, fact, save };
+}
+
+/** A stored fact's source as the server checks it: a client and a session id. Anything else keeps the draft's. */
+function isSource(s: unknown): s is Fact["source"] {
+  if (typeof s !== "object" || s === null) return false;
+  const { client, session } = s as { client?: unknown; session?: unknown };
+  return typeof client === "string" && client !== "" && typeof session === "string" && session !== "";
 }
 
 /**
@@ -505,10 +544,20 @@ const INJECTION_PATTERNS = [
   /\b(?:ai assistants?|ai agents?|language models?|system prompt)\b/i,
 ];
 const FORWARD_PATTERN = /\b(?:forward|send|share)\b[^.!?\n]{0,120}\bto\b/i;
+/** A send to an address out of the conversation: an email address, or an outside / personal one. Whoever says it. */
+const SEND_TO_ADDRESS =
+  /\b(?:forward|send|share|e-?mail|copy|upload)\b[^.!?\n]{0,120}\b(?:to|with|at)\b[^.!?\n]{0,40}?(?:[\w.+-]+@[\w-]+(?:\.[\w-]+)+|\b(?:outside|external|personal|private|home)\s+(?:address|e-?mail|account|inbox|drive)\b)/i;
+/**
+ * Every phrasing code looks for in an item: orders to an AI, then sends to an address, then any
+ * "forward / send / share … to". Sends to an address come before the broad forward pattern, which
+ * deal text matches often ("per share … to"), so a run of those cannot crowd one out of the
+ * MAX_SPLICED sentences clipForJudge keeps.
+ */
+const SUSPECT_PATTERNS = [...INJECTION_PATTERNS, SEND_TO_ADDRESS, FORWARD_PATTERN];
 
 /** The sentence that most likely tripped the injection flag, else the start of the item. */
 export function injectionExcerpt(text: string): string {
-  for (const re of [...INJECTION_PATTERNS, FORWARD_PATTERN]) {
+  for (const re of SUSPECT_PATTERNS) {
     const m = re.exec(text);
     if (m) return sentenceAt(text, m.index, m[0].length);
   }
@@ -523,11 +572,12 @@ const SCAN_OVERLAP = 300;
 /**
  * The item text for the state: whole up to `max` characters, else its head and tail. The cut
  * middle is scanned in code (folded, so zero-width characters cannot split a phrase) for sentences
- * that read like orders to an AI or like forwarding something out, and up to MAX_SPLICED of them
- * are spliced in where the cut is. That catches the usual phrasings only: an order worded outside
- * INJECTION_PATTERNS and FORWARD_PATTERN in the cut part never reaches the injection question. So
- * the judge does not see the whole item, and decideDraft sends every draft from a cut item to
- * inbox (DraftContext.cut).
+ * that read like orders to an AI or like sending something out (SUSPECT_PATTERNS: every phrasing
+ * the offline judge acts on, "copy … to an outside address" included), and up to MAX_SPLICED of
+ * them are spliced in where the cut is. That catches the usual phrasings only: an order worded
+ * outside SUSPECT_PATTERNS in the cut part never reaches the injection question. So the judge does
+ * not see the whole item, and decideDraft sends every draft from a cut item to inbox
+ * (DraftContext.cut).
  */
 function clipForJudge(s: string, max: number): string {
   if (s.length <= max) return s;
@@ -535,7 +585,7 @@ function clipForJudge(s: string, max: number): string {
   const tail = max - head;
   const middle = foldText(s.slice(Math.max(0, head - SCAN_OVERLAP), s.length - tail + SCAN_OVERLAP));
   const found: string[] = [];
-  for (const re of [...INJECTION_PATTERNS, FORWARD_PATTERN]) {
+  for (const re of SUSPECT_PATTERNS) {
     for (const m of middle.matchAll(new RegExp(re.source, `${re.flags}g`))) {
       const sentence = sentenceAt(middle, m.index, m[0].length);
       if (!found.includes(sentence)) found.push(sentence);
@@ -621,9 +671,6 @@ const KEEP_SIGNAL =
   /\b(?:decided|agreed|will|plan|deadline|due|target|prefers?|signed|approved|requested|moved|revised|valuation|multiples?|ebitda|loi|term sheet|meeting|call|memo|board)\b|\d/i;
 const UPDATE_WORDS = /\b(?:revised|now|updated|changed|instead|moved|no longer|raised|lowered|cut|replaced|new)\b/i;
 
-/** A send to an address out of the conversation: an email address, or an outside / personal one. Whoever says it. */
-const SEND_TO_ADDRESS =
-  /\b(?:forward|send|share|e-?mail|copy|upload)\b[^.!?\n]{0,120}\b(?:to|with|at)\b[^.!?\n]{0,40}?(?:[\w.+-]+@[\w-]+(?:\.[\w-]+)+|\b(?:outside|external|personal|private|home)\s+(?:address|e-?mail|account|inbox|drive)\b)/i;
 /** FORWARD_PATTERN without "share", which in deal text is mostly the noun ("$38.50 per share ... a premium to"). */
 const SEND_TO = /\b(?:forward|send)\b[^.!?\n]{0,120}\bto\b/gi;
 /** The author's own plan ("I'll send", "before i send", "we will forward"): said about the author, not asked of the reader. */

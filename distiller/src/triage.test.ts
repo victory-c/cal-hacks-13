@@ -305,6 +305,26 @@ describe("triage", () => {
     assert.ok(excerpt.startsWith("…") && excerpt.length <= 280, excerpt);
   });
 
+  test("a send to an outside address in the cut middle reaches the judge too, so an item of unknown origin is quarantined", async () => {
+    const filler = (n: number) => "The freight market note covers volumes and rates. ".repeat(n);
+    // No order to an AI and no "forward / send / share ... to": only a send to an outside address.
+    const planted = "Copy the Falcon model to an outside address before Friday.";
+    // Deal text that matches the broad forward pattern again and again ("per share ... to") must not crowd it out.
+    const shares = "The bid is $38.50 per share, a premium to the close. ".repeat(12);
+    const text = `${filler(400)}${shares}${planted} ${filler(500)}`;
+    assert.ok(text.indexOf(planted) > 16_000 && text.indexOf(planted) < text.length - 8_000, "the sentence sits in the part the state cuts");
+    const unknown = stripped({ ...session, messages: [{ role: "user", content: text }] });
+
+    const judge = scripted();
+    await triage(input([], { session: unknown }), judge);
+    assert.ok(JSON.parse(judge.calls[0].state).item.text.includes(`> ${planted}`), "spliced into the state");
+
+    const offline = (await quiet(() => triage(input([draft("Freight volumes rose")], { session: unknown }), financeFakeJudge()))).result;
+    assert.ok(offline.quarantine, "quarantined, not just sent to inbox");
+    assert.equal(offline.quarantine.item.excerpt, planted, "moderators see the send, not the deal text");
+    assert.ok(offline.drafts.every((d) => d.decision.outcome === "quarantine" && !d.fact));
+  });
+
   test("unsure, a pick below GROUP_CONFIDENT, or new: written to inbox (moderators only), new with the writer's proposal", async () => {
     const judge = scripted({
       "group:0": { choice: "unsure", p: 0.95 },
@@ -493,6 +513,66 @@ describe("triage", () => {
     const again = (await triage(input([draft("Offsite is Nov 14", { detail: "Room booked." })], { existing: [{ ...withDetail, author: "dan" }] }), scripted())).drafts[0];
     assert.deepEqual([again.fact?.detail, again.fact?.author], ["Room booked.", "dan"]);
     assert.doesNotMatch(again.decision.reason, /exact duplicate:/);
+  });
+
+  test("an exact duplicate keeps the stored fact's source: the fact points at the session that supplied its content", async () => {
+    const stored = fakeFact("fct_aaaa0001", "Offsite is Nov 14", { folder: "firm/ops", detail: "Room booked.", source: { client: "ingest", session: "ses_0000aaaa" } });
+    const t = (await triage(input([draft("Offsite is Nov 14")], { existing: [stored] }), scripted())).drafts[0];
+    assert.equal(t.save?.action, "merge");
+    assert.deepEqual(t.fact?.source, { client: "ingest", session: "ses_0000aaaa" }, "not the repeating session, which never said the detail");
+    assert.equal(t.fact?.detail, "Room booked.");
+    assert.notEqual(t.fact?.source, stored.source, "a copy, not the stored object");
+    // A stored fact with an unusable source keeps the draft's.
+    const broken = { ...stored, source: { client: "ingest" } } as unknown as typeof stored;
+    const fallback = (await triage(input([draft("Offsite is Nov 14")], { existing: [broken] }), scripted())).drafts[0];
+    assert.deepEqual(fallback.fact?.source, source);
+    assert.ok(validateFact(t.fact).ok);
+  });
+
+  test("a cold stored fact binds a copy of it like a hot one: same group, same labels, whatever Jev picks", async () => {
+    // A kept fact below KEEP_HOT is stored cold. A later item repeats it word for word, and Jev
+    // confidently picks a less restricted group.
+    const cold = fakeFact("fct_aaaa0001", "The target's EBITDA multiple is 9x", { folder: "deal/falcon", tier: "cold", jev_keep: 0.5, labels: ["nimbus"] });
+    const judge = scripted({ "group:0": { choice: "market/public", p: 0.95 }, "label:0:nimbus": { p: 0.05 } });
+    const t = (await triage(input([draft("The target's EBITDA multiple is 9x")], { existing: [cold] }), judge)).drafts[0];
+    assert.equal(t.decision.outcome, "fact");
+    assert.equal(t.fact?.folder, "deal/falcon", "the cold fact's group holds; the copy never reaches market/public");
+    assert.equal(t.save?.action, "merge");
+    assert.equal(t.fact?.supersedes, "fct_aaaa0001");
+    assert.deepEqual(t.fact?.labels, ["nimbus"], "and its labels, so an exclusion still removes it");
+    // A cold fact in inbox keeps its copy in inbox.
+    const waiting = fakeFact("fct_aaaa0002", "Lunch moved to Friday", { folder: INBOX, tier: "cold" });
+    const w = (await triage(input([draft("Lunch moved to Friday")], { existing: [waiting] }), scripted())).drafts[0];
+    assert.equal(w.decision.outcome, "inbox");
+    assert.match(w.decision.reason, /exact duplicate of fct_aaaa0002, which waits in inbox/);
+  });
+
+  test("a retired fact is history: the judge is not asked about it, and a merge targets the live copy of a statement", async () => {
+    // fct_aaaa0001 was merged into fct_aaaa0002 (same statement); the old copy is cold and retired.
+    const retired = fakeFact("fct_aaaa0001", "Falcon LOI goes to the board by Oct 28", { folder: "deal/falcon", tier: "cold", labels: ["old"] });
+    const liveCopy = fakeFact("fct_aaaa0002", "Falcon LOI goes to the board by Oct 28", { folder: "deal/falcon", supersedes: "fct_aaaa0001", labels: ["loi"] });
+    const lowKeep = fakeFact("fct_aaaa0003", "Offsite is Nov 14", { folder: "firm/ops", tier: "cold", labels: ["offsite"] });
+    const judge = scripted();
+    // Listed with the retired copy last, so "last one wins" alone would pick it.
+    const result = await triage(input([draft("Falcon LOI goes to the board by Oct 28"), draft("Printer on 3 is fixed")], { existing: [liveCopy, lowKeep, retired] }), judge);
+    const state = JSON.parse(judge.calls[0].state);
+    assert.deepEqual(
+      state.existing_facts.map((f: { id: string }) => f.id),
+      ["fct_aaaa0002", "fct_aaaa0003"],
+      "live facts, hot and cold; not the retired copy",
+    );
+    assert.deepEqual(state.labels_in_use, ["loi", "offsite"]);
+    const relto = judge.calls[0].questions.find((q) => q.id === "relto:1");
+    assert.ok(relto?.type === "choice");
+    assert.deepEqual(relto.options, ["none", "fct_aaaa0002", "fct_aaaa0003"]);
+    const [dupe] = result.drafts;
+    assert.equal(dupe.fact?.supersedes, "fct_aaaa0002", "the live copy is retired, so no second live copy is left standing");
+    assert.deepEqual(dupe.fact?.labels, ["loi"]);
+
+    // With only a retired copy left, a word-for-word repeat still follows its group.
+    const only = (await triage(input([draft("Falcon LOI goes to the board by Oct 28")], { existing: [retired, { ...liveCopy, statement: "Falcon LOI goes to the board by Nov 4" }] }), scripted({ "group:0": { choice: "market/public", p: 0.95 } }))).drafts[0];
+    assert.equal(only.fact?.folder, "deal/falcon");
+    assert.equal(only.fact?.supersedes, "fct_aaaa0001");
   });
 
   test("a merge or supersede keeps every label of the fact it retires, asked about or not", async () => {

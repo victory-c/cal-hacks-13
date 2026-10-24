@@ -1,5 +1,6 @@
-// The worker's event handler: session.captured → fetch → distill → Jev triage (one request) →
-// POST /api/facts (facts in their groups, or in inbox), then the quarantine item when the item
+// The worker's event handler: session.captured → fetch → GET /api/groups (once per item) →
+// distill with that group list → Jev triage against the same list and every stored fact (one
+// request) → POST /api/facts (facts in their groups, or in inbox), then the quarantine item when the item
 // was held (POST /api/quarantine) and the relayed events (POST /api/events: triage.decided per
 // draft, quarantine.flagged per held item).
 // Built as a factory over an injected client/distiller/judge so worker.test.ts drives it with
@@ -189,14 +190,18 @@ async function processSession(event: Captured, opts: HandlerOptions, processed: 
     const session = fetched.result;
     log(`session ${id}: fetched ${session.messages.length} messages in ${fetched.ms} ms`);
 
-    const distilled = await timed(() => opts.distiller.distill(session));
+    // The group list, once per item: the writer suggests a group from it and triage files against
+    // the same list. Without one (404, failing, unusable) the writer gets none and every fact goes
+    // to inbox. The writer's group is a hint in the drafts; triage still decides.
+    const known = await loadGroups(opts.client, warnOnce);
+    const distilled = await timed(() => opts.distiller.distill(session, { groups: known.groups }));
     const { drafts, plan, simulated } = distilled.result;
     log(`session ${id}: ${opts.distiller.name} distilled ${drafts.length} drafts in ${distilled.ms} ms${simulated ? " (simulated)" : ""}`);
     if (plan) log(`session ${id}: plan: ${plan}`);
 
-    // Every captured item gets the injection question, drafts or not. The store and the groups
-    // only matter when there is something to file.
-    const ctx: TriageContext = drafts.length ? await loadContext(opts.client, warnOnce) : { existing: [], groups: [], groupsKnown: false };
+    // Every captured item gets the injection question, drafts or not. The store only matters when
+    // there is something to file.
+    const ctx: TriageContext = { ...known, existing: drafts.length ? await loadFacts(opts.client) : [] };
     const triaged = await timed(() => triage({ session, drafts, ...ctx }, opts.judge));
     const result = triaged.result;
     const against = ctx.groupsKnown ? `${ctx.groups.length} groups` : "no group list";
@@ -236,22 +241,42 @@ export function onceWarner(): WarnOnce {
   };
 }
 
-export interface TriageContext {
-  existing: Fact[];
+export interface KnownGroups {
+  /** The server's groups; [] when it gave none. What the writer suggests from and triage files against. */
   groups: Group[];
   /** False unless the server gave a group list the client could use: then every fact goes to inbox. */
   groupsKnown: boolean;
 }
 
+export interface TriageContext extends KnownGroups {
+  existing: Fact[];
+}
+
 const NO_GROUPS = "every fact is filed in inbox (moderators only) until the server lists its groups";
 
 /**
- * Hot facts (required: an existing route) and groups (missing, failing or malformed means degrade
- * to groupsKnown false, not fail; client.ts throws on a body it cannot use).
+ * GET /api/groups. Missing, failing or malformed degrades to no list (groupsKnown false), never a
+ * failed item: client.ts throws on a body it cannot use, and that counts as no list too.
  */
+export async function loadGroups(client: CanonClient, warnOnce: WarnOnce): Promise<KnownGroups> {
+  const groups = await optional(() => client.getGroups(), `GET ${ROUTES.groups}`, NO_GROUPS, warnOnce);
+  return { groups: groups.ok ? groups.value : [], groupsKnown: groups.ok };
+}
+
+/**
+ * Every stored fact, hot and cold (an existing route, so a failure fails the item and it is
+ * retried). Not only hot: a kept fact below KEEP_HOT is stored cold, and the exact-duplicate and
+ * group rules must still see its group and labels, or a copy of it could be filed somewhere its
+ * readers were never meant to be. Triage sets retired facts aside itself.
+ */
+export async function loadFacts(client: CanonClient): Promise<Fact[]> {
+  return client.listFacts();
+}
+
+/** Groups and facts together, for cli.ts (--post). */
 export async function loadContext(client: CanonClient, warnOnce: WarnOnce): Promise<TriageContext> {
-  const [existing, groups] = await Promise.all([client.listFacts({ tier: "hot" }), optional(() => client.getGroups(), `GET ${ROUTES.groups}`, NO_GROUPS, warnOnce)]);
-  return { existing, groups: groups.ok ? groups.value : [], groupsKnown: groups.ok };
+  const [known, existing] = await Promise.all([loadGroups(client, warnOnce), loadFacts(client)]);
+  return { ...known, existing };
 }
 
 export interface Delivered extends Sent {

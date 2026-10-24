@@ -5,17 +5,18 @@ import { fileURLToPath } from "node:url";
 
 import type { CanonEvent, CapturedSession, DraftFact, Fact, Group, GroupsResponse, PostFactsBody, PostQuarantineBody } from "@canon/shared";
 import { CanonApiError, createClient } from "./client.ts";
-import type { CanonClient, RelayedEvent } from "./client.ts";
+import type { CanonClient, FactsQuery, RelayedEvent } from "./client.ts";
 import { DroidDistiller, HeuristicDistiller } from "./engines/index.ts";
-import type { Distiller } from "./engines/index.ts";
+import type { DistillOptions, Distiller } from "./engines/index.ts";
 import { fakeFact, loadFixture, quiet, readBody, serve } from "./test-helpers.ts";
 import { financeFakeJudge } from "./triage.ts";
 import { createHandler } from "./worker.ts";
 
 const WORLD_GROUPS = (JSON.parse(readFileSync(fileURLToPath(new URL("../fixtures/world/groups.json", import.meta.url)), "utf8")) as GroupsResponse).groups;
 
-function fakeClient(sessions: Record<string, CapturedSession>, hot: Fact[] = [], groups: Group[] = WORLD_GROUPS) {
-  const calls = { getSession: [] as string[], listFacts: 0, posts: [] as PostFactsBody[], quarantined: [] as PostQuarantineBody[], events: [] as RelayedEvent[], groups: 0 };
+/** `stored`: every fact in the fake store, hot and cold; a query's tier filters it as the server does. */
+function fakeClient(sessions: Record<string, CapturedSession>, stored: Fact[] = [], groups: Group[] = WORLD_GROUPS) {
+  const calls = { getSession: [] as string[], listFacts: 0, factQueries: [] as Array<FactsQuery | undefined>, posts: [] as PostFactsBody[], quarantined: [] as PostQuarantineBody[], events: [] as RelayedEvent[], groups: 0 };
   const client: CanonClient = {
     async getSession(id) {
       calls.getSession.push(id);
@@ -23,9 +24,10 @@ function fakeClient(sessions: Record<string, CapturedSession>, hot: Fact[] = [],
       if (!s) throw new Error(`GET /api/sessions/${id} -> HTTP 404: no such session`);
       return s;
     },
-    async listFacts() {
+    async listFacts(query) {
       calls.listFacts++;
-      return hot;
+      calls.factQueries.push(query);
+      return stored.filter((f) => !query?.tier || f.tier === query.tier);
     },
     async postFacts(body) {
       calls.posts.push(body);
@@ -49,6 +51,12 @@ function fakeClient(sessions: Record<string, CapturedSession>, hot: Fact[] = [],
 /** An engine that proposes exactly these drafts, whatever the session says. */
 function fixedDistiller(drafts: DraftFact[]): Distiller {
   return { name: "heuristic", distill: async () => ({ drafts, simulated: true, plan: "fixed drafts (test)" }) };
+}
+
+/** Wraps an engine and records the options each distill() call got. */
+function recording(inner: Distiller): Distiller & { seen: Array<DistillOptions | undefined> } {
+  const seen: Array<DistillOptions | undefined> = [];
+  return { name: inner.name, seen, distill: (s, opts) => (seen.push(opts), inner.distill(s, opts)) };
 }
 
 /** `at` defaults to now: a fixed past timestamp would read as an SSE replay and be skipped. */
@@ -146,6 +154,97 @@ describe("worker handler", () => {
     assert.equal(decided[3].fact_id, posted[2].fact.id, "an inbox fact is written, so it has an id");
     assert.ok(decided.every((e) => e.session_id === memo.id && typeof e.at === "string"));
     assert.equal(calls.quarantined.length, 0);
+  });
+
+  test("the writer gets the group list triage files against, read once per item; its group and labels are hints", async () => {
+    const office: CapturedSession = { ...memo, id: "ses_0000f003", title: "Admin", messages: [{ role: "user", content: "Offsite is on 2026-11-14 at the Mission office." }] };
+    const src = { client: "ingest", session: office.id };
+    const writer = recording(
+      fixedDistiller([
+        // The writer guessed a deal group for an office line: triage files it where it belongs.
+        { statement: "The offsite is on 2026-11-14", source: src, folder: "deal/falcon", labels: ["offsite", "Not A Slug"], happened: "2026-11-14" },
+        // A bad date from the writer is dropped, never written.
+        { statement: "The offsite moved to the Mission office", source: src, happened: "next Friday" },
+      ]),
+    );
+    const { client, calls } = fakeClient({ [office.id]: office });
+    const handler = createHandler({ client, distiller: writer, judge: await judge(), live: false });
+    await quiet(async () => {
+      await handler(captured(office.id, 1, true));
+      await handler.settle();
+    });
+
+    assert.equal(calls.groups, 1, "one GET /api/groups for the item, shared by the writer and triage");
+    assert.deepEqual(writer.seen, [{ groups: WORLD_GROUPS }]);
+    const posted = calls.posts[0].facts;
+    assert.deepEqual(
+      posted.map(({ fact }) => [fact.folder, fact.author, fact.labels, fact.happened]),
+      [
+        ["firm/ops", "dan", ["offsite"], "2026-11-14"],
+        ["firm/ops", "dan", undefined, undefined],
+      ],
+    );
+    assert.ok(posted.every(({ fact, decision }) => fact.folder === decision.triage?.group && decision.triage.labels.join() === (fact.labels ?? []).join()));
+  });
+
+  test("end to end through the offline writer: author from the principal, labels and happened reach the store", async () => {
+    const falconMemo: CapturedSession = {
+      ...memo,
+      id: "ses_0000f004",
+      title: "Falcon process",
+      messages: [{ role: "user", content: "Dan decided the Falcon LOI goes to the board by 2026-10-28." }],
+    };
+    // Labels already in use: the offline judge applies one when the draft says it.
+    const stored = [fakeFact("fct_aaaa0001", "Corvane signed the NDA", { folder: "deal/falcon", labels: ["loi", "nda"] })];
+    const writer = recording(new HeuristicDistiller());
+    const { client, calls } = fakeClient({ [falconMemo.id]: falconMemo }, stored);
+    const handler = createHandler({ client, distiller: writer, judge: await judge(), live: false });
+    const { lines } = await quiet(async () => {
+      await handler(captured(falconMemo.id, 1, true));
+      await handler.settle();
+    });
+
+    assert.deepEqual(writer.seen, [{ groups: WORLD_GROUPS }]);
+    assert.ok(lines.some((l) => l.includes("1 of 1 drafts grouped by alias")), lines.join("\n"));
+    assert.equal(calls.posts.length, 1);
+    const [{ fact, decision }] = calls.posts[0].facts;
+    assert.equal(fact.statement, "Dan decided the Falcon LOI goes to the board by 2026-10-28.");
+    assert.equal(fact.folder, "deal/falcon");
+    assert.equal(fact.author, "dan", "the session principal");
+    assert.deepEqual(fact.labels, ["loi"]);
+    assert.equal(fact.happened, "2026-10-28");
+    assert.deepEqual(fact.source, { client: "ingest", session: falconMemo.id });
+    assert.deepEqual(decision.triage?.labels, ["loi"]);
+    const decided = calls.events.find((e) => e.type === "triage.decided");
+    assert.ok(decided?.type === "triage.decided" && decided.fact_id === fact.id);
+  });
+
+  test("reads every stored fact, hot and cold: a cold fact's group binds a word-for-word copy of it", async () => {
+    // Kept below KEEP_HOT, so stored cold, in deal/falcon: the acquirer's board, no alias in it.
+    const statement = "Corvane's board meets Friday at the office to approve the offer";
+    const cold = fakeFact("fct_aaaa0001", statement, { folder: "deal/falcon", tier: "cold", jev_keep: 0.5, labels: ["nimbus"] });
+    const repeat: CapturedSession = { ...memo, id: "ses_0000f005", messages: [{ role: "user", content: `Reminder: ${statement}.` }] };
+    const drafts = [{ statement, source: { client: "ingest", session: repeat.id } }];
+    const run = async (stored: Fact[]) => {
+      const { client, calls } = fakeClient({ [repeat.id]: repeat }, stored);
+      const handler = createHandler({ client, distiller: fixedDistiller(drafts), judge: await judge(), live: false });
+      await quiet(async () => {
+        await handler(captured(repeat.id, 1, true));
+        await handler.settle();
+      });
+      return calls;
+    };
+
+    // With nothing stored, the offline judge reads "office" and files the line in firm/ops.
+    assert.equal((await run([])).posts[0].facts[0].fact.folder, "firm/ops");
+
+    const calls = await run([cold]);
+    assert.deepEqual(calls.factQueries, [undefined], "no tier filter");
+    const [{ fact, decision }] = calls.posts[0].facts;
+    assert.equal(fact.folder, "deal/falcon", "the cold fact's group holds; the copy never reaches firm/ops");
+    assert.equal(decision.action, "merge");
+    assert.equal(fact.supersedes, "fct_aaaa0001");
+    assert.deepEqual(fact.labels, ["nimbus"]);
   });
 
   test("a quarantined item posts no facts, files one quarantine item and relays quarantine.flagged with its id", async () => {
@@ -264,8 +363,8 @@ describe("worker handler", () => {
     const handler = createHandler({ client, distiller: new HeuristicDistiller(), judge: spy, live: false });
     const { lines } = await quiet(() => handler(captured(empty.id, 1, true)));
     assert.deepEqual(asked, ["inject"]);
-    assert.equal(calls.listFacts, 0);
-    assert.equal(calls.groups, 0);
+    assert.equal(calls.listFacts, 0, "the store only matters when there is something to file");
+    assert.equal(calls.groups, 1, "the group list is read once, for the writer");
     assert.equal(calls.posts.length, 0);
     assert.equal(calls.events.length, 0);
     assert.ok(lines.some((l) => l.includes("nothing to save")));
@@ -360,11 +459,13 @@ describe("worker against a server without the scopes routes (404)", () => {
         { statement: "We decided on 9x EBITDA", source }, // deal talk
         { statement: "The offsite is Nov 14", source, folder: "firm/ops" }, // an office line, with the writer's guess
       ];
-      const handler = createHandler({ client, distiller: fixedDistiller(drafts), judge: await judge(), live: false });
+      const writer = recording(fixedDistiller(drafts));
+      const handler = createHandler({ client, distiller: writer, judge: await judge(), live: false });
       const { lines } = await quiet(async () => {
         await handler(captured(memo.id, 1, true));
         await handler.settle();
       });
+      assert.deepEqual(writer.seen, [{ groups: [] }], "no list for the writer either: no draft carries a group");
       const posted = calls.posts[0].facts;
       assert.deepEqual(
         posted.map((f) => [f.decision.triage?.outcome, f.fact.folder, f.decision.folder]),

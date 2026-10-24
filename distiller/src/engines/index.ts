@@ -1,5 +1,5 @@
 // Distiller engines: session in, draft facts out. Jev decides what happens to the drafts
-// (decide.ts); an engine only proposes, including each draft's group and labels. Pick one with
+// (triage.ts); an engine only proposes, including each draft's group and labels. Pick one with
 // createDistiller(); swapping is config (DISTILLER), never a code change.
 
 import { env } from "@canon/shared";

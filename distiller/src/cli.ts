@@ -1,7 +1,8 @@
 // Run the pipeline on one recorded item, no server needed:
 //   npm run distill -w distiller -- <session.json> [--engine heuristic|claude|droid] [--groups <file> | --post]
 // Prints the plan, the drafts and the triage (outcome, group, labels, Jev's answers, relation) as
-// tables and as JSON. Groups come from --groups (a GroupsResponse JSON file), else from
+// tables and as JSON. The writer and triage get the same group list (the writer's group is a
+// hint; triage decides). Groups come from --groups (a GroupsResponse JSON file), else from
 // fixtures/world/groups.json when it exists. With --post they come from the server only: --groups
 // is refused and the fixture is never read, since the result is filed on that server and a local
 // list could file a fact in a group the server does not have, or skip the inbox fallback. Without
@@ -56,8 +57,10 @@ async function main(argv: string[]): Promise<number> {
   const existing: Fact[] = server?.existing ?? [];
   const groups = client ? serverSource(server?.groupsKnown ? server.groups : undefined) : pickSource(args.groups, WORLD_GROUPS, readGroups);
 
+  // The writer gets the same list triage files against (none: no draft carries a group). Its
+  // group is a hint in the drafts; triage decides.
   const t0 = performance.now();
-  const result = await distiller.distill(session);
+  const result = await distiller.distill(session, { groups: groups.value ?? [] });
   const distillMs = Math.round(performance.now() - t0);
   const t1 = performance.now();
   const triaged = await triage({ session, drafts: result.drafts, existing, groups: groups.value ?? [], groupsKnown: groups.value !== undefined }, judge);

@@ -7,7 +7,9 @@
 //                zero-width characters, "_" joiners, camelCase), so the usual spelling tricks in a
 //                memo cannot hide a name. A group id's words match only across a path or file-name
 //                joiner ("deal/falcon", "deal-falcon", "deal_falcon", "dealFalcon"), never across
-//                sentence punctuation, so "go to market. Public comment" names no group.
+//                sentence punctuation, so "go to market. Public comment" names no group. A camelCase
+//                boundary also ends an id, so a file name that runs it into other words still names
+//                it ("DealFalconModel.xlsx").
 // No I/O, no model, no env.
 
 import type { Group } from "@canon/shared";
@@ -40,8 +42,7 @@ const CODE_NAME_PREFIX = /^(?:project|operation)\s+/i;
  */
 export function aliasHits(text: string, groups: readonly GroupNames[]): AliasHits {
   const forms = matchForms(text);
-  // An id is looked for with its joiners kept: "_" stays "_" (foldText makes it a space).
-  const idForms = [foldLetters(text).replace(/\p{Pc}/gu, "_")];
+  const idForms = idMatchForms(text);
   const hits = new Map<string, string[]>(); // group id → matched names
   for (const group of groups) {
     for (const name of groupNames(group)) {
@@ -84,7 +85,8 @@ const ALIAS_JOINER = "[^\\p{L}\\p{N}]*";
  * Between a group id's words: path or file-name joiners only, or none: "deal/falcon",
  * "deal_falcon", "deal-falcon", "deal\falcon", "dealFalcon". A space, ". ", ", " or a line break
  * does not join them, so prose ("go to market. Public comment", "capital market public issuance")
- * names no group by its id. Matched against the text folded with "_" kept (aliasHits).
+ * names no group by its id. Matched against the text folded with "_" kept, plus that text with
+ * camelCase boundaries marked "_" (idMatchForms), so "DealFalconModel.xlsx" names deal/falcon.
  */
 const ID_JOINER = "[-/\\\\_]*";
 
@@ -150,9 +152,23 @@ function foldLetters(s: string): string {
     .replace(CONFUSABLE_RE, (c) => CONFUSABLES[c] ?? c);
 }
 
-/** camelCase into words: "FalconModel" → "Falcon Model", "NMBLDeal" → "NMBL Deal". */
-function splitCamel(s: string): string {
-  return s.replace(/(\p{Ll})(\p{Lu})/gu, "$1 $2").replace(/(\p{Lu})(\p{Lu}\p{Ll})/gu, "$1 $2");
+/** camelCase into words: "FalconModel" → "Falcon Model", "NMBLDeal" → "NMBL Deal". `sep` goes between them. */
+function splitCamel(s: string, sep = " "): string {
+  return s.replace(/(\p{Ll})(\p{Lu})/gu, `$1${sep}$2`).replace(/(\p{Lu})(\p{Lu}\p{Ll})/gu, `$1${sep}$2`);
+}
+
+/**
+ * The forms of a text a group id is looked for in: folded with "_" kept (foldText makes it a
+ * space, which does not join an id's words), and that with camelCase boundaries marked "_", so a
+ * file name that runs the id into other words still names it ("DealFalconModel.xlsx" →
+ * "Deal_Falcon_Model.xlsx" names deal/falcon, "myMarketPublic" names market/public). "_" is an
+ * ID_JOINER and not a letter, so it joins the id's words and ends the id; prose keeps its spaces
+ * and sentence punctuation, which still join nothing.
+ */
+function idMatchForms(text: string): string[] {
+  const kept = foldLetters(text).replace(/\p{Pc}/gu, "_");
+  const split = splitCamel(kept, "_");
+  return split === kept ? [kept] : [kept, split];
 }
 
 /**

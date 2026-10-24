@@ -1,6 +1,6 @@
 {
   "project": "Bullwark",
-  "updated": "2026-10-24T14:34:42Z",
+  "updated": "2026-10-24T15:11:26Z",
   "team": [
     {
       "id": "A",
@@ -253,7 +253,7 @@
       "priority": "must",
       "state": "doing",
       "title": "Jev triage: keep, group and labels, instructions (quarantine) and relation to existing facts",
-      "note": "Reworked on b/triage (PR #10) for the scopes PRD and tested offline: one batched Jev ask per item (inject, keep, group over GET /api/groups + new + unsure, labels, relation); facts carry group, labels, author, happened; unsure, new, alias/Jev disagreement and cross-group relations go to inbox; injections go to POST /api/quarantine. Without /api/groups every fact goes to inbox. Remaining: lane A's /api/groups, /api/quarantine and /api/events routes, a distiller grant that writes every group, parseSession keeping principal/kind/external, then a run with a real Jev/Claude judge."
+      "note": "Reworked on b/triage (PR #10) for the scopes PRD, merged with the group-suggesting writer (#17, #18), and tested offline: the worker reads GET /api/groups once per item and passes the same list to the writer (a hint) and to triage; one batched Jev ask per item (inject, keep, group over the server's groups + new + unsure, labels, relation); facts carry group, labels, author, happened; unsure, new, alias/Jev disagreement and cross-group relations go to inbox; exact duplicates of hot or cold facts keep the stored group, labels, content and source; injections (sends to an outside address included, even in a long item's cut middle) go to POST /api/quarantine. Without /api/groups every fact goes to inbox. Remaining: lane A's /api/groups, /api/quarantine and /api/events routes, a distiller grant that writes every group, parseSession keeping principal/kind/external, then a run with a real Jev/Claude judge."
     },
     {
       "id": "B6",
