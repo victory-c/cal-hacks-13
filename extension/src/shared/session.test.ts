@@ -1,8 +1,8 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { KNOWN_CLIENTS, SESSION_ID_RE } from "@canon/shared";
+import { KNOWN_CLIENTS, SESSION_ID_RE, SOURCE_KINDS } from "@canon/shared";
 import type { TurnsMessage } from "./protocol.ts";
-import { clientFor, fnv1a32, sessionIdFor, TITLE_MAX, titleFrom, toCapturedSession } from "./session.ts";
+import { clientFor, fnv1a32, normalizePrincipal, sessionIdFor, TITLE_MAX, titleFrom, toCapturedSession } from "./session.ts";
 
 const msg: TurnsMessage = {
   kind: "turns",
@@ -61,6 +61,36 @@ test("toCapturedSession: id, client, messages in index order, meta, title fallba
   assert.deepEqual(s.meta, { url: msg.url, site: "chatgpt" });
   assert.equal(s.title, "How do I debounce a MutationObserver?");
   assert.equal("ended_at" in s, false);
+  assert.equal(s.kind, "ai_session");
+  assert.equal("principal" in s, false);
+});
+
+test("toCapturedSession v2: kind ai_session, principal trimmed and lowercased, blank means none", () => {
+  const s = toCapturedSession(msg, "2026-10-24T03:12:00.000Z", undefined, " Dan ");
+  assert.equal(s.principal, "dan");
+  assert.equal(s.kind, "ai_session");
+  assert.ok(SOURCE_KINDS.includes(s.kind!));
+  assert.equal("principal" in toCapturedSession(msg, "2026-10-24T03:12:00.000Z", undefined, "   "), false);
+  assert.equal(toCapturedSession(msg, "2026-10-24T03:12:00.000Z", undefined, "dan.okafor@harborlane.com").principal, "dan");
+});
+
+// The same table is in hooks/test/capture.test.mjs: the hook, the ingest CLI and the extension
+// must turn one person into one principal id.
+test("normalizePrincipal: names and emails map to the same id the hook and ingest CLI use", () => {
+  const table: [unknown, string][] = [
+    [" Dan ", "dan"],
+    ["dan", "dan"],
+    ["agt_research_1", "agt_research_1"],
+    ["AGT_Research_1", "agt_research_1"],
+    ["Dan Okafor", "dan"],
+    ["dan.okafor@harborlane.com", "dan"],
+    ["Dan Okafor <DAN.OKAFOR@harborlane.com>", "dan"],
+    ["Maya (Compliance)", "maya"],
+    ["   ", ""],
+    ["42", ""],
+    [7, ""],
+  ];
+  for (const [input, want] of table) assert.equal(normalizePrincipal(input), want, JSON.stringify(input));
 });
 
 test("toCapturedSession: msg.title wins, ended_at only when ended", () => {

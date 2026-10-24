@@ -34,7 +34,7 @@ export function buildPost(msg: TurnsMessage, startedAt: string, settings: Settin
   if (!settings.token) {
     throw new Error("No client token set. Open the Canon Capture options page and paste the chatgpt token from CANON_CLIENT_TOKENS.");
   }
-  const session = toCapturedSession(msg, startedAt, endedAt);
+  const session = toCapturedSession(msg, startedAt, endedAt, settings.principal);
   return {
     url: `${settings.canonUrl.replace(/\/+$/, "")}${ROUTES.sessions}`,
     init: {

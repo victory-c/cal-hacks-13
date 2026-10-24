@@ -30,6 +30,9 @@
     <label for="token">Client token <span class="hint">(the <code>chatgpt=…</code> value from <code>CANON_CLIENT_TOKENS</code> in <code>.env</code>)</span></label>
     <input id="token" type="password" autocomplete="off" />
 
+    <label for="principal">Your principal id <span class="hint">(who you are at the firm, e.g. <code>dan</code>; Canon checks clearances against it)</span></label>
+    <input id="principal" type="text" placeholder="dan" autocomplete="off" spellcheck="false" />
+
     <div class="row">
       <button id="save" class="primary">Save</button>
       <button id="test">Test connection</button>

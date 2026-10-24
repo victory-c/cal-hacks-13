@@ -10,6 +10,8 @@ import { createHash } from "node:crypto";
 import { readFileSync } from "node:fs";
 
 export const CLIENT = "claude-code";
+/** v2 SourceKind for every session this hook captures. */
+export const KIND = "ai_session";
 export const TITLE_MAX = 80;
 /** Per-message cap. A pasted log or a huge answer should not dominate the distiller's input. */
 export const MESSAGE_MAX = 8000;
@@ -135,8 +137,10 @@ export function sessionIdFor(sessionId) {
 /**
  * Assemble the CapturedSession body for POST /api/sessions.
  * ended_at is set only on SessionEnd: that is what tells the server to run the final distill.
+ * v2: kind is always "ai_session"; principal (CANON_PRINCIPAL, e.g. `dan`) is sent only when set,
+ * because a missing principal means "unknown" and triage treats that cautiously.
  */
-export function buildSession({ payload = {}, messages = [], hookEvent, git = {} }) {
+export function buildSession({ payload = {}, messages = [], hookEvent, git = {}, principal }) {
   const event = hookEvent ?? payload.hook_event_name ?? "Stop";
   const firstUser = messages.find((m) => m.role === "user");
   const session = {
@@ -150,10 +154,31 @@ export function buildSession({ payload = {}, messages = [], hookEvent, git = {} 
       branch: git.branch,
       hook_event: event,
     }),
+    kind: KIND,
   };
   if (event === "SessionEnd") session.ended_at = new Date().toISOString();
   if (firstUser) session.title = makeTitle(firstUser.content);
+  const who = normalizePrincipal(principal);
+  if (who) session.principal = who;
   return session;
+}
+
+/**
+ * A principal id the way every capture path writes it, so one person gets one id whether they
+ * typed it into .env, the extension's options page, or an ingested file named them:
+ *   " Dan " → "dan", "agt_research_1" kept, "Dan Okafor" → "dan",
+ *   "dan.okafor@harborlane.com" / "Dan Okafor <dan.okafor@harborlane.com>" → "dan" (the address's
+ *   first token), "Maya (Compliance)" → "maya".
+ * Empty, not a string, or nothing that starts with a letter → undefined, and the field is left out.
+ * Mirrored in extension/src/shared/session.ts (normalizePrincipal); keep the two in step.
+ */
+export function normalizePrincipal(value) {
+  if (typeof value !== "string") return undefined;
+  const v = value.trim().toLowerCase();
+  if (/^[a-z][a-z0-9_]*$/.test(v)) return v;
+  const local = /(?<![a-z0-9._+'-])([a-z0-9._+'-]+)@[a-z0-9-]+(?:\.[a-z0-9-]+)+/.exec(v)?.[1];
+  const first = (local ?? v).split(/[^a-z0-9]+/).find(Boolean);
+  return first && /^[a-z]/.test(first) ? first : undefined;
 }
 
 /** First user message, whitespace collapsed, cut to TITLE_MAX chars. */
@@ -166,7 +191,8 @@ export function makeTitle(text) {
  * Tiny .env reader: KEY=value per line, `#` comments and blank lines ignored, optional
  * `export ` prefix, matching quotes stripped, and an unquoted ` #` starts an inline comment.
  * Returns {} when the file is missing. Not a full dotenv (no multiline, no interpolation):
- * .env.example is flat, and the hook only needs CANON_URL and CANON_TOKEN_CLAUDE_CODE.
+ * .env.example is flat, and the hook only needs CANON_URL, CANON_TOKEN_CLAUDE_CODE and
+ * CANON_PRINCIPAL (the ingest CLI reuses it for CANON_TOKEN_INGEST).
  */
 export function readDotEnv(path) {
   let text;
