@@ -19,4 +19,5 @@ Research desk note. Public sources only; nothing here comes from the deal side.
   using it.
 
 For the sector note: the unexplained volume is worth one line, but stick to what is public.
-Leo asked whether to add to the position; I told him to check the restricted list first.
+Leo asked whether to add to the position; I said the public picture is mixed and to wait for the
+11/6 print.

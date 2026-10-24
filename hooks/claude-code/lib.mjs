@@ -137,8 +137,9 @@ export function sessionIdFor(sessionId) {
 /**
  * Assemble the CapturedSession body for POST /api/sessions.
  * ended_at is set only on SessionEnd: that is what tells the server to run the final distill.
- * v2: kind is always "ai_session"; principal (CANON_PRINCIPAL, e.g. `dan`) is sent only when set,
- * because a missing principal means "unknown" and triage treats that cautiously.
+ * kind is always "ai_session"; principal (CANON_PRINCIPAL, e.g. `dan`) is sent only when set. It is
+ * the author of the facts distilled from the session, which join that person's scope as their own;
+ * never guessed, because a missing principal (no author) is the safe default.
  */
 export function buildSession({ payload = {}, messages = [], hookEvent, git = {}, principal }) {
   const event = hookEvent ?? payload.hook_event_name ?? "Stop";

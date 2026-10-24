@@ -163,24 +163,22 @@ function looksLikeChat(text) {
   if (lines.length < 2) return false;
   const said = lines.map(parseSpeakerLine).filter(Boolean);
   if (said.length / lines.length < 0.6) return false;
-  return evidentSpeakers(said.map((s) => ({ speaker: s.speaker, said: 1, stamped: Boolean(s.stamp) }))).size >= 2;
+  return evidentSpeakers(said).size >= 2;
 }
 
 /**
- * Speakers that are evidently people in the conversation: they say more than one line, speak
- * on a timestamped line, or are named in the item's participants. A one-off "Location: Zoom" or
- * "Recorded by: Otter" header line is none of these.
+ * Speakers (from parseSpeakerLine results) that are evidently people in the conversation: they
+ * say more than one line or speak on a timestamped line. A one-off "Location: Zoom" or
+ * "Recorded by: Otter" header line is neither, so a key/value sheet is not mistaken for a chat.
  */
-function evidentSpeakers(turns, participants = []) {
+function evidentSpeakers(lines) {
   const said = new Map();
   const stamped = new Set();
-  for (const t of turns) {
-    if (!t.speaker) continue;
-    said.set(t.speaker, (said.get(t.speaker) ?? 0) + (t.said ?? 1));
-    if (t.stamped) stamped.add(t.speaker);
+  for (const l of lines) {
+    said.set(l.speaker, (said.get(l.speaker) ?? 0) + 1);
+    if (l.stamp) stamped.add(l.speaker);
   }
-  const named = new Set(participants.map((p) => toPrincipalId(String(p))).filter(Boolean));
-  return new Set([...said.keys()].filter((s) => said.get(s) > 1 || stamped.has(s) || named.has(toPrincipalId(s))));
+  return new Set([...said.keys()].filter((s) => said.get(s) > 1 || stamped.has(s)));
 }
 
 // ----------------------------------------------------------------------------- speaker lines
@@ -236,8 +234,8 @@ export function parseSpeakerLine(line) {
  * merge, lines with no speaker continue the turn above, and text before the first speaker is a
  * preamble turn with no speaker. Timestamps become `at` only when they resolve to an exact
  * instant (see stampToIso); otherwise the stamp stays in the text, so nothing is lost or invented.
- * Each turn also says how many speaker lines it merged (`said`) and whether any carried a
- * timestamp (`stamped`), which is how the opener is told apart from a header line.
+ * A same-speaker line whose stamp is an exact instant other than the turn's own `at` starts a new
+ * turn instead of merging, so its time is kept as `at` and never dropped (a turn holds one `at`).
  */
 export function parseTurns(text, clock = {}) {
   const turns = [];
@@ -248,7 +246,7 @@ export function parseTurns(text, clock = {}) {
     const s = parseSpeakerLine(line);
     if (!s) {
       if (!cur) {
-        cur = { speaker: undefined, label: undefined, said: 0, stamped: false, lines: [] };
+        cur = { speaker: undefined, label: undefined, lines: [] };
         turns.push(cur);
       }
       cur.lines.push(line.trim());
@@ -256,17 +254,15 @@ export function parseTurns(text, clock = {}) {
     }
     const at = s.stamp ? stampToIso(s.stamp, clock) : undefined;
     const body = s.stamp && !at ? `[${s.stamp}] ${s.text}`.trim() : s.text;
-    if (cur && cur.speaker === s.speaker) {
-      cur.said++;
-      cur.stamped ||= Boolean(s.stamp);
+    if (cur && cur.speaker === s.speaker && (!at || at === cur.at)) {
       if (body) cur.lines.push(body);
       continue;
     }
-    cur = { speaker: s.speaker, label: s.label, at, said: 1, stamped: Boolean(s.stamp), lines: body ? [body] : [] };
+    cur = { speaker: s.speaker, label: s.label, at, lines: body ? [body] : [] };
     turns.push(cur);
   }
   return turns
-    .map((t) => ({ speaker: t.speaker, label: t.label, at: t.at, said: t.said, stamped: t.stamped, text: t.lines.join("\n").trim() }))
+    .map((t) => ({ speaker: t.speaker, label: t.label, at: t.at, text: t.lines.join("\n").trim() }))
     .filter((t) => t.text);
 }
 
@@ -500,7 +496,9 @@ export function sessionIdFor(key) {
 /**
  * One item → a CapturedSession for POST /api/sessions, { skip: reason } when it holds nothing to
  * ingest (no text, a JSON file with no messages), or { error: reason } when it cannot be parsed
- * (bad JSON). The CLI goes on after either, but only an error makes the run exit 1.
+ * (bad JSON). The CLI goes on after either, but only an error makes the run exit 1. A JSONL file
+ * with some lines that are not JSON still becomes a session from the good lines, and
+ * meta.unparsed_lines lists the line numbers left out (the CLI reports them and exits 1).
  *   relPath      path relative to the ingest root: folder-name kind signals, meta.path, title
  *   idKey        what the id is derived from (the CLI passes the real absolute path); default relPath
  *   text         file contents
@@ -514,7 +512,7 @@ export function buildItem({ relPath, idKey = relPath, text, firmDomain = DEFAULT
   const parsed = ext === ".json" || ext === ".jsonl" ? readJsonItem(text, ext) : readTextItem(text, ext);
   if (parsed.error) return { error: parsed.error };
   if (parsed.skip) return { skip: parsed.skip };
-  const { data, body, rows } = parsed;
+  const { data, body, rows, unparsed } = parsed;
   const { kind, by } = inferKind({ data, relPath: rel, text: body });
   const clock = { ...itemClock(data), elapsed: kind === "transcript" };
 
@@ -574,19 +572,15 @@ export function buildItem({ relPath, idKey = relPath, text, firmDomain = DEFAULT
   const lastAt = [...messages].reverse().find((m) => m.at)?.at;
   const endedAt = lastAt && Date.parse(lastAt) >= Date.parse(startedAt) ? lastAt : startedAt;
 
-  // A chat or meeting is attributed to whoever opened it, but only a speaker who is evidently a
-  // participant (several lines, a timestamp, or named in participants; structured JSON rows
-  // count). A header line such as "Meeting: …" or "Location: Zoom" never is, so --principal stays.
-  // Not AI sessions: "You" is not a principal.
-  let opener;
-  if (kind === "chat" || kind === "transcript") {
-    const evident = evidentSpeakers(turns, Array.isArray(data.participants) ? data.participants : []);
-    opener = turns.find((t) => t.speaker && (rows || evident.has(t.speaker)))?.speaker;
-  }
+  // The principal is the author of every fact distilled from this item, and a member's own facts
+  // join their scope without the exclusion checks (PRD, living scopes). So it is never guessed
+  // from a speaker: a chat or meeting has many people in it, and naming whoever spoke first would
+  // put everyone's lines (a Falcon slip in #general, say) into that one person's scope. A chat or
+  // transcript gets a principal only from front-matter or --principal; with none, its facts have
+  // no author and join scopes only through the checks. AI sessions likewise: "You" is not a principal.
   const principal =
     toPrincipalId(firstString(data.principal, data.author, data.owner, data.by)) ??
     (mailish ? emailPrincipal(headers, firmDomain) : undefined) ??
-    toPrincipalId(opener) ??
     toPrincipalId(fallback);
 
   let external;
@@ -602,7 +596,7 @@ export function buildItem({ relPath, idKey = relPath, text, firmDomain = DEFAULT
     ended_at: endedAt,
     title: makeTitle(firstString(data.title, email?.subject, firstHeading(body)) ?? humanize(rel)),
     messages,
-    meta: compact({ path: rel, kind_from: by, source: firstString(data.source), participants, email, date: fromItem ? undefined : dated }),
+    meta: compact({ path: rel, kind_from: by, source: firstString(data.source), participants, email, date: fromItem ? undefined : dated, unparsed_lines: unparsed }),
     kind,
   };
   if (principal) session.principal = principal;
@@ -640,26 +634,30 @@ const TEXT_KEYS = ["text", "content", "message", "body"];
 const TIME_KEYS = ["at", "ts", "timestamp", "time", "date"];
 
 /**
- * JSONL: one message object per line (bad lines skipped; no good line at all is an error). JSON:
- * an array of message objects, an object with `messages`, or an object with a text `body` /
- * `text` / `content`. Top-level keys of an object act as front-matter (kind, principal, title,
- * date, from, …). Unparseable JSON → { error }; valid JSON that holds no item → { skip }.
+ * JSONL: one message object per line. A line that is not valid JSON is left out and its line
+ * number is returned in `unparsed` (the CLI reports it and exits 1, since the import is
+ * incomplete); no good line at all is an error. JSON: an array of message objects, an object
+ * with `messages`, or an object with a text `body` / `text` / `content`. Top-level keys of an
+ * object act as front-matter (kind, principal, title, date, from, …). Unparseable JSON →
+ * { error }; valid JSON that holds no item → { skip }.
  */
 function readJsonItem(text, ext) {
   let data = {};
   let list;
+  const unparsed = [];
   if (ext === ".jsonl") {
-    list = String(text)
+    list = [];
+    String(text)
       .split(/\r?\n/)
-      .filter((l) => l.trim())
-      .map((l) => {
+      .forEach((line, i) => {
+        if (!line.trim()) return;
         try {
-          return JSON.parse(l);
+          list.push(JSON.parse(line));
         } catch {
-          return undefined;
+          unparsed.push(i + 1);
         }
       });
-    if (list.length > 0 && list.every((v) => v === undefined)) return { error: "bad JSONL (no line is valid JSON)" };
+    if (unparsed.length > 0 && list.length === 0) return { error: "bad JSONL (no line is valid JSON)" };
   } else {
     let value;
     try {
@@ -685,7 +683,7 @@ function readJsonItem(text, ext) {
     const at = TIME_KEYS.map((k) => o[k]).find((v) => typeof v === "string" || typeof v === "number");
     return [{ speaker, label: speaker, role, at, text: text.trim() }];
   });
-  return { data, body: rows.map((r) => (r.label ? `${r.label}: ${r.text}` : r.text)).join("\n"), rows };
+  return { data, body: rows.map((r) => (r.label ? `${r.label}: ${r.text}` : r.text)).join("\n"), rows, unparsed: unparsed.length ? unparsed : undefined };
 }
 
 // ------------------------------------------------------------------------------- disk

@@ -12,18 +12,36 @@ Two capture paths live here:
 - `ingest/`: a CLI that posts firm content (memos, team chat, meeting transcripts, email, notes)
   as client `ingest`. See [Ingest CLI](#ingest-cli-hooksingest).
 
-## Finance fields (walls)
+## The principal is the author
 
-Every session now carries `kind` and, when known, `principal` (whose context it is). The hook
-sends `kind: "ai_session"` and `principal` from `CANON_PRINCIPAL` (process env, then `.env`,
-normalized like the extension and the ingest CLI: `Dan`, `Dan Okafor` and
-`dan.okafor@harborlane.com` all become `dan`, `agt_research_1` is kept; unset = left out, and
-triage treats an unknown principal cautiously).
-The debug line then reads `Stop ses_3f9a1c2b 8 msgs as dan → 200`.
+Every session carries `kind` and, when known, `principal`. In Bullwark's scopes model the
+principal is the **author** of every fact distilled from the session (`Fact.author` in
+`shared/src/types/fact.ts`): those facts are that person's memories. A member's own facts join
+their scope without the exclusion checks, unless triage files them to `inbox` or quarantines
+them, and an agent's facts belong to the person who created it. So the principal decides access,
+and the capture clients never guess it:
+
+| Client | `kind` | `principal` |
+|---|---|---|
+| Claude Code hook | `ai_session` | `CANON_PRINCIPAL` (process env, then `.env`) |
+| ChatGPT extension | `ai_session` | the principal field on its options page |
+| Ingest CLI | per file (below) | front-matter, else an email's firm sender or first firm recipient, else `--principal`; never a chat or meeting speaker |
+
+All three normalize the same way: `Dan`, `Dan Okafor` and `dan.okafor@harborlane.com` all become
+`dan`, and `agt_research_1` is kept. When no principal is set the field is left out, and the
+session's facts have no author, so they join a scope only by passing that scope's checks
+(exclusions in code, then Moss and Jev against the task). The hook's debug line shows the
+principal: `Stop ses_3f9a1c2b 8 msgs as dan → 200`. `external: true` (ingest only) marks text from
+outside the firm, which triage reads with extra suspicion for instructions aimed at an AI.
+
+Set your own id only. The server takes `principal` from the body today, so a wrong
+`CANON_PRINCIPAL` files your facts as someone else's memories. Binding it to the client token is
+lane A's side.
 
 **Today's server keeps only the original session keys** (`server/src/api.ts` `parseSession`),
-so `principal`, `kind` and `external` are accepted and dropped until lane A's server keeps them
-for the finance contract. Nothing breaks either way: the POST is the same route.
+so `principal`, `kind` and `external` are accepted and dropped until lane A's server keeps them,
+and the distiller does not write `Fact.author` from the principal yet. Nothing breaks either way:
+the POST is the same route.
 
 ## What is captured, and when
 
@@ -120,7 +138,7 @@ npm run ingest:world -w hooks                                       # same as th
 | `--dry-run` | sessions as JSON on stdout (pipe to `jq`), one summary line each on stderr, nothing sent |
 | `--url URL` | server; default `CANON_URL`, else `http://localhost:4100` |
 | `--only KIND` | `memo`, `chat`, `transcript`, `email`, `note` or `ai_session` (plurals and aliases such as `emails`, `meetings` work) |
-| `--principal ID` | principal for items that name none |
+| `--principal ID` | principal (the author of the facts) for items that name none. Every such item's facts join that person's scope as their own, so use it on one person's files |
 | `--firm-domain D` | default `harborlane.com`; an email from outside it is `external: true` |
 | `--root DIR` | folder names under DIR count as kind signals, and `meta.path` is relative to it (default: the folder given, or a file's folder). Ids never depend on it |
 | `--delay MS` | wait between posts, to drip items in live during the demo |
@@ -146,7 +164,7 @@ Files read: `.md .markdown .txt .eml .json .jsonl .vtt .srt` up to 1 MB. `README
 | Kind | Messages | Principal (after front-matter `principal` / `author`) | `external` |
 |---|---|---|---|
 | memo, note | one message with the body; split at paragraphs past 8,000 chars, never cut | an email header block's (below), else `--principal` | front-matter, else an email header block's (below) |
-| chat, transcript | one per speaker turn (`Dan: text`, `[09:12] Dan Okafor (MD): text`, JSONL / JSON rows, VTT `<v Dan>`); consecutive lines from one speaker merge, unprefixed lines continue the turn, the speaker label stays in the text | an email header block's, else whoever opened it (`Dan Okafor` → `dan`) if they evidently take part (say more than one line, speak on a timestamped line, are in `participants:`, or are a JSON row's speaker), else `--principal`. A header line such as `Meeting:` or `Location: Zoom` never names the principal | front-matter, else an email header block's (below) |
+| chat, transcript | one per speaker turn (`Dan: text`, `[09:12] Dan Okafor (MD): text`, JSONL / JSON rows, VTT `<v Dan>`); consecutive lines from one speaker merge unless a line carries its own exact time (then it starts a new message, so the time is kept), unprefixed lines continue the turn, the speaker label stays in the text | an email header block's, else `--principal`. **Never a speaker**: a chat or meeting has several authors, and making whoever spoke first the author would put everyone's lines into that one person's scope. Put `principal:` in the front-matter when one person owns the record | front-matter, else an email header block's (below) |
 | email | one message: `From/To/Cc/Subject/Date` block + body; `Message-ID`, `Reply-To` and `Return-Path` go to `meta.email`, other transport headers (`Received`, `X-*`) are dropped | a firm sender, else the first firm recipient (whose inbox it is) | the sender is not at the firm domain or a subdomain of it |
 | ai_session | one per turn; `ChatGPT:` / `Claude:` / `Assistant:` are the assistant | front-matter or `--principal` (never "You") | front-matter only |
 
@@ -181,16 +199,19 @@ before anything is sent. Ids are per checkout: the same world in another folder 
 machine gets other ids.
 
 **Failures.** A file that cannot be read or parsed (unreadable, bad JSON, a JSONL file with no
-valid line) prints `fail <path>: <reason>`; the run goes on and exits 1. A file with nothing to
+valid line) prints `fail <path>: <reason>`; the run goes on and exits 1. A JSONL file with only
+some bad lines is still sent from its good lines, prints `fail <path>: line N is not valid JSON
+and left out…`, records the missing line numbers in `meta.unparsed_lines`, and also makes the run
+exit 1, because the import is incomplete. A file with nothing to
 ingest (over 1 MB, no text, JSON with no messages or body) prints `skip <path>: <reason>` and does
 not change the exit code. Each HTTP error status is logged once with a hint (401: register the
 token; 404: not a Bullwark server) and every remaining file is still tried. A dead server stops the
 run after one line. Exit code: 0 all posted, 1 anything failed (a POST, or a file that could not
-be read or parsed, also on `--dry-run`), 2 bad flags or paths, or a session id clash.
+be read or parsed in full, also on `--dry-run`), 2 bad flags or paths, or a session id clash.
 
 **Verified against today's server** (Sat 05:00, `CANON_CLIENT_TOKENS` with `ingest=dev-ingest`):
 all 5 world items archived, a second run printed `updated` for the same ids. The archive kept
-the original keys only (see [Finance fields](#finance-fields-walls) above).
+the original keys only (see [The principal is the author](#the-principal-is-the-author) above).
 
 ### Dan's ChatGPT session without the extension
 
@@ -220,7 +241,9 @@ it, the same session goes in through this CLI:
 
 `ChatGPT`, `GPT`, `Claude`, `Gemini`, `Assistant` and similar speakers become `assistant`, everyone
 else `user`, and the speaker label is not kept in the text. The principal comes from front-matter
-or `--principal`, never from `You`. Without front-matter, the `ai-sessions/` folder or a file
+or `--principal`, never from `You`. With `principal: dan`, Dan is the author of the session's
+facts, so once triage groups them as `deal/falcon` they join Dan's scope as his own memories
+(the demo's 0:25 beat). Without front-matter, the `ai-sessions/` folder or a file
 name with `chatgpt` in it still makes the kind `ai_session`. A `.json` file
 `{ "kind": "ai_session", "principal": "dan", "messages": [{ "role": "user", "content": "…" }, …] }`
 works too. Two differences from the extension: the session's `client` is `ingest`, not
@@ -229,10 +252,11 @@ works too. Two differences from the extension: the session's `client` is `ingest
 
 ### Sample world (`fixtures/world/`)
 
-Synthetic, made up for the demo; see `fixtures/world/README.md`. One Falcon valuation memo, the
-deal team's channel for a morning, a management-call transcript excerpt, Priya's public-news
-note on Nimbus, and an email from the target's outside counsel with a **planted instruction
-aimed at an AI** (forward the Falcon terms to research). The tests pin what each one parses to.
+Synthetic, made up for the demo; see `fixtures/world/README.md`, which lists each file's author
+and the group its facts belong in. One Falcon valuation memo, the deal team's channel for a
+morning, a management-call transcript excerpt, Priya's public-news note on Nimbus, and an email
+from the target's outside counsel with a **planted instruction aimed at an AI** (forward the
+Falcon terms to research), which triage must quarantine. The tests pin what each one parses to.
 
 ## Stub vs real, sponsor plug-in
 

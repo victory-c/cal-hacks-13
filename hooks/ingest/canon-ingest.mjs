@@ -16,7 +16,8 @@
 // are still tried, and the exit code says whether everything landed (0), something failed (1),
 // or the flags or paths were wrong (2), which includes two files whose ids clash. A file that
 // cannot be read or parsed is reported as `fail <path>: <reason>`, the run goes on, and the exit
-// code is 1. A file with nothing to ingest (no text, over the size cap) is `skip <path>: <reason>`.
+// code is 1; so is a JSONL file with lines that are not JSON (its good lines are still sent). A
+// file with nothing to ingest (no text, over the size cap) is `skip <path>: <reason>`.
 
 import { existsSync, realpathSync, statSync } from "node:fs";
 import { dirname, relative, resolve } from "node:path";
@@ -39,7 +40,9 @@ Options:
   --dry-run              print the sessions as JSON on stdout; no network
   --url URL              Bullwark server (default: CANON_URL, else ${DEFAULT_URL})
   --only KIND            only items of this kind: ${KINDS.join(" | ")}
-  --principal ID         principal for items that name none (front-matter, sender, speaker win)
+  --principal ID         principal (author of the facts) for items that name none; front-matter
+                         and an email's firm sender or recipient win. Chats and transcripts never
+                         take one from a speaker. The facts join that person's scope as their own
   --firm-domain DOMAIN   senders outside it mark an email external (default ${DEFAULT_FIRM_DOMAIN})
   --root DIR             folder names under DIR count as kind signals and meta.path is relative to
                          it (default: the dir given, or a file's folder); ids never depend on it
@@ -176,8 +179,8 @@ export async function run(argv, io = {}) {
   }
 
   const sessions = [];
-  // Files that could not be read or parsed. Each is reported and the other items still go, but
-  // the run exits 1: an item that never reached the archive is a failure, not a skip.
+  // Files that could not be read or parsed in full. Each is reported and the other items still
+  // go, but the run exits 1: content that never reached the archive is a failure, not a skip.
   let unreadable = 0;
   for (const { abs, rel, key } of items) {
     let built;
@@ -197,9 +200,14 @@ export async function run(argv, io = {}) {
       continue;
     }
     if (opts.only && built.kind !== opts.only) continue;
+    const lost = built.meta?.unparsed_lines;
+    if (lost?.length) {
+      unreadable++;
+      err(`fail  ${rel}: ${lineList(lost)} not valid JSON and left out; the other lines are in the session`);
+    }
     sessions.push(built);
   }
-  const unreadNote = unreadable ? `, ${unreadable} file${unreadable === 1 ? "" : "s"} could not be read or parsed` : "";
+  const unreadNote = unreadable ? `, ${unreadable} file${unreadable === 1 ? "" : "s"} could not be read or parsed in full` : "";
 
   if (opts.dryRun) {
     for (const s of sessions) err(summaryLine(s));
@@ -249,6 +257,12 @@ export async function run(argv, io = {}) {
 
   err(`${posted} posted, ${failed} failed, ${sessions.length} total → ${url}${unreadNote}`);
   return failed || unreadable ? 1 : 0;
+}
+
+/** [2] → "line 2 is", [2, 5] → "lines 2, 5 are"; long lists end in "…". */
+function lineList(lines) {
+  const shown = lines.slice(0, 5).join(", ") + (lines.length > 5 ? ", …" : "");
+  return lines.length === 1 ? `line ${shown} is` : `lines ${shown} are`;
 }
 
 function hintFor(status) {

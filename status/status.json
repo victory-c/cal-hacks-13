@@ -1,6 +1,6 @@
 {
   "project": "Bullwark",
-  "updated": "2026-10-24T13:21:32Z",
+  "updated": "2026-10-24T13:34:51Z",
   "team": [
     {
       "id": "A",
@@ -244,7 +244,7 @@
       "priority": "must",
       "state": "doing",
       "title": "ChatGPT capture for the synthetic finance demo",
-      "note": "Built and tested on b/ingest (stacked on PR #7); awaiting review and lane-A routes. Remaining: a live chatgpt.com run once the server keeps principal and kind."
+      "note": "Built and tested on b/ingest (PR #12), updated for the scopes PRD: the options-page principal is documented as the author of the chat's facts. Remaining: lane A keeping principal and kind on POST /api/sessions and binding the principal to the token, then a live chatgpt.com run."
     },
     {
       "id": "B5",
@@ -343,7 +343,7 @@
       "priority": "must",
       "state": "doing",
       "title": "Ingest client for synthetic memos, chat and meeting notes",
-      "note": "Built and tested on b/ingest (stacked on PR #7); awaiting review and lane-A routes. Remaining: a run on Henry's official synthetic world once it lands."
+      "note": "Built and tested on b/ingest (PR #12), updated for the scopes PRD: principal = fact author, never guessed from a chat or meeting speaker; Greptile fixes (merged lines keep their times, partial JSONL exits 1). Remaining: lane A keeping principal/kind/external on POST /api/sessions, then a run on Henry's official world."
     },
     {
       "id": "B20",

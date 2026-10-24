@@ -1,6 +1,7 @@
 ---
 title: Falcon management diligence call (excerpt, auto-transcribed)
 date: 2026-10-22T14:00:00-04:00
+principal: dan
 participants: [Dan Okafor, Nadia Haddad, Grace Whitfield (Nimbus CFO), Raj Menon (Nimbus brokerage)]
 ---
 Auto-transcript, lightly cleaned. Excerpt only, roughly minutes 3 to 7.

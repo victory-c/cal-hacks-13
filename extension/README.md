@@ -21,14 +21,19 @@ no matter how many times it is posted. The id is FNV-1a of `chatgpt:<conversatio
 stable across reloads with no state. Session capture does not call any AI; nothing here is
 simulated. (The server downstream may run its judge/distiller in simulated mode and says so.)
 
-**Finance fields (walls).** Every captured chat is `kind: "ai_session"`, and carries `principal`
-(whose context it is, e.g. `dan`) when one is set on the options page. The value is normalized
-the same way as in the Claude Code hook and the ingest CLI (`Dan`, `Dan Okafor` and
-`dan.okafor@harborlane.com` all become `dan`; `agt_research_1` is kept), so one person has one
-id; blank means the field is left out and triage treats the session cautiously. Today's server
-accepts and drops both fields until lane A's server keeps them for the finance contract; nothing
-else changes. If the extension is cut (see [Current capture scope](#current-capture-scope)),
-Dan's ChatGPT session goes in through the ingest CLI instead, as
+**The principal is the author.** Every captured chat is `kind: "ai_session"`, and carries
+`principal` (e.g. `dan`) when one is set on the options page. In Bullwark's scopes model the
+principal is the author of every fact distilled from the chat: those facts are that person's
+memories and join their scope as their own (unless triage quarantines them or files them to
+`inbox`). So set your own id only. The value is normalized the same way as in the Claude Code
+hook and the ingest CLI (`Dan`, `Dan Okafor` and `dan.okafor@harborlane.com` all become `dan`;
+`agt_research_1` is kept), so one person has one id. Blank means the field is left out: the
+facts have no author and join a scope only by passing that scope's checks. Today's server
+accepts and drops both fields until lane A's server keeps them, and it does not yet bind the
+principal to the client token; nothing else changes. See
+[`hooks/README.md`](../hooks/README.md#the-principal-is-the-author) for all three capture paths.
+If the extension is cut (see [Current capture scope](#current-capture-scope)), Dan's ChatGPT
+session goes in through the ingest CLI instead, as
 [`hooks/README.md`](../hooks/README.md#dans-chatgpt-session-without-the-extension) describes.
 
 ## Run

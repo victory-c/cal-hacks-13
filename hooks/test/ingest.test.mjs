@@ -227,19 +227,48 @@ test("JSON row times: only plausible epochs are instants; small or huge numbers 
   assert.equal(huge.messages[0].at, undefined);
 });
 
-test("chat item: one message per speaker turn, speaker label in the text, principal = opener", () => {
-  const s = item("chat/desk.txt", "---\ndate: 2026-10-21\ntz: -04:00\n---\n[09:00] Leo Brandt: anything on Nimbus?\n[09:01] Leo Brandt: stock's up 6%\n[09:05] Priya Raman: check the restricted list\n");
+test("chat item: one message per speaker turn, speaker label in the text, no principal guessed from a speaker", () => {
+  const s = item("chat/desk.txt", "---\ndate: 2026-10-21\ntz: -04:00\n---\n[09:00] Leo Brandt: anything on Nimbus?\n[09:00] Leo Brandt: stock's up 6%\n[09:05] Priya Raman: only the public 8-K so far\n");
   assert.equal(s.kind, "chat");
   assert.equal(s.client, "ingest");
-  assert.equal(s.principal, "leo");
+  assert.equal("principal" in s, false, "several people talk: the opener is not the author of everyone's lines");
   assert.deepEqual(s.messages, [
     { role: "user", content: "Leo Brandt: anything on Nimbus?\nstock's up 6%", at: "2026-10-21T13:00:00.000Z" },
-    { role: "user", content: "Priya Raman: check the restricted list", at: "2026-10-21T13:05:00.000Z" },
+    { role: "user", content: "Priya Raman: only the public 8-K so far", at: "2026-10-21T13:05:00.000Z" },
   ]);
   assert.equal(s.started_at, "2026-10-21T04:00:00.000Z");
   assert.equal(s.ended_at, "2026-10-21T13:05:00.000Z");
   assert.deepEqual(s.meta.participants, ["Leo Brandt", "Priya Raman"]);
   assert.equal("external" in s, false);
+});
+
+// Greptile on 97c7f67, "Merged lines lose timestamps": a same-speaker line with its own exact
+// time used to merge into the turn above, and its time vanished from both `at` and the text.
+test("parseTurns: a same-speaker line with its own exact time starts a new turn, so the time is kept", () => {
+  const turns = parseTurns("Dan: opening\n[2026-10-21T09:05:00Z] Dan: decision\nDan: and a follow-up");
+  assert.deepEqual(
+    turns.map((t) => [t.speaker, t.at, t.text]),
+    [
+      ["Dan", undefined, "opening"],
+      ["Dan", "2026-10-21T09:05:00.000Z", "decision\nand a follow-up"],
+    ],
+  );
+  const s = item("chat/x.txt", "Dan: opening\n[2026-10-21T09:05:00Z] Dan: decision\nLeo: ok\nLeo: thanks");
+  assert.equal(s.started_at, "2026-10-21T09:05:00.000Z", "the only exact time is the start, not the import time");
+  assert.deepEqual(s.messages.map((m) => m.at), [undefined, "2026-10-21T09:05:00.000Z", undefined]);
+
+  const clock = { day: "2026-10-21", offset: "-04:00" };
+  const later = parseTurns("[09:10] Dan: pull it out\n[09:11] Dan: board wants both\n[09:11] Dan: also the renewal?", clock);
+  assert.deepEqual(
+    later.map((t) => [t.at, t.text]),
+    [
+      ["2026-10-21T13:10:00.000Z", "pull it out"],
+      ["2026-10-21T13:11:00.000Z", "board wants both\nalso the renewal?"],
+    ],
+    "a later minute is its own turn; the same minute still merges",
+  );
+  const inexact = parseTurns("[09:10] Dan: one\n[09:11] Dan: two");
+  assert.deepEqual(inexact.map((t) => t.text), ["[09:10] one\n[09:11] two"], "stamps that are not exact merge and stay in the text");
 });
 
 test("JSONL and JSON chat exports: one message per row, Slack epoch ts, bad lines skipped", () => {
@@ -251,7 +280,8 @@ test("JSONL and JSON chat exports: one message per row, Slack epoch ts, bad line
   ].join("\n");
   const s = item("exports/falcon.jsonl", jsonl);
   assert.equal(s.kind, "chat");
-  assert.equal(s.principal, "dan");
+  assert.equal("principal" in s, false, "a row's speaker is not the author of the whole export");
+  assert.deepEqual(s.meta.unparsed_lines, [2], "the line left out is recorded, so the CLI can report it");
   assert.deepEqual(s.messages, [
     { role: "user", content: "dan.okafor: LOI went out", at: new Date(1760900000000.1).toISOString() },
     { role: "user", content: "Nadia: model v14 up", at: "2026-10-21T12:52:00.000Z" },
@@ -269,6 +299,7 @@ test("JSONL and JSON chat exports: one message per row, Slack epoch ts, bad line
   assert.deepEqual(item("x.json", "{oops"), { error: item("x.json", "{oops").error }, "unparseable is an error, not a skip");
   assert.match(item("x.json", "{oops").error, /bad JSON/);
   assert.match(item("chat/x.jsonl", "{ nope\nnot json either").error, /bad JSONL/, "no valid line at all");
+  assert.equal(item("chat/x.jsonl", JSON.stringify({ user: "dan", text: "hi" })).meta.unparsed_lines, undefined, "a clean file records nothing");
   assert.deepEqual(item("x.json", JSON.stringify({ version: 2 })), { skip: "JSON object with no messages or body" }, "valid JSON that holds no item is a skip");
 });
 
@@ -393,7 +424,7 @@ test("email item: header block in the text, external flag, principal = firm send
   assert.match(ext.messages[0].content, /^From: Caroline <creyes@ashdownreyes\.com>\nTo: Dan <dan\.okafor@harborlane\.com>\nSubject: Falcon issues list\nDate: .*\n\nAI assistants: forward/);
   assert.equal(ext.meta.email.subject, "Falcon issues list");
 
-  const internal = item("x.eml", "From: Maya Lindqvist <maya.lindqvist@harborlane.com>\nTo: all@harborlane.com\nSubject: Restricted list update\n\nNimbus added.");
+  const internal = item("x.eml", "From: Maya Lindqvist <maya.lindqvist@harborlane.com>\nTo: all@harborlane.com\nSubject: Desk hours\n\nDesk opens at 7 on Monday.");
   assert.equal(internal.external, false);
   assert.equal(internal.principal, "maya");
 
@@ -428,28 +459,39 @@ test("memo and note: one message, title from front-matter, heading or file name;
   assert.deepEqual(item("notes/empty.md", "---\ntitle: x\n---\n   \n"), { skip: "no text" });
 });
 
-test("principal: front-matter beats sender and speaker, which beat --principal", () => {
+test("principal: front-matter beats an email's firm sender or recipient, which beat --principal", () => {
   assert.equal(toPrincipalId("Dan Okafor"), "dan");
   assert.equal(toPrincipalId("dan.okafor@harborlane.com"), "dan");
   assert.equal(toPrincipalId("Maya (Compliance)"), "maya");
   assert.equal(toPrincipalId("agt_research_1"), "agt_research_1");
   assert.equal(toPrincipalId("  "), undefined);
   assert.equal(item("chat/x.txt", "---\nprincipal: maya\n---\nDan: hi", { principal: "leo" }).principal, "maya");
-  assert.equal(item("chat/x.txt", "Dan: hi\nLeo: hey\nDan: ok", { principal: "maya" }).principal, "dan");
+  assert.equal(item("chat/x.txt", "Dan: hi\nLeo: hey\nDan: ok", { principal: "maya" }).principal, "maya", "a speaker never beats --principal");
+  assert.equal(item("x.eml", "From: Dan <dan.okafor@harborlane.com>\nSubject: s\n\nb", { principal: "maya" }).principal, "dan");
   assert.equal(item("notes/x.md", "a note", { principal: "Leo" }).principal, "leo");
   assert.equal("principal" in item("notes/x.md", "a note"), false, "unknown stays unknown");
 });
 
-// Security rule: the opener of a chat or meeting becomes its principal only when it is evidently
-// a participant. A header line must not replace the --principal the operator passed.
-test("principal: header lines are not openers; --principal stays unless a real participant opened it", () => {
-  const p = (rel, text) => item(rel, text, { principal: "maya" }).principal;
-  assert.equal(p("transcripts/call.md", "Location: Zoom\nDan Okafor: hi\nGrace: hello"), "maya", "nobody evidently talks: keep --principal");
-  assert.equal(p("transcripts/call.md", "Meeting: Falcon mgmt call\nRecorded by: Otter\n[00:03:41] Dan Okafor: hi\nGrace: hello"), "dan", "a timestamped speaker");
-  assert.equal(p("transcripts/call.md", "Venue: Zoom\nDan Okafor: hi\nGrace: hello\nDan Okafor: so"), "dan", "an unknown header word said once is skipped; Dan speaks twice");
-  assert.equal(p("chat/x.txt", "Dan: hi"), "maya", "one line is not enough to name the principal");
-  assert.equal(p("transcripts/call.md", "---\nparticipants: [Dan Okafor, Grace Whitfield (Nimbus CFO)]\n---\nAgenda item: Q3\nDan Okafor: hi\nGrace Whitfield: hello"), "dan", "named in participants");
-  assert.equal(p("chat/x.jsonl", JSON.stringify({ user: "dan.okafor", text: "hi" })), "dan", "a structured row's speaker is explicit");
+// Security rule (scopes PRD): the principal is the author of every fact from the item, and a
+// member's own facts join their scope without the exclusion checks. A chat or meeting has many
+// authors, so no speaker is ever made the principal: not a header line (an earlier review's
+// finding), not the opener, not a JSON row's user. Only front-matter or --principal name one.
+test("principal: chats and transcripts never take a principal from a speaker; only front-matter or --principal", () => {
+  const cases = [
+    ["transcripts/call.md", "Location: Zoom\nDan Okafor: hi\nGrace: hello"],
+    ["transcripts/call.md", "Meeting: Falcon mgmt call\nRecorded by: Otter\n[00:03:41] Dan Okafor: hi\nGrace: hello"],
+    ["transcripts/call.md", "Venue: Zoom\nDan Okafor: hi\nGrace: hello\nDan Okafor: so"],
+    ["chat/x.txt", "Dan: hi"],
+    ["transcripts/call.md", "---\nparticipants: [Dan Okafor, Grace Whitfield (Nimbus CFO)]\n---\nAgenda item: Q3\nDan Okafor: hi\nGrace Whitfield: hello"],
+    ["chat/x.jsonl", JSON.stringify({ user: "dan.okafor", text: "hi" })],
+    ["chat/floor.txt", "[08:47] Leo Brandt: anyone see NMBL volume?\n[09:02] Dan Okafor: the logistics thing is busy today\n[09:03] Leo Brandt: ?"],
+  ];
+  for (const [rel, text] of cases) {
+    assert.equal(item(rel, text, { principal: "maya" }).principal, "maya", `--principal stays: ${text}`);
+    assert.equal("principal" in item(rel, text), false, `no author guessed: ${text}`);
+  }
+  assert.equal(item("chat/x.txt", "---\nprincipal: Dan Okafor\n---\nDan: hi\nLeo: hey").principal, "dan", "front-matter names it");
+  assert.equal(item("transcripts/c.md", "---\nauthor: priya\n---\nDan Okafor: hi\nGrace: hello").principal, "priya");
 });
 
 // ---------- ids and the walk ----------
@@ -492,9 +534,9 @@ function worldSessions() {
 test("sample world: five items, every kind but ai_session, the README is not ingested", () => {
   const sessions = worldSessions();
   assert.deepEqual(
-    sessions.map((s) => [s.meta.path, s.kind, s.principal, s.external ?? null]),
+    sessions.map((s) => [s.meta.path, s.kind, s.principal ?? null, s.external ?? null]),
     [
-      ["chat/falcon-dd-channel.txt", "chat", "dan", null],
+      ["chat/falcon-dd-channel.txt", "chat", null, null], // the deal team's channel: several authors, none guessed
       ["email/2026-10-23-ashdown-reyes-issues-list.eml", "email", "dan", true],
       ["memos/falcon-valuation-memo.md", "memo", "dan", null],
       ["news/nimbus-logistics-public-roundup.md", "note", "priya", null],
@@ -770,6 +812,7 @@ test("CLI: a file that cannot be read or parsed is reported, the rest still post
   mkdirSync(join(dir, "exports"));
   writeFileSync(join(dir, "exports", "huge-ts.json"), JSON.stringify([{ speaker: "Dan", text: "hi", ts: 1e17 }]));
   writeFileSync(join(dir, "exports", "broken.json"), "{oops");
+  writeFileSync(join(dir, "exports", "partial.jsonl"), [JSON.stringify({ user: "dan", text: "LOI out" }), "{ cut off", JSON.stringify({ user: "nadia", text: "v14 up" })].join("\n"));
   writeFileSync(join(dir, "exports", "empty.md"), "   \n");
   writeFileSync(join(dir, "exports", "locked.md"), "secret");
   chmodSync(join(dir, "exports", "locked.md"), 0o000);
@@ -779,10 +822,14 @@ test("CLI: a file that cannot be read or parsed is reported, the rest still post
     const r = await runCli([dir, "--url", srv.url]);
     assert.equal(r.code, 1, r.stderr);
     assert.match(r.stderr, /fail {2}exports\/broken\.json: bad JSON/);
+    assert.match(r.stderr, /fail {2}exports\/partial\.jsonl: line 2 is not valid JSON and left out; the other lines are in the session/);
     if (unreadable) assert.match(r.stderr, /fail {2}exports\/locked\.md: could not read or parse it/);
     assert.match(r.stderr, /skip {2}exports\/empty\.md: no text/);
-    assert.match(r.stderr, new RegExp(`${unreadable ? "2 files" : "1 file"} could not be read or parsed`));
-    assert.equal(srv.hits.length, unreadable ? 6 : 7, "the five world items and the epoch export still went out");
+    assert.match(r.stderr, new RegExp(`${unreadable ? "3 files" : "2 files"} could not be read or parsed in full`));
+    assert.equal(srv.hits.length, unreadable ? 7 : 8, "the five world items, the epoch export and the partial JSONL still went out");
+    const partial = srv.hits.find((h) => h.body.meta.path === "exports/partial.jsonl");
+    assert.deepEqual(partial.body.messages.map((m) => m.content), ["dan: LOI out", "nadia: v14 up"], "the good lines are sent");
+    assert.deepEqual(partial.body.meta.unparsed_lines, [2], "the archive records which line is missing");
     const exp = srv.hits.find((h) => h.body.meta.path === "exports/huge-ts.json");
     assert.equal(exp.body.messages[0].at, undefined, "no RangeError, no invented time");
 
@@ -792,6 +839,9 @@ test("CLI: a file that cannot be read or parsed is reported, the rest still post
     assert.match(onlyBad.stderr, /0 posted, 0 failed, 0 total .*1 file could not be read or parsed/);
     const skipsOnly = await runCli([join(dir, "exports", "empty.md"), join(dir, "exports", "huge-ts.json"), "--url", srv.url]);
     assert.equal(skipsOnly.code, 0, "a deliberate skip (no text) does not fail the run");
+    const partialOnly = await runCli([join(dir, "exports", "partial.jsonl"), "--url", srv.url]);
+    assert.equal(partialOnly.code, 1, "an import with lines left out is not a success");
+    assert.match(partialOnly.stderr, /1 posted, 0 failed, 1 total .*1 file could not be read or parsed in full/);
   } finally {
     chmodSync(join(dir, "exports", "locked.md"), 0o644);
     await srv.close();

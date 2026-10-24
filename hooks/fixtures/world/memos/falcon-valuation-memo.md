@@ -48,8 +48,7 @@ banker says "a couple of other parties are looking" (we think that's posturing).
 3. Reverse termination fee: they'll ask for 5%+. Osprey's ceiling is 4%.
 4. HSR: Southeast LTL overlap looks small (<10% share, our estimate). Antitrust counsel to confirm.
 
-## Wall
+## Distribution
 
-Everyone on this distribution is over the Falcon wall per Maya's log (10/14). Nimbus went on the
-restricted list the same day. Do NOT discuss Nimbus with research or the desk, including "the
-logistics thing".
+Falcon deal team only (Dan, Nadia, Tom); Maya in compliance has the full file. Do NOT discuss
+Nimbus with research or the desk, including "the logistics thing".

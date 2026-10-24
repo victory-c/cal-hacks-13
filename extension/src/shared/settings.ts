@@ -7,7 +7,7 @@ import { normalizePrincipal } from "./session.ts";
 export const STORAGE = {
   canonUrl: "canonUrl",
   token: "token",
-  /** v2: whose sessions these are (`dan`). Sent as CapturedSession.principal. */
+  /** Whose sessions these are (`dan`): the author of their facts. Sent as CapturedSession.principal. */
   principal: "principal",
   /** Written by the service worker after each POST, read by the options page status line. */
   lastSuccess: "lastSuccess",
@@ -19,9 +19,10 @@ export interface Settings {
   /** The `chatgpt=…` value from CANON_CLIENT_TOKENS. Empty until the user pastes it. */
   token: string;
   /**
-   * v2: the person's principal id at the firm (`dan`, `priya`), normalized by normalizePrincipal
-   * (a name or email becomes its first token, as in the hook and the ingest CLI). Empty = not set:
-   * the session goes out with no principal and triage treats it cautiously.
+   * The person's principal id at the firm (`dan`, `priya`), normalized by normalizePrincipal
+   * (a name or email becomes its first token, as in the hook and the ingest CLI). It becomes the
+   * author of the session's facts, which then join that person's scope as their own. Empty = not
+   * set: the session goes out with no principal, so its facts have no author.
    */
   principal: string;
 }

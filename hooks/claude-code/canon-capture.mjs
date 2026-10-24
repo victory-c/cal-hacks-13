@@ -83,7 +83,7 @@ async function main() {
  * The repo is CANON_REPO_ROOT when set, else the checkout this script lives in
  * (hooks/claude-code → ../../). No token anywhere → DEV_TOKEN, the same default the server
  * accepts without a .env; `devToken` says so, so the fallback can be surfaced in the debug line.
- * No principal anywhere → none is sent (v2: triage treats an unknown principal cautiously).
+ * No principal anywhere → none is sent, and the session's facts have no author.
  */
 function resolveConfig() {
   const candidates = [];

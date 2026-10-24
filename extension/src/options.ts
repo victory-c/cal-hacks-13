@@ -39,7 +39,7 @@ async function save(): Promise<void> {
   field("canonUrl").value = settings.canonUrl;
   field("principal").value = settings.principal;
   if (!settings.token) return show("err", "Saved, but the token is empty: posts will fail until you paste it.");
-  show("ok", settings.principal ? `Saved. Sessions go out as ${settings.principal}.` : "Saved. No principal set: sessions go out as unknown, and triage treats them cautiously.");
+  show("ok", settings.principal ? `Saved. Sessions go out as ${settings.principal}, and their facts are saved as ${settings.principal}'s memories.` : "Saved. No principal set: sessions go out with no author.");
 }
 
 /** GET /health needs no token, so this checks the URL and that the server is up, nothing more. */
