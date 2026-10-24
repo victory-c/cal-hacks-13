@@ -9,10 +9,15 @@ export interface Grant {
   client: ClientId;
   read: Folder[];
   write: Folder[];
+  /**
+   * v2: the principal this client acts for (`leo` for the desk assistant's token). The permission
+   * filter checks that principal's entitlements against each fact's wall, on top of folders.
+   */
+  principal?: string;
 }
 
 /** Internal workers that run on your own machine, not AI clients. Only these may write `private/`. */
-export const INTERNAL_CLIENTS = ["distiller"] as const;
+export const INTERNAL_CLIENTS = ["distiller", "dispatcher"] as const;
 
 const ALL_FOLDERS: Folder[] = ["career", "projects", "team", "private", "inbox"];
 

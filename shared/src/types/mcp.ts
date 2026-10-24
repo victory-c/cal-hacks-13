@@ -2,6 +2,7 @@
 // Mirrors the "MCP tools" table in CLAUDE.md — change both together.
 
 import type { ClientId, Fact, FactSource, Folder } from "./fact.ts";
+import type { Wall } from "./walls.ts";
 
 export const MCP_TOOLS = {
   context: "canon_context",
@@ -28,6 +29,8 @@ export interface ContextFact {
   /** Jev's P(relevant to this task). */
   relevance: number;
   detail?: string;
+  /** v2: the fact's wall. Facts reach agents quoted with this label, as data, never instructions. */
+  wall?: Wall;
 }
 
 export interface ContextOutput {

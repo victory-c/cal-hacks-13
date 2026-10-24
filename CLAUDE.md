@@ -164,6 +164,26 @@ shape is `model` + `state` + `questions`). Check it against TypeSafe's docs once
 access. Put Jev behind a `judge()` interface with a Claude fallback (structured output with
 a probability field), so swapping is a config change.
 
+### Contract v2 (PRD v2: walls)
+
+Additive on top of v1, so v1 code keeps compiling. Code is the source of truth:
+
+- `walls.ts`: `Wall` (`public` or `deal_<slug>`), `Deal` + status (confidential / announced /
+  terminated), `Principal` (people and agents, `acts_for`), `Entitlement` (deny by default,
+  expiry), restricted and watch lists, `NEUTRAL_REFUSALS`, the compliance `ReviewItem` queue,
+  `AuditEvent`.
+- `fact.ts`: optional `wall`, `wall_reason`, `happened`. A fact with no `wall` is unlabeled and
+  reaches nobody but compliance. Content only raises a wall; only compliance or a deal-status
+  change lowers it.
+- `session.ts`: optional `principal`, `kind` (ai_session / memo / chat / transcript / email /
+  note), `external`.
+- `judge.ts`: `TRIAGE_THRESHOLDS`, `RELATIONS`, `TriageDecision` (on `SaveDecision.triage`).
+- `agents.ts`: `AgentRun`, `AgentStep`, `InboxItem` for Droid dispatch.
+- `events.ts`: v2 events. `RELAYED_EVENTS` are published by lane B's internal workers through
+  `POST /api/events` and re-broadcast by the server.
+- `api.ts`: v2 routes (`deals`, `principals`, `entitlements`, `lists`, `review`,
+  `wallCrossings`, `handoff`, `exitCheck`, `audit`, `publish`) and their bodies.
+
 ## Claude API
 
 - Model IDs: `claude-sonnet-5-5` (distilling, resume writing), `claude-haiku-5-5` (fallback

@@ -186,3 +186,21 @@ test("factPath is facts/<folder>/<id>.md", () => {
   assert.equal(factPath(base), "facts/career/projects/fct_7f3a.md");
   assert.equal(factPath({ id: "fct_1", folder: "inbox" }), "facts/inbox/fct_1.md");
 });
+
+describe("v2 wall fields", () => {
+  test("wall, wall_reason and happened roundtrip; a fact without them stays unlabeled", () => {
+    const walled: Fact = { ...base, wall: "deal_falcon", wall_reason: "code name Falcon", happened: "2026-10-20" };
+    const text = serializeFactFile(walled);
+    assert.match(text, /\nwall: deal_falcon\n/);
+    assert.deepEqual(parseFactFile(text), walled);
+    assert.equal(parseFactFile(serializeFactFile({ ...base, wall: "public" })).wall, "public");
+    assert.equal(parseFactFile(serializeFactFile(base)).wall, undefined);
+  });
+
+  test("rejects a wall that is neither public nor a deal id, and a bad happened date", () => {
+    const v = validateFact({ ...base, wall: "falcon", happened: "Oct 20" });
+    assert.equal(v.ok, false);
+    assert.ok(!v.ok && v.errors.some((e) => e.startsWith("wall must be")));
+    assert.ok(!v.ok && v.errors.some((e) => e.startsWith("happened must be")));
+  });
+});

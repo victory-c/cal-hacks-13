@@ -4,6 +4,8 @@
 // One markdown file per fact, YAML frontmatter + optional detail body, so the store opens
 // in Obsidian. Parsing/serializing lives in ../fact-file.ts; this file is types only.
 
+import type { Wall } from "./walls.ts";
+
 export const TOP_FOLDERS = ["career", "projects", "team", "private"] as const;
 export type TopFolder = (typeof TOP_FOLDERS)[number];
 
@@ -26,6 +28,10 @@ export const KNOWN_CLIENTS = [
   "gemini-web",
   "gemini-cli",
   "teammate-cursor",
+  // v2: the ingest client (memos, team chat, meeting notes, email) and internal workers.
+  "ingest",
+  "dispatcher",
+  "compliance",
 ] as const;
 export type ClientId = (typeof KNOWN_CLIENTS)[number] | (string & {});
 
@@ -48,8 +54,18 @@ export interface Fact {
   source: FactSource;
   /** Id of the fact this one replaces. The old fact is retired, never deleted. */
   supersedes?: string;
-  /** YYYY-MM-DD */
+  /** YYYY-MM-DD: when Canon learned it (or last changed it). */
   updated: string;
+  /** YYYY-MM-DD: when it happened, from the source. The second of the PRD's two dates. */
+  happened?: string;
+  /**
+   * v2. `public` or a deal id. Deny by default: a fact with no wall is unlabeled and reaches
+   * nobody but compliance until it gets one. Content can only raise it; only compliance or a
+   * deal-status change lowers it.
+   */
+  wall?: Wall;
+  /** One line on why it has this wall ("code name Falcon", "jev confidential 0.82"). Compliance only. */
+  wall_reason?: string;
   /** Markdown body under the frontmatter. */
   detail?: string;
 }
@@ -61,6 +77,8 @@ export interface DraftFact {
   folder?: Folder;
   detail?: string;
   source: FactSource;
+  /** v2: YYYY-MM-DD the writer read off the source, when it says. */
+  happened?: string;
 }
 
 export const FACT_ID_RE = /^fct_[0-9a-f]{4,}$/;

@@ -1,6 +1,6 @@
 {
   "project": "Canon",
-  "updated": "2026-10-24T01:05:45-07:00",
+  "updated": "2026-10-24T04:45:00-07:00",
   "team": [
     {
       "id": "A",
@@ -241,10 +241,10 @@
       "id": "B8",
       "owner": "B",
       "milestone": "M3",
-      "priority": "must",
+      "priority": "stretch",
       "state": "todo",
       "title": "Resume viewer: each line links to its source session",
-      "note": ""
+      "note": "Cut in v2 (docs/WORK_SPLIT.md). Not doing."
     },
     {
       "id": "B9",
@@ -262,7 +262,7 @@
       "priority": "stretch",
       "state": "todo",
       "title": "Apify job-posting → requirements Actor",
-      "note": ""
+      "note": "Cut in v2 (docs/WORK_SPLIT.md). Not doing."
     },
     {
       "id": "B11",
@@ -425,6 +425,69 @@
       "state": "todo",
       "title": "Timekeeping: call cuts when a deadline slips, enforce sleep rotation",
       "note": ""
+    },
+    {
+      "id": "B17",
+      "owner": "B",
+      "milestone": "M2",
+      "priority": "must",
+      "state": "doing",
+      "title": "Contract v2 with Henry: walls, deals, entitlements, lists, review queue, audit, agents, v2 events + REST",
+      "note": "Draft PR b/contract-v2 for Henry to review; additive, main stays green"
+    },
+    {
+      "id": "B18",
+      "owner": "B",
+      "milestone": "M3",
+      "priority": "must",
+      "state": "doing",
+      "title": "Ingest client for memos, team chat, meeting notes, email + hook/extension v2 (principal, kind)",
+      "note": "hooks/ingest; the extension is first to cut"
+    },
+    {
+      "id": "B19",
+      "owner": "B",
+      "milestone": "M3",
+      "priority": "must",
+      "state": "doing",
+      "title": "Jev save-time triage: keep, confidential, which deal, AI instructions (quarantine), relation",
+      "note": "distiller/src/triage.ts; one batched ask"
+    },
+    {
+      "id": "B20",
+      "owner": "B",
+      "milestone": "M3",
+      "priority": "must",
+      "state": "doing",
+      "title": "Fact writer v2 + wall labels: code rules + Jev, raise-only",
+      "note": "distiller/src/walls.ts + finance writer prompt"
+    },
+    {
+      "id": "B21",
+      "owner": "B",
+      "milestone": "M4",
+      "priority": "must",
+      "state": "doing",
+      "title": "Droid dispatch: sandbox per agent, droid exec at low autonomy, inbox between steps, steps streamed",
+      "note": "distiller/src/dispatch; fake + Claude fallback runners. Gate 11:00 (Q1)"
+    },
+    {
+      "id": "B22",
+      "owner": "B",
+      "milestone": "M4",
+      "priority": "must",
+      "state": "doing",
+      "title": "Live routing: Jev needs/cancels per agent, urgent wall changes",
+      "note": "distiller/src/dispatch/routing.ts"
+    },
+    {
+      "id": "B23",
+      "owner": "B",
+      "milestone": "M4",
+      "priority": "must",
+      "state": "doing",
+      "title": "Story v2: Devpost draft, video script, 2-min pitch, sponsor README lines",
+      "note": "docs/; numbers only from bench runs"
     }
   ],
   "tracks": [

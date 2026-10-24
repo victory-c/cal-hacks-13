@@ -8,6 +8,8 @@
 
 import { FACT_ID_RE, INBOX, TIERS, TOP_FOLDERS } from "./types/fact.ts";
 import type { Fact, FactSource, Folder, Tier } from "./types/fact.ts";
+import { PUBLIC_WALL, isDealWall } from "./types/walls.ts";
+import type { Wall } from "./types/walls.ts";
 
 type Scalar = string | number | boolean | null;
 type Frontmatter = Record<string, Scalar | Record<string, Scalar>>;
@@ -17,7 +19,7 @@ const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
 // `statement: "42"` stays a string.
 const NUMBER_RE = /^[-+]?(?:\d+\.?\d*|\.\d+)(?:[eE][-+]?\d+)?$/;
 const KEYWORD_RE = /^(?:true|false|null|~|yes|no|on|off)$/i;
-const FRONTMATTER_KEYS = ["id", "statement", "folder", "tier", "jev_keep", "source", "supersedes", "updated"] as const;
+const FRONTMATTER_KEYS = ["id", "statement", "folder", "tier", "jev_keep", "source", "supersedes", "updated", "happened", "wall", "wall_reason"] as const;
 
 // ---------------------------------------------------------------------------------------------
 // Writing
@@ -63,7 +65,11 @@ export function serializeFactFile(fact: Fact): string {
     `source: ${writeFlowMapping({ client: f.source.client, session: f.source.session, pr: f.source.pr, url: f.source.url })}`,
   ];
   if (f.supersedes) lines.push(`supersedes: ${writeScalar(f.supersedes)}`);
-  lines.push(`updated: ${writeScalar(f.updated)}`, "---");
+  lines.push(`updated: ${writeScalar(f.updated)}`);
+  if (f.happened) lines.push(`happened: ${writeScalar(f.happened)}`);
+  if (f.wall) lines.push(`wall: ${writeScalar(f.wall)}`);
+  if (f.wall_reason) lines.push(`wall_reason: ${writeScalar(f.wall_reason)}`);
+  lines.push("---");
   let out = lines.join("\n") + "\n";
   if (f.detail) out += f.detail + "\n";
   return out;
@@ -239,7 +245,7 @@ export function validateFact(x: unknown): { ok: true; fact: Fact } | { ok: false
   if (!isRecord(x)) return { ok: false, errors: [`fact must be an object (got ${show(x)})`] };
   const errors: string[] = [];
 
-  const { id, statement, folder, tier, jev_keep, source, supersedes, updated, detail } = x;
+  const { id, statement, folder, tier, jev_keep, source, supersedes, updated, detail, happened, wall, wall_reason } = x;
   if (typeof id !== "string" || !FACT_ID_RE.test(id)) errors.push(`id must match ${FACT_ID_RE} (got ${show(id)})`);
   if (typeof statement !== "string" || statement.trim() === "") errors.push(`statement must be a non-empty string (got ${show(statement)})`);
   if (typeof folder !== "string" || !isFolder(folder)) {
@@ -261,6 +267,11 @@ export function validateFact(x: unknown): { ok: true; fact: Fact } | { ok: false
   }
   if (typeof updated !== "string" || !DATE_RE.test(updated)) errors.push(`updated must be YYYY-MM-DD (got ${show(updated)})`);
   if (detail !== undefined && typeof detail !== "string") errors.push(`detail must be a string (got ${show(detail)})`);
+  if (happened !== undefined && (typeof happened !== "string" || !DATE_RE.test(happened))) errors.push(`happened must be YYYY-MM-DD (got ${show(happened)})`);
+  if (wall !== undefined && (typeof wall !== "string" || (wall !== PUBLIC_WALL && !isDealWall(wall)))) {
+    errors.push(`wall must be "${PUBLIC_WALL}" or a deal id like deal_falcon (got ${show(wall)})`);
+  }
+  if (wall_reason !== undefined && typeof wall_reason !== "string") errors.push(`wall_reason must be a string (got ${show(wall_reason)})`);
 
   if (errors.length) return { ok: false, errors };
 
@@ -279,6 +290,9 @@ export function validateFact(x: unknown): { ok: true; fact: Fact } | { ok: false
     updated: updated as string,
   };
   if (typeof supersedes === "string") fact.supersedes = supersedes;
+  if (typeof happened === "string") fact.happened = happened;
+  if (typeof wall === "string") fact.wall = wall as Wall;
+  if (typeof wall_reason === "string" && wall_reason.trim()) fact.wall_reason = wall_reason;
   const cleanDetail = typeof detail === "string" ? normalizeDetail(detail) : "";
   if (cleanDetail) fact.detail = cleanDetail;
   return { ok: true, fact };

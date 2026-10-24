@@ -17,6 +17,20 @@ export const EVENT_TYPES = [
   "fact.retired",
   "context.served",
   "access.denied",
+  // v2 (contract v2). Listened for, not rendered yet: the reducer passes them through.
+  "triage.decided",
+  "quarantine.flagged",
+  "review.created",
+  "review.resolved",
+  "handoff.served",
+  "refusal",
+  "deal.status_changed",
+  "entitlement.changed",
+  "audit.logged",
+  "agent.run",
+  "agent.step",
+  "agent.inbox",
+  "exit_check",
 ] as const satisfies readonly CanonEventType[];
 
 // The typecheck fails here when the contract gains an event type the list above lacks.
@@ -163,6 +177,22 @@ export function reduce(state: State, e: CanonEvent): State {
       if (state.seen.has(key)) return state;
       return { ...state, denied: insertNewestFirst(state.denied, e), seen: new Set(state.seen).add(key) };
     }
+
+    // v2 events: the control-room views (lane C) will render these.
+    case "triage.decided":
+    case "quarantine.flagged":
+    case "review.created":
+    case "review.resolved":
+    case "handoff.served":
+    case "refusal":
+    case "deal.status_changed":
+    case "entitlement.changed":
+    case "audit.logged":
+    case "agent.run":
+    case "agent.step":
+    case "agent.inbox":
+    case "exit_check":
+      return state;
 
     default:
       return assertNever(e);

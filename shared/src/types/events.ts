@@ -2,8 +2,11 @@
 // distiller worker and benchmark runner consume them. Plain SSE (SpacetimeDB only if there's
 // slack on Saturday). Every event carries `at` (ISO 8601).
 
+import type { AgentRun, AgentStep, InboxItem } from "./agents.ts";
+import type { HandoffCandidate } from "./api.ts";
 import type { ClientId, Fact, Folder } from "./fact.ts";
-import type { SaveDecision } from "./judge.ts";
+import type { SaveDecision, TriageDecision } from "./judge.ts";
+import type { AuditEvent, DealStatus, Entitlement, ReviewItem } from "./walls.ts";
 
 export type DistillEngine = "droid" | "claude" | "heuristic";
 
@@ -46,7 +49,80 @@ export type CanonEvent =
       judge_ms?: number;
       enough: boolean;
     })
-  | (Base & { type: "access.denied"; client: ClientId; tool: string; folder: Folder });
+  | (Base & { type: "access.denied"; client: ClientId; tool: string; folder: Folder })
+  // ---- v2 (PRD v2). Server-emitted unless marked "relayed": those come from lane B's internal
+  // workers through POST /api/events (see RELAYED_EVENTS) and the server re-broadcasts them.
+  | (Base & {
+      /** relayed (distiller): one per draft fact, including the ones that never became facts. */
+      type: "triage.decided";
+      session_id: string;
+      statement: string;
+      decision: TriageDecision;
+      fact_id?: string;
+    })
+  | (Base & {
+      /** relayed (distiller): a captured item held for instructions aimed at an AI. */
+      type: "quarantine.flagged";
+      session_id: string;
+      review_id: string;
+      p: number;
+      excerpt: string;
+    })
+  | (Base & { type: "review.created"; item: ReviewItem })
+  | (Base & { type: "review.resolved"; item: ReviewItem })
+  | (Base & {
+      /** Every handoff, for the inspector: what was considered, what was cut, and why. */
+      type: "handoff.served";
+      principal: string;
+      client?: ClientId;
+      run_id?: string;
+      task: string;
+      candidates: HandoffCandidate[];
+      fact_ids: string[];
+      tokens: number;
+      budget_tokens: number;
+      latency_ms: number;
+      retrieval_ms?: number;
+      judge_ms?: number;
+      /** Jev said the task needed no stored context: only the pinned profile went out. */
+      inject_nothing: boolean;
+    })
+  | (Base & {
+      type: "refusal";
+      principal: string;
+      client?: ClientId;
+      run_id?: string;
+      /** What the requester saw: one of NEUTRAL_REFUSALS. */
+      message: string;
+      audit_id: string;
+    })
+  | (Base & {
+      /** Urgent: routing cancels or updates running agents on this. */
+      type: "deal.status_changed";
+      deal: string;
+      from: DealStatus;
+      to: DealStatus;
+      by: string;
+    })
+  | (Base & { type: "entitlement.changed"; entitlement: Entitlement; granted: boolean })
+  | (Base & { type: "audit.logged"; entry: AuditEvent })
+  | (Base & { /** relayed (dispatcher) */ type: "agent.run"; run: AgentRun })
+  | (Base & { /** relayed (dispatcher) */ type: "agent.step"; step: AgentStep })
+  | (Base & { /** relayed (dispatcher) */ type: "agent.inbox"; item: InboxItem })
+  | (Base & {
+      type: "exit_check";
+      run_id?: string;
+      principal: string;
+      blocked: boolean;
+      /** Code-matched names (aliases, restricted companies). Compliance only. */
+      hits: string[];
+      /** Jev's P(points at a restricted deal indirectly). */
+      p?: number;
+    });
+
+/** Event types lane B's internal workers may publish through POST /api/events. */
+export const RELAYED_EVENTS = ["triage.decided", "quarantine.flagged", "agent.run", "agent.step", "agent.inbox"] as const;
+export type RelayedEventType = (typeof RELAYED_EVENTS)[number];
 
 export type CanonEventType = CanonEvent["type"];
 
