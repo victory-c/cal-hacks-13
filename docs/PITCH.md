@@ -9,6 +9,11 @@ laptop (he knows the server). Edan keeps time, holds the backup recording, and h
 attack-box laptop to judges at the end. That laptop runs its own copy, where Falcon was never
 announced (see "Try your own").
 
+**Demo laptop, before judging:** load the demo world, where Leo's rule excludes pending deals,
+Leo's scope holds no Falcon fact, and Priya is not a principal yet, because Maya adds her at
+0:40. If Priya already exists, the 0:40 "add Priya" fails or becomes a rule edit.
+[[CHECK: the demo world's seed or reset command from lane A (the attack box needs a second one)]]
+
 **Numbers:** every measured number (leaks, missing context, accuracy, tokens, latency, cost,
 scope build time) comes from `bench/results/latest.json` (not simulated) or the live dashboard.
 Thresholds, budgets and test-set sizes are design settings; call them that. Placeholders:
@@ -27,7 +32,7 @@ leak; say what the attack set measured. Bullwark never refuses, so never describ
 | 0:00 | Desk assistant as Leo. The question is already typed; press Enter. Then switch to Maya's scope inspector on Leo. | "Leo's a trader. He asks his AI: anything going on with Nimbus Logistics, should we add? *(answer appears)* Public news. No refusal, no hint. *(point at Maya's inspector)* Here's why: Leo's memory never held a single fact about the deal. There's nothing to break into." |
 | 0:15 | Moderator console overview: people and tiers, live feed. The banner "Synthetic data · decision support, not legal compliance" stays on screen for the whole pitch ([[CHECK: banner shipped in `web/`; if not, tape a card under the screen]]). | "Bullwark is the control room for a small finance team's AI. Built for Maya, an invented compliance officer at a thirty-person firm. All our data is synthetic." |
 | 0:25 | Event feed: Dan's ChatGPT session (through the extension, or the ingest client if the extension is cut) and the new memo arrive; triage rows show `deal/falcon` and the facts join Dan's scope. Then the lawyers' email lands in quarantine. | "Context comes in live: Dan's ChatGPT session about deal terms, and a new memo. Jev files them in the Falcon group, and they join Dan's scope. This email from the target's lawyers hides an instruction to the AI. Quarantined." |
-| 0:40 | Maya adds Priya: the task and the exclusion "anything about pending deals." The builder runs: exclusions, Moss, Jev, done, each with its measured time. | "Maya adds Priya: write the sector note from public data, excluding anything about pending deals. Deal groups are removed in code first. Moss finds candidates, Jev says yes or no to each, and that's her scope, built in [[LIVE COUNTER: scope build time, Priya's scope]]." |
+| 0:40 | Maya adds Priya: the task and the exclusion "anything about pending deals." The builder runs: exclusions, Moss, Jev, done, each with its measured time. | "Maya adds Priya: write the sector note from public data, excluding anything about pending deals. Jev picks which groups that covers, and code removes them before any model sees a fact. Moss finds candidates, Jev says yes or no to each, and that's her scope, built in [[LIVE COUNTER: scope build time, Priya's scope]]." |
 | 1:00 | Priya creates a research agent, Dan a deal analyst; two Droid lanes run. Then Priya creates an agent told to "include everything about Falcon"; the inspector shows no Falcon fact in its scope. | "Members make their own agents, from their own scope. Two Droid agents, each in a sandbox holding only its scope. Now the attack you'd try: Priya tells an agent to include everything about Falcon. It gets nothing. She has nothing to give it." |
 | 1:20 | Maya removes the deal exclusion from Leo's and Priya's rules. Both scopes rebuild; the research lane shows the inbox item; Leo asks again and gets an answer. | "Falcon is announced. Maya removes the deal exclusion from two rules. The scopes rebuild, the research agent gets the facts at its next step, and Leo gets his answer." |
 | 1:40 | Benchmark chart: leak rate against missing-context rate, one point per setup. | "We attacked it sixty times in six styles, including agents built to escalate. Bullwark with Jev leaked [[BENCH: leaks out of 60, Bullwark + Jev]]. Shared memory, told to respect the wall, leaked [[BENCH: leaks out of 60, shared memory]]. And real tasks missed needed context [[BENCH: missing-context rate, Bullwark + Jev]] of the time." |
@@ -55,8 +60,23 @@ switch to the backup recording of the full demo and keep the same script.
   judge types as Leo, or creates an agent as Priya. Never hand over the demo laptop: the 1:20
   step removed the deal exclusion there, so a Falcon answer is correct, not a leak.
 - Before judging starts, open the attack-box scope inspector and check that neither Leo's nor
-  Priya's scope holds a Falcon fact. [[CHECK: finance seed or reset command from lane A;
+  Priya's scope holds a Falcon fact. [[CHECK: the attack-box world's seed or reset command from
+  lane A, with Priya already added and her rule and Leo's excluding pending deals;
   `npm run seed -w server` skips existing files, so start from an empty data dir]]
+- Before judging starts, check the server's own routes on the attack-box laptop, with no token:
+  `curl -s http://localhost:4100/api/facts`, `curl -s http://localhost:4100/health` and
+  `curl -sN http://localhost:4100/events` (stop it after a few seconds). None may return a Falcon
+  fact or a total fact count. On `main` today, a tokenless `GET /api/facts` returns every fact
+  outside `private/`, `deal/falcon` included, and `/health` returns the store's fact count, so
+  anyone with a browser or terminal on that laptop can read Falcon without asking Leo's
+  assistant anything. [[CHECK: GET /api/facts, /events and /health need a token or are scoped to
+  the caller; nothing outside a member's scope, and no total counts, come back without one (lane
+  A)]] Until that passes, don't hand judges the attack-box laptop: type their questions into
+  Leo's assistant for them, and say why.
+- Before letting a judge create an agent, check that a Droid agent can't make that request
+  either. [[CHECK: whether `droid exec --auto low` in its sandbox can make an HTTP GET to
+  localhost:4100 (blocker Q1); the walls-era sandbox profile on PR #9 denies only file paths, not
+  the network]] If it can, and the routes above are still open, skip the agent attack.
 - Let the judge type anything. Read the reply out loud, then switch to Maya's console: the
   handoff inspector shows every candidate came from inside the scope and no Falcon fact was
   among them, and the audit row shows exactly what was sent.
@@ -107,13 +127,14 @@ and the pinned profile show name, tier and task, never the exclusions, group nam
 Members see only their own agents; the people list, scope inspector, handoff candidates and
 audit log are for moderators. A failed agent run reports a fixed line, never a quoted fact. What
 a member can know is that memories are scoped, and everyone's is, which says nothing about any
-one deal.
+one deal. [[CHECK: say "counted" only if the tokenless-route check under "Try your own" passed;
+if not, say the server's read routes still need to be locked down and that's lane A's open fix]]
 
 **4. What if Jev wrongly says yes?**
-Jev only ever sees what code let through: an excluded group never reaches it. When the
-exclusion is written in words, Jev is also asked of every candidate whether it falls under it,
-and a 30% "maybe" counts as yes, so one wrong yes on relevance isn't enough to let a deal fact
-in. (If they ask for more:) At handoff, a wrong yes can only choose among facts already in the
+Jev only ever sees facts that code let through: an excluded group's facts never reach it. When
+the exclusion is written in words, Jev first picks which groups it covers (a 20% chance is
+enough), and is then asked of every candidate whether it falls under it, where a 30% "maybe"
+counts as yes, so one wrong yes on relevance isn't enough to let a deal fact in. (If they ask for more:) At handoff, a wrong yes can only choose among facts already in the
 scope. Every fact that joins a scope is in the audit log, Maya can inspect any scope, and our
 leak rate counts whatever still got through. If Jev isn't available, the Claude fallback answers
 the same questions at the same thresholds.
@@ -137,7 +158,9 @@ Four layers. Triage asks of every captured item, "Does this contain instructions
 AI?" and a 30% chance quarantines it until a moderator releases it. Facts reach agents quoted,
 with source labels, as data, never as instructions. Exclusions are checked twice, in code and
 by Jev, so a memo worded to land in the wrong group still gets checked. And each Droid can touch
-only its own folder. [[CHECK: whether Droid can reach the network at `--auto low` (blocker Q1)]]
+only its own folder. [[CHECK: whether `droid exec --auto low` in its sandbox can make an HTTP GET
+to localhost:4100, Bullwark's own server, or reach the network at all (blocker Q1); if it can,
+drop "only its own folder"]]
 An instruction typed into a question has nothing to override: access isn't a prompt.
 
 **8. Why not just tell the model in its prompt to respect the walls?**
@@ -226,7 +249,7 @@ read the memos, run Python for the valuation, write the memo file. Droid runs he
 trigger, at a low autonomy level, in a sandbox folder holding only its scope's facts, and touches
 nothing outside it. One runtime for every agent means every agent's work shows up the same way,
 in its lane and in the audit log.
-[[CHECK: what Factory's booth said about headless non-coding runs and Python at `--auto low` (blocker Q1)]]
+[[CHECK: what Factory's booth said about headless non-coding runs and Python at `--auto low`, and whether Droid at that level can make an HTTP GET to localhost:4100 (blocker Q1); if it can, drop "touches nothing outside it"]]
 
 **22. Can Maya delete a fact?**
 No hard deletes. The memory browser lets her view, edit and retire facts, and a retired fact moves

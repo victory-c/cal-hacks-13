@@ -201,6 +201,7 @@ handoff:   request → Moss + keyword inside the scope (code-enforced) → Jev r
   anything hidden. The handoff's candidate list, the scope inspector, the people list and the
   audit log are for moderators only. An agent run that fails says why in a fixed line that never
   quotes a fact. [[SHIPPED? Hyphenate: handoff and audit; Factory Droid: agent runs]]
+  [[CHECK: GET /api/facts, /events and /health need a token or are scoped to the caller; nothing outside a member's scope, and no total counts, come back without one. Test with no token: `curl -s localhost:4100/api/facts` and `curl -sN localhost:4100/events` return no `deal/falcon` fact, and `curl -s localhost:4100/health` has no fact count. On `main` today the first returns every fact outside `private/` and the last returns the store's count (lane A)]]
 - **Agent profiles.** Anyone can create an agent: a name, a task and optional exclusions. The
   server builds its scope from its creator's scope only and checks in code that it is a subset,
   at build time and on every update. No MCP tool or sandbox can edit a scope rule, a scope or a
@@ -212,7 +213,7 @@ handoff:   request → Moss + keyword inside the scope (code-enforced) → Jev r
   It runs Factory Droid headless with `droid exec --auto low`, the lowest level that lets it
   create and edit files. On macOS a sandbox profile also stops it from reading the repo,
   Bullwark's data or another agent's folder.
-  [[CHECK: at the Factory booth, that `--auto low` is fine for headless finance runs, whether it runs Python for the numbers at that level, and whether it can reach the network (blocker Q1)]]
+  [[CHECK: at the Factory booth, that `--auto low` is fine for headless finance runs, whether it runs Python for the numbers at that level, and whether `droid exec --auto low` can make an HTTP GET to localhost:4100 (Bullwark's own server) or reach the network at all; the walls-era `sandbox-exec` profile on PR #9 denies only file paths (blocker Q1)]]
   Each task runs as a few short Droid steps. Every step, file and result streams into that
   agent's lane on the dashboard and becomes its audit record. The agent's new facts are its
   creator's memories. [[SHIPPED? Factory Droid: agent runs; Anthropic: briefs and runner]]
@@ -253,6 +254,7 @@ token per client.
   the topic. Then we hunted down the quieter signals: `canon_whoami` used to list folders, so a
   member's whoami now shows only their task, and counts of hidden facts appear nowhere a member
   can see. [[SHIPPED? Hyphenate: handoff and audit; Factory Droid: agent runs]]
+  [[CHECK: the tokenless GET /api/facts, /events and /health check under "No existence signals" passed]]
 - **Planted instructions.** Bullwark reads text from outside parties, like the target company's
   lawyers. Our synthetic email hides a line telling the AI to send the Falcon terms to research.
   Triage asks of every item whether it contains instructions aimed at an AI and quarantines it,
@@ -272,6 +274,7 @@ token per client.
   steps with an inbox in between, so a rule change takes effect at the next step whether or not
   the runtime accepts messages mid-run. A narrowed scope is the hard case: an agent's drafts may
   already hold a removed fact, so we throw the run folder away and restart from the plan step.
+  [[SHIPPED? Factory Droid: live routing]]
 - **Droid for finance work.** Droid is built as a coding agent. Our finance tasks are "work over
   a folder": read memos, run Python for the numbers, write a memo file. That framing fits a
   general agent with file and shell tools.
@@ -393,11 +396,12 @@ tokens, time to first reply, cost and scope build time. Results:
 [[CHECK: link to bench/results/latest.json from a run that is not simulated]]. The scale path
 goes from one firm to a company version, and our scale slide marks what is built and what is
 design. [[SHIPPED? Microsoft: finance benchmark; Hyphenate: handoff and audit]]
+[[CHECK: "members start with nothing" only if the tokenless GET /api/facts, /events and /health check under "No existence signals" passed]]
 
 **Factory Droid SDK.** Droid runs every agent in Bullwark. It isn't a chat wrapper: a member
 creates an agent from their scope, and Bullwark runs Droid headless (`droid exec --auto low`) in
 a sandbox folder outside the repo that holds only that agent's scope as markdown files, where it
-can create and edit files. [[CHECK: Python at `--auto low`, from the Factory booth (blocker Q1)]]
+can create and edit files. [[CHECK: Python at `--auto low`, and whether Droid at that level can make an HTTP GET to localhost:4100 or reach the network at all, from the Factory booth (blocker Q1); if it can, drop "exactly what each Droid can see and touch" below]]
 Each task runs as a few short steps with an inbox in between. Each step, file and result streams
 into the agent's lane on the dashboard. Bullwark controls exactly what each Droid can see and
 touch: new in-scope facts reach it at its next step, and when its creator's scope narrows, the

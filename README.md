@@ -121,7 +121,9 @@ text: [`docs/DEVPOST.md`](docs/DEVPOST.md). Scale slide: [`docs/SCALE_SLIDE.md`]
   profiles capped at their creator's scope, no refusals, and the audit log
   (`shared/src/types/scopes.ts`, `server/`, `web/`). Scopes contract: **in review** (draft PR
   #7). Scope builder, living scopes, tiers, agent profiles, handoff and audit in `server/`:
-  **planned** (lane A). Moderator console and member view in `web/`: **planned** (C13, C14).
+  **planned** (lane A). Until then, the scaffold's read routes (`GET /api/facts`, `/events`,
+  `/health`) still answer callers with no token: every fact outside `private/`, and the total
+  fact count. Moderator console and member view in `web/`: **planned** (C13, C14).
 - **Microsoft (Built for the Real World):** the benchmark in `bench/` (leak rate,
   missing-context rate, accuracy, tokens, latency, cost and scope build time across four setups,
   over 60 attacks and 30 tasks), the audit log and the scale path. The scaffold runner for three
@@ -145,7 +147,7 @@ removed.
 | Step | Where | What Droid does |
 |---|---|---|
 | Create | `POST /api/agents`, then `POST /api/dispatch` | A member creates an agent with a task and optional exclusions. The server builds its scope from the creator's scope only and checks it is a subset. A dispatch request starts the run. |
-| Sandbox | One folder per run, outside the repo and the data directory (on PR #9: `$TMPDIR/canon-agents/<run>/`) | The folder holds only the agent's scope as markdown files (`GET /api/scopes/:principal/facts`), quoted as information, never instructions, plus a brief Claude writes from them. Droid runs `droid exec --auto low` there and reads and writes files in that folder; whether `--auto low` also lets it run Python for the numbers is still to be confirmed at the Factory booth (blocker Q1). On macOS a `sandbox-exec` profile denies the repo, the data directory and other runs. |
+| Sandbox | One folder per run, outside the repo and the data directory (on PR #9: `$TMPDIR/canon-agents/<run>/`) | The folder holds only the agent's scope as markdown files (`GET /api/scopes/:principal/facts`), quoted as information, never instructions, plus a brief Claude writes from them. Droid runs `droid exec --auto low` there and reads and writes files in that folder; whether `--auto low` also lets it run Python for the numbers is still to be confirmed at the Factory booth (blocker Q1). On macOS a `sandbox-exec` profile denies the repo, the data directory and other runs; it covers file paths only, so whether Droid can reach the network, including Bullwark's own server, is part of blocker Q1. |
 | Steps and lanes | `agent.run`, `agent.step` events | Each task is a few short Droid steps. Every step, file and result streams into the agent's dashboard lane and its audit record. The agent's new facts are saved as its creator's memories. |
 | Live routing | `distiller/src/dispatch/routing.ts`, `agent.inbox` events | Between steps, facts that join the agent's scope reach its inbox when Jev says it needs them now. A narrowed scope is urgent: the run folder is discarded and the run restarts from the plan step in a fresh folder built from the new scope. |
 
