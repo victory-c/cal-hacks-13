@@ -376,12 +376,12 @@ describe("POST /api/facts into scope groups", () => {
       body: JSON.stringify({ facts: [{ fact, decision: decision("add", undefined, fact.folder) }] }),
     });
 
-  test("the distiller files into the server's listed groups, never an unlisted one", async () => {
+  test("the distiller files into the server's listed groups, never a folder outside its grant and the list", async () => {
     const inGroup: Fact = { ...factA, id: "fct_9a0b0001", folder: "deal/falcon" };
     assert.equal((await post("tok-dist", inGroup)).status, 200);
     assert.equal(running.store.getFact(inGroup.id)?.folder, "deal/falcon");
 
-    const unlisted: Fact = { ...factA, id: "fct_9a0b0002", folder: "deal/osprey" };
+    const unlisted: Fact = { ...factA, id: "fct_9a0b0002", folder: "legal/osprey" };
     assert.equal((await post("tok-dist", unlisted)).status, 403);
     assert.equal(running.store.getFact(unlisted.id), undefined);
 

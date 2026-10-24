@@ -1,7 +1,10 @@
-// Scopes REST surface (A2) over real HTTP on port 0, seeded with the synthetic world: tier
-// enforcement (one neutral 403 body on moderator routes, sent whether the target exists or not),
-// internal-client gates, code-level exclusion filtering, the agent-scope-subset property and the
-// contract shapes from shared/src/types/api.ts.
+// Scopes over real HTTP on port 0, seeded with the synthetic world: tier enforcement (one neutral
+// 403 body on moderator routes, sent whether the target exists or not), internal-client gates,
+// the real scope builder (exclusions in code → retriever candidates → batched judge yes/no, with
+// measured scope.stage events), the agent-scope-subset property, living scopes and the contract
+// shapes from shared/src/types/api.ts. The judge is the fake with the simulated scope answers —
+// exactly what the offline demo runs — plus a per-test override hook and a question log, so the
+// tests can both steer single answers (a "maybe") and prove what the judge was never asked.
 
 import assert from "node:assert/strict";
 import { mkdtemp, rm } from "node:fs/promises";
@@ -11,20 +14,27 @@ import { after, before, describe, test } from "node:test";
 
 import { DEMO_GRANTS, FakeJudge, folderAllows } from "@canon/shared";
 import type {
+  Answer,
   AuditEvent,
   CanonEvent,
   Fact,
+  Folder,
   Group,
   HandoffResult,
+  Judge,
   Principal,
   QuarantineItem,
+  Question,
   Scope,
   ScopeRule,
 } from "@canon/shared";
 
 import { startServer } from "./app.ts";
 import type { RunningServer } from "./app.ts";
+import { EventBus } from "./events.ts";
 import { KeywordRetriever } from "./retrieval/keyword.ts";
+import { simulatedScopeAnswers } from "./scope-judge.ts";
+import { ScopeState, buildScope, loadWorldFixtures } from "./scopes.ts";
 import { seedDataDir } from "./seed.ts";
 
 const tokens = new Map([
@@ -38,11 +48,25 @@ const tokens = new Map([
 
 const MODERATORS_ONLY = { error: "moderators only" };
 
-describe("scopes REST surface (A2)", () => {
+describe("scopes REST surface and scope builder (A2, A4+A6)", () => {
   let dir: string;
   let running: RunningServer;
   let events: CanonEvent[];
   const originalInfo = console.info;
+
+  // Every judge batch and every retriever query, so a test can prove what was (and never was)
+  // put in front of a model or the search index.
+  const askLog: Question[][] = [];
+  const searchLog: Array<{ query: string; folders: readonly Folder[] }> = [];
+  // A test-scoped answer override; reset to undefined after use. Wins over the simulated answers.
+  let testAnswers: ((q: Question) => Answer | undefined) | undefined;
+
+  class RecordingRetriever extends KeywordRetriever {
+    override async search(query: string, opts: { folders: readonly Folder[]; k: number }) {
+      searchLog.push({ query, folders: opts.folders });
+      return super.search(query, opts);
+    }
+  }
 
   const api = (path: string, init: RequestInit & { token?: string; json?: unknown } = {}) => {
     const headers: Record<string, string> = { ...(init.headers as Record<string, string>) };
@@ -51,12 +75,28 @@ describe("scopes REST surface (A2)", () => {
     return fetch(`${running.url}${path}`, { ...init, headers, body: init.json !== undefined ? JSON.stringify(init.json) : init.body });
   };
   const body = async <T>(res: Response): Promise<T> => (await res.json()) as T;
+  /** Living-scope updates run async off the bus; poll instead of sleeping a fixed time. */
+  const until = async (pred: () => boolean, what: string): Promise<void> => {
+    for (let i = 0; i < 200; i++) {
+      if (pred()) return;
+      await new Promise((r) => setTimeout(r, 5));
+    }
+    assert.fail(`timed out waiting for ${what}`);
+  };
 
   before(async () => {
     console.info = () => {};
     dir = await mkdtemp(join(tmpdir(), "canon-scopes-"));
     await seedDataDir(dir); // the world facts (fct_fa1c…, fct_ab11…, …) referenced by scopes.json
-    running = await startServer({ port: 0, dataDir: dir, tokens, grants: [...DEMO_GRANTS], judge: new FakeJudge(), retriever: new KeywordRetriever(), log: () => {} });
+    const inner = new FakeJudge({ override: (q, s) => testAnswers?.(q) ?? simulatedScopeAnswers(q, s) });
+    const judge: Judge = {
+      name: "fake",
+      ask: (state, questions) => {
+        askLog.push(questions);
+        return inner.ask(state, questions);
+      },
+    };
+    running = await startServer({ port: 0, dataDir: dir, tokens, grants: [...DEMO_GRANTS], judge, retriever: new RecordingRetriever(), log: () => {} });
     events = [];
     running.bus.subscribe((e) => events.push(e));
   });
@@ -159,7 +199,8 @@ describe("scopes REST surface (A2)", () => {
     assert.equal((await api("/api/scopes/ghost", { token: "tok-maya" })).status, 404);
   });
 
-  test("POST /api/principals: a new member gets a scope with the exclusions applied in code", async () => {
+  test("POST /api/principals: a new member's scope is built through the pipeline, exclusions in code", async () => {
+    const stagesBefore = events.filter((e) => e.type === "scope.stage").length;
     const res = await api("/api/principals", {
       method: "POST",
       token: "tok-maya",
@@ -170,8 +211,29 @@ describe("scopes REST surface (A2)", () => {
     assert.deepEqual(noor, { id: "noor", kind: "person", name: "Noor", tier: "member" });
 
     const { facts } = await body<{ facts: Fact[] }>(await api("/api/scopes/noor/facts", { token: "tok-maya" }));
-    assert.ok(facts.length > 0, "the stub scope holds the non-excluded hot facts");
+    assert.ok(facts.length > 0, "the task-relevant facts joined");
+    assert.ok(facts.some((f) => f.id === "fct_ab110001"), "public market facts match the task");
     assert.ok(facts.every((f) => !folderAllows(["deal", "inbox"], f.folder)), "deal/* removed in code; inbox never joins");
+    assert.ok(!facts.some((f) => f.id === "fct_0f0e0001"), "a fact that matches nothing in the task stays out");
+
+    // The scope contract shape, and the builder's stages with measured times (PRD #10).
+    const scope = await body<Scope>(await api("/api/scopes/noor", { token: "tok-maya" }));
+    assert.deepEqual(Object.keys(scope).sort(), ["built_at", "fact_ids", "principal", "rule_updated_at"]);
+    assert.equal(scope.principal, "noor");
+    assert.ok(Array.isArray(scope.fact_ids) && scope.fact_ids.every((fid) => typeof fid === "string"));
+    assert.ok(!Number.isNaN(Date.parse(scope.built_at)) && !Number.isNaN(Date.parse(scope.rule_updated_at)));
+    assert.ok(scope.built_at >= scope.rule_updated_at, "built from the current rule");
+    const stages = events.slice(0).filter((e) => e.type === "scope.stage" && e.principal === "noor");
+    assert.deepEqual(stages.map((s) => s.type === "scope.stage" && s.stage), ["exclusions", "moss", "jev", "done"], "every stage is shown, in order");
+    for (const s of stages) {
+      assert.ok(s.type === "scope.stage" && Number.isFinite(s.ms) && s.ms >= 0, "each stage carries a measured time");
+      assert.ok(s.type === "scope.stage" && Number.isFinite(s.remaining) && s.remaining >= 0);
+    }
+    assert.ok(events.filter((e) => e.type === "scope.stage").length >= stagesBefore + 4);
+    const built = events.find((e) => e.type === "audit.logged" && e.entry.kind === "scope.built" && e.entry.principal === "noor");
+    assert.ok(built && built.type === "audit.logged");
+    assert.match(built.entry.detail, /simulated/, "stub providers are labelled simulated in the audit row");
+    assert.deepEqual(built.entry.fact_ids, scope.fact_ids, "the audit row records exactly the scope");
 
     const list = await body<{ principals: Principal[] }>(await api("/api/principals", { token: "tok-maya" }));
     assert.ok(list.principals.some((p) => p.id === "noor"));
@@ -241,7 +303,7 @@ describe("scopes REST surface (A2)", () => {
     assert.equal((await api("/api/handoff", { method: "POST", token: "tok-dist", json: { principal: "agt_leodesk", task: "" } })).status, 400);
   });
 
-  test("PUT /api/scope-rules/:principal rebuilds the scope by removal only (stub never adds)", async () => {
+  test("PUT /api/scope-rules/:principal rebuilds the scope through the full pipeline", async () => {
     const beforeScope = await body<Scope>(await api("/api/scopes/priya", { token: "tok-maya" }));
     assert.ok(beforeScope.fact_ids.includes("fct_ab110001"), "the Nimbus Q3 fact starts in Priya's scope");
 
@@ -257,16 +319,18 @@ describe("scopes REST surface (A2)", () => {
 
     const afterScope = await body<Scope>(await api("/api/scopes/priya", { token: "tok-maya" }));
     for (const gone of ["fct_ab110001", "fct_ab110002", "fct_10610002"]) {
-      assert.ok(!afterScope.fact_ids.includes(gone), `${gone} carries the excluded label`);
+      assert.ok(!afterScope.fact_ids.includes(gone), `${gone} carries the excluded label (code, before any model)`);
     }
-    for (const kept of ["fct_ab110003", "fct_10610001", "fct_0f0e0001", "fct_0f0e0002"]) {
-      assert.ok(afterScope.fact_ids.includes(kept), `${kept} stays`);
+    assert.ok(!afterScope.fact_ids.some((id) => id.startsWith("fct_fa1c")), "deal/* stays excluded in code");
+    assert.ok(afterScope.fact_ids.includes("fct_ab110003"), "Priya's own public-market fact stays (own facts join unless excluded)");
+    assert.ok(afterScope.fact_ids.includes("fct_10610001"), "her sector note stays");
+    for (const gone of ["fct_0f0e0001", "fct_0f0e0002"]) {
+      assert.ok(!afterScope.fact_ids.includes(gone), `${gone} helps nothing in the task: the real builder drops it`);
     }
-    assert.ok(afterScope.fact_ids.every((id) => beforeScope.fact_ids.includes(id)), "a rebuild only removes");
+    assert.equal(afterScope.rule_updated_at, rule.updated_at, "rebuilt from the new rule");
 
     const update = events.find((e) => e.type === "scope.updated" && e.principal === "priya" && e.reason === "rule_changed");
     assert.ok(update && update.type === "scope.updated");
-    assert.deepEqual(update.added, []);
     assert.ok(update.removed.includes("fct_ab110001"));
     assert.ok(events.some((e) => e.type === "audit.logged" && e.entry.kind === "scope.rule_changed" && e.entry.principal === "priya"));
 
@@ -390,5 +454,197 @@ describe("scopes REST surface (A2)", () => {
     assert.equal((await api("/api/events", { method: "POST", token: "tok-dist", json: { event: { type: "fact.saved" } } })).status, 400, "only RELAYED_EVENTS types");
     const member = await api("/api/events", { method: "POST", token: "tok-leo", json: { event: { type: "agent.step" } } });
     assert.equal(member.status, 403);
+  });
+
+  // ------------------------------------------------------------ the real builder (A4+A6)
+
+  test("scope builder: excluded facts never reach Moss or Jev, even when the task asks for them", async () => {
+    const asksBefore = askLog.length;
+    const res = await api("/api/principals", {
+      method: "POST",
+      token: "tok-maya",
+      json: { id: "omar", name: "Omar", tier: "member", rule: { task: "Track Nimbus Logistics and anything about Project Falcon", exclude: { groups: ["deal"], labels: [] } } },
+    });
+    assert.equal(res.status, 200);
+    const scope = await body<Scope>(await api("/api/scopes/omar", { token: "tok-maya" }));
+    assert.ok(scope.fact_ids.includes("fct_ab110001"), "the public Nimbus facts join");
+    assert.ok(!scope.fact_ids.some((fid) => fid.startsWith("fct_fa1c")), "no deal fact joins, although the task names Falcon");
+
+    const asked = askLog.slice(asksBefore).flat();
+    assert.ok(asked.length > 0, "the judge was consulted for the build");
+    for (const q of asked) {
+      assert.ok(!q.text.includes("fct_fa1c"), `an excluded fact reached the judge: ${q.text}`);
+      assert.ok(!/Corvane|38\.50|LOI/.test(q.text), `deal-only detail reached the judge: ${q.text}`);
+    }
+    const search = searchLog.find((s) => s.query.startsWith("Track Nimbus"));
+    assert.ok(search, "one retriever query per build");
+    assert.ok(search.folders.every((f) => !folderAllows(["deal", "inbox"], f)), "the retriever only ever searches the post-exclusion groups");
+  });
+
+  test("scope builder: a 'maybe' on the exclusion question counts as excluded", async () => {
+    testAnswers = (q) => (q.id === "xf:fct_ab110003" ? { id: q.id, type: "noul", p: 0.35 } : undefined); // a maybe, not a yes
+    try {
+      const res = await api("/api/principals", {
+        method: "POST",
+        token: "tok-maya",
+        json: { id: "tess", name: "Tess", tier: "member", rule: { task: "Cover cold chain logistics names", exclude: { groups: ["deal"], labels: [], text: "bananas and umbrellas" } } },
+      });
+      assert.equal(res.status, 200);
+    } finally {
+      testAnswers = undefined;
+    }
+    const scope = await body<Scope>(await api("/api/scopes/tess", { token: "tok-maya" }));
+    assert.ok(scope.fact_ids.includes("fct_de5c0001"), "a relevant fact the judge cleared joined (the relevance path works)");
+    assert.ok(!scope.fact_ids.includes("fct_ab110003"), "the maybe-excluded fact stayed out although it matches the task");
+  });
+
+  test("scope builder: an agent scope that escapes its creator's fails loudly at build time", async () => {
+    const world = new ScopeState(loadWorldFixtures());
+    const retriever = new KeywordRetriever();
+    await retriever.index(running.store.listFacts({ tier: "hot" }));
+    const judge = new FakeJudge({
+      override: (q) => {
+        // A moderator narrows Leo while the agent's model call is in flight: the base was computed
+        // from the old scope, so the yes answers would now exceed the creator.
+        if (q.id.startsWith("rf:")) {
+          world.scopes.get("leo")!.fact_ids = [];
+          return { id: q.id, type: "noul", p: 0.9 };
+        }
+        return { id: q.id, type: "noul", p: 0.05 };
+      },
+    });
+    const deps = { world, store: running.store, bus: new EventBus(), grants: [...DEMO_GRANTS], judge, retriever };
+    const agent = world.principals.get("agt_leodesk");
+    const rule = world.rules.get("agt_leodesk");
+    assert.ok(agent && rule);
+    await assert.rejects(buildScope(deps, agent, rule, "maya"), /not a subset/, "violated subset is a loud error, never a silent trim");
+  });
+
+  // ------------------------------------------------------------- living scopes (PRD #11)
+
+  const saveFacts = (entries: Array<{ fact: Fact; supersedes?: string }>) =>
+    api("/api/facts", {
+      method: "POST",
+      token: "tok-dist",
+      json: {
+        facts: entries.map(({ fact, supersedes }) => ({
+          fact,
+          decision: { tier: fact.tier, folder: fact.folder, action: supersedes ? "supersede" : "add", ...(supersedes ? { supersedes } : {}), keep_p: 0.9, folder_p: 0.9, judge: "fake" },
+        })),
+      },
+    });
+  const factBase = { tier: "hot" as const, jev_keep: 0.9, updated: "2026-10-24" };
+
+  test("living scopes: a member's own new fact always joins, and reaches their agent when it clears the agent's rule", async () => {
+    const fact: Fact = {
+      ...factBase,
+      id: "fct_11fe0001",
+      statement: "Leo opened a starter position in Larkspur Cold Chain (LKSP) on 2026-10-24",
+      folder: "desk/trading",
+      source: { client: "ingest", session: "ses_11fe0001" },
+      author: "leo",
+    };
+    assert.equal((await saveFacts([{ fact }])).status, 200);
+
+    await until(() => events.some((e) => e.type === "scope.updated" && e.principal === "leo" && e.reason === "fact_joined" && e.added.includes(fact.id)), "Leo's scope to gain his own fact");
+    const leo = await body<Scope>(await api("/api/scopes/leo", { token: "tok-maya" }));
+    assert.ok(leo.fact_ids.includes(fact.id), "own facts always join");
+
+    await until(() => events.some((e) => e.type === "scope.updated" && e.principal === "agt_leodesk" && e.added.includes(fact.id)), "the agent to receive it at its next step");
+    const agent = await body<Scope>(await api("/api/scopes/agt_leodesk", { token: "tok-maya" }));
+    assert.ok(agent.fact_ids.includes(fact.id), "the creator holds it and it clears the agent's rule");
+    assert.ok(agent.fact_ids.every((fid) => leo.fact_ids.includes(fid)), "the agent still never exceeds its creator");
+
+    assert.ok(events.some((e) => e.type === "audit.logged" && e.entry.kind === "fact.joined_scope" && e.entry.principal === "leo" && e.entry.fact_ids?.includes(fact.id)), "the join is audited");
+    const dan = await body<Scope>(await api("/api/scopes/dan", { token: "tok-maya" }));
+    assert.ok(!dan.fact_ids.includes(fact.id), "someone else's scope gains nothing it has no use for");
+  });
+
+  test("living scopes: an inbox fact joins no scope, not even its author's", async () => {
+    const fact: Fact = {
+      ...factBase,
+      id: "fct_11fe0002",
+      statement: "Unplaced note about public market logistics data from Priya",
+      folder: "inbox",
+      source: { client: "ingest", session: "ses_11fe0002" },
+      author: "priya",
+    };
+    assert.equal((await saveFacts([{ fact }])).status, 200);
+    await new Promise((r) => setTimeout(r, 30)); // the handler bails before its first await, but don't rely on that
+    assert.ok(!events.some((e) => e.type === "scope.updated" && e.reason === "fact_joined" && e.added.includes(fact.id)), "no scope gained it");
+    assert.ok(!events.some((e) => e.type === "audit.logged" && e.entry.kind === "fact.joined_scope" && e.entry.fact_ids?.includes(fact.id)));
+    const priya = await body<Scope>(await api("/api/scopes/priya", { token: "tok-maya" }));
+    assert.ok(!priya.fact_ids.includes(fact.id), "not even the author's scope holds it until a moderator files it");
+  });
+
+  test("living scopes: others' facts join through the checks; excluded ones never reach the judge; retired ones leave", async () => {
+    const pub: Fact = {
+      ...factBase,
+      id: "fct_11fe0003",
+      statement: "Public market news: freight and logistics sector volumes rose in October",
+      folder: "market/public",
+      source: { client: "ingest", session: "ses_11fe0003" },
+      author: "dan",
+    };
+    assert.equal((await saveFacts([{ fact: pub }])).status, 200);
+    for (const who of ["priya", "leo", "agt_leodesk"]) {
+      await until(() => events.some((e) => e.type === "scope.updated" && e.principal === who && e.added.includes(pub.id)), `${who} to gain the public fact`);
+    }
+
+    // A deal fact: Dan's own memory, so it joins him with no model call; everyone else's rule
+    // excludes deal/* in code, so the judge is never asked about it at all.
+    const asksBefore = askLog.length;
+    const deal: Fact = {
+      ...factBase,
+      id: "fct_11fe0004",
+      statement: "Falcon exclusivity extended after the Nimbus Logistics board meeting",
+      folder: "deal/falcon",
+      source: { client: "ingest", session: "ses_11fe0004" },
+      author: "dan",
+      labels: ["falcon", "nimbus"],
+    };
+    assert.equal((await saveFacts([{ fact: deal }])).status, 200);
+    await until(() => events.some((e) => e.type === "scope.updated" && e.principal === "dan" && e.added.includes(deal.id)), "Dan's scope to gain his own deal fact");
+    assert.equal(askLog.length, asksBefore, "the excluded fact never reached the judge: exclusions ran in code");
+    for (const who of ["priya", "leo", "agt_leodesk"]) {
+      const scope = await body<Scope>(await api(`/api/scopes/${who}`, { token: "tok-maya" }));
+      assert.ok(!scope.fact_ids.includes(deal.id), `${who} never held the deal fact`);
+    }
+
+    // History: a superseding fact retires the old one, which leaves every scope; the new one joins.
+    const pub2: Fact = {
+      ...factBase,
+      id: "fct_11fe0005",
+      statement: "Public market news: logistics sector volumes revised down for October",
+      folder: "market/public",
+      source: { client: "ingest", session: "ses_11fe0005" },
+      author: "dan",
+      supersedes: pub.id,
+    };
+    assert.equal((await saveFacts([{ fact: pub2, supersedes: pub.id }])).status, 200);
+    await until(() => events.some((e) => e.type === "scope.updated" && e.principal === "priya" && e.reason === "fact_left" && e.removed.includes(pub.id)), "the retired fact to leave");
+    await until(() => events.some((e) => e.type === "scope.updated" && e.principal === "priya" && e.added.includes(pub2.id)), "its replacement to join");
+    const priya = await body<Scope>(await api("/api/scopes/priya", { token: "tok-maya" }));
+    assert.ok(!priya.fact_ids.includes(pub.id) && priya.fact_ids.includes(pub2.id), "replaced, not duplicated");
+    assert.ok(events.some((e) => e.type === "audit.logged" && e.entry.kind === "fact.left_scope" && e.entry.fact_ids?.includes(pub.id)), "the departure is audited");
+  });
+
+  test("a rule edit rebuilds the member's scope and cascades to their agents before the next step", async () => {
+    const res = await api("/api/scope-rules/leo", {
+      method: "PUT",
+      token: "tok-maya",
+      json: { task: "Run the trading desk's book from its positions", exclude: { groups: ["deal", "market"], labels: [] } },
+    });
+    assert.equal(res.status, 200);
+
+    const leo = await body<Scope>(await api("/api/scopes/leo", { token: "tok-maya" }));
+    assert.ok(!leo.fact_ids.some((fid) => fid.startsWith("fct_ab11") || fid === "fct_11fe0005"), "market/* left Leo's scope in code");
+    assert.ok(leo.fact_ids.includes("fct_11fe0001"), "his own desk fact stays");
+
+    const agent = await body<Scope>(await api("/api/scopes/agt_leodesk", { token: "tok-maya" }));
+    assert.ok(agent.fact_ids.length > 0, "the agent keeps what still clears both rules");
+    assert.ok(agent.fact_ids.every((fid) => leo.fact_ids.includes(fid)), "the agent was rebuilt inside the creator's new scope");
+    assert.ok(!agent.fact_ids.some((fid) => fid.startsWith("fct_ab11") || fid === "fct_11fe0005"), "the narrowed creator narrowed the agent");
+    assert.ok(events.some((e) => e.type === "scope.updated" && e.principal === "agt_leodesk" && e.reason === "rule_changed"), "the cascade is visible on the feed");
   });
 });

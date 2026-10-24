@@ -1,12 +1,15 @@
-// Scopes REST surface (task A2): fixture-backed stubs behind the real tier and client gates, so
-// lanes B and C build against the final contract while the Moss/Jev scope builder is still open.
+// Scopes REST surface (A2) and the scope builder + living scopes (A4+A6).
 //
-// What is REAL here: tier enforcement (member vs moderator vs internal client), the no-existence-
-// signals rule (a member is told "moderators only" BEFORE anything is looked up, so the same bytes
-// come back whether the target exists or not), code-level exclusion filtering wherever a scope is
-// (re)built, and the agent-scope-subset check. What is a STUB: scope membership starts from the
-// fixtures in distiller/fixtures/world/, a rebuild only removes facts (never adds), and handoff
-// relevance is the keyword stub, not Moss + Jev. Those land with the scope-builder tasks.
+// REAL here: tier enforcement (member vs moderator vs internal client), the no-existence-signals
+// rule (a member is told "moderators only" BEFORE anything is looked up, so the same bytes come
+// back whether the target exists or not), and the PRD scope pipeline — exclusions removed in code
+// before any model, one retriever query for Moss candidates, one batched judge() call per Jev
+// decision with thresholds applied in code, scope.stage events with measured times, the agent-
+// subset check at build time, and living-scope updates on fact.saved / fact.retired. SIMULATED
+// without credentials: the keyword retriever stands in for Moss and the fake judge answers the
+// scope questions from keyword overlap (see scope-judge.ts); both are named in the scope.built
+// audit detail and GET /health. STILL A STUB: handoff relevance is keyword overlap, not
+// Moss-inside-the-scope + Jev (task A7).
 
 import { randomBytes } from "node:crypto";
 import { readFileSync } from "node:fs";
@@ -25,6 +28,7 @@ import {
   REPO_ROOT,
   ROUTES,
   SESSION_ID_RE,
+  TRIAGE_THRESHOLDS,
   cutToBudget,
   factTokens,
   folderAllows,
@@ -32,6 +36,7 @@ import {
   nowIso,
 } from "@canon/shared";
 import type {
+  Answer,
   AuditEvent,
   ContextFact,
   Fact,
@@ -39,16 +44,21 @@ import type {
   Group,
   HandoffCandidate,
   HandoffResult,
+  Judge,
   Principal,
   PrincipalTier,
   QuarantineItem,
+  Question,
   Scope,
   ScopeRule,
+  ScopeStage,
 } from "@canon/shared";
 
 import type { EventBus } from "./events.ts";
 import { HttpError, isRecord, readJsonBody, sendJson } from "./http.ts";
+import type { Retriever } from "./retrieval/index.ts";
 import { tokenize } from "./retrieval/keyword.ts";
+import { excludeFactQ, excludeGroupQ, inScopeQ } from "./scope-judge.ts";
 import type { FileStore } from "./store.ts";
 
 // ---------------------------------------------------------------------------------- fixtures
@@ -112,6 +122,10 @@ export interface ScopesDeps {
   store: FileStore;
   bus: EventBus;
   grants: readonly Grant[];
+  /** Jev (or the Claude/fake fallback) behind the one judge() interface. */
+  judge: Judge;
+  /** Moss when credentialed, else the keyword stub (labelled simulated). */
+  retriever: Retriever;
 }
 
 // ------------------------------------------------------------------------------------ gates
@@ -142,6 +156,10 @@ function logAudit(deps: ScopesDeps, entry: Omit<AuditEvent, "id" | "at">): Audit
 }
 
 // ------------------------------------------------------------------------- scope building
+//
+// The PRD pipeline (A4+A6): exclusions in code → one Moss query → one batched judge() call per
+// Jev decision, thresholds applied in code → a fixed list of fact ids. Each stage is emitted as
+// scope.stage with its measured wall-clock time (SCOPE_STAGES; "done" carries the total).
 
 /** The code-level exclusion filter: excluded groups (prefix) and labels are removed before any model runs. */
 function allowedByRule(rule: Pick<ScopeRule, "exclude">, fact: Fact): boolean {
@@ -156,27 +174,123 @@ function hotCandidates(deps: ScopesDeps): Fact[] {
 }
 
 /**
- * Builds a scope for a principal (STUB: exclusions in code over the base set; the Moss + Jev
- * selection is a later task, so everything not excluded joins). An agent's base is its creator's
- * scope only, so the subset property holds by construction; it is still asserted below.
+ * P(yes) of the noul answer with this id. A missing or malformed answer is uncertainty, and
+ * uncertainty must land on the cautious side, so the caller picks the fallback: 1 for "does it
+ * fall under the exclusion?" (no answer excludes) and 0 for "does it help?" (no answer stays out).
  */
-function buildScope(deps: ScopesDeps, principal: Principal, rule: ScopeRule): Scope {
-  const base =
-    principal.kind === "agent" && principal.created_by !== undefined
-      ? scopeFacts(deps, principal.created_by)
-      : hotCandidates(deps);
-  const fact_ids = base.filter((f) => allowedByRule(rule, f)).map((f) => f.id);
-  if (principal.kind === "agent" && principal.created_by) {
-    // A moderator creator sees everything and has no scope record; any other creator's scope caps the agent's.
+function noulP(answers: readonly Answer[], id: string, fallback: 0 | 1): number {
+  const a = answers.find((x) => x.id === id);
+  return a?.type === "noul" && Number.isFinite(a.p) ? a.p : fallback;
+}
+
+/** " [simulated: …]" when stub providers answered, so no detail line ever claims a measured model run. */
+function simLabel(deps: ScopesDeps): string {
+  const sims = [deps.judge.name === "fake" ? "judge=fake" : "", deps.retriever.name !== "moss" ? `retriever=${deps.retriever.name}` : ""].filter(Boolean);
+  return sims.length > 0 ? ` [simulated: ${sims.join(", ")}]` : "";
+}
+
+export interface ScopeBuild {
+  scope: Scope;
+  added: string[];
+  removed: string[];
+}
+
+/**
+ * Builds (or fully rebuilds) a principal's scope. Excluded groups and labels leave the pool in
+ * code before the retriever or the judge see anything, so no excluded fact is ever named, scored
+ * or counted by a model. An agent's base is its creator's scope only, so the subset property
+ * holds by construction; it is re-checked against the creator's *current* scope right before the
+ * write (the model calls await, and a moderator may have narrowed the creator meanwhile) and a
+ * violation is a loud 500, never a silent trim. Writes the scope.built audit row.
+ */
+export async function buildScope(deps: ScopesDeps, principal: Principal, rule: ScopeRule, actor: string): Promise<ScopeBuild> {
+  const t0 = performance.now();
+  const stage = (s: ScopeStage, since: number, remaining: number): number => {
+    const now = performance.now();
+    deps.bus.emit({ type: "scope.stage", principal: principal.id, stage: s, ms: Math.round(now - since), remaining });
+    return now;
+  };
+
+  // 1. Exclusions in code. A member draws from every hot fact outside the moderators-only inbox;
+  // an agent draws from its creator's scope only.
+  const base = principal.kind === "agent" && principal.created_by !== undefined ? scopeFacts(deps, principal.created_by) : hotCandidates(deps);
+  const pool = base.filter((f) => allowedByRule(rule, f));
+  const t1 = stage("exclusions", t0, pool.length);
+
+  // 2. One Moss query for the task over what remains. Whatever comes back is re-filtered against
+  // the post-exclusion pool in code, so a stale index can never resurrect an excluded fact. If
+  // the retriever fails (Moss without credentials, blocker Q2), every pooled fact stays a
+  // candidate and Jev still filters. A member's own facts are candidates regardless of the
+  // query: they always join unless an exclusion removes them.
+  const poolById = new Map(pool.map((f) => [f.id, f]));
+  let candidates: Fact[];
+  try {
+    const hits = await deps.retriever.search(rule.task, { folders: [...new Set(pool.map((f) => f.folder))], k: pool.length });
+    candidates = hits.map((h) => poolById.get(h.fact.id)).filter((f): f is Fact => f !== undefined);
+  } catch (err) {
+    console.warn(`[scopes] ${deps.retriever.name} search failed (${err instanceof Error ? err.message : String(err)}); every post-exclusion fact stays a candidate`);
+    candidates = [...pool];
+  }
+  const own = new Set(principal.kind === "person" ? pool.filter((f) => f.author === principal.id).map((f) => f.id) : []);
+  const inCandidates = new Set(candidates.map((f) => f.id));
+  for (const f of pool) if (own.has(f.id) && !inCandidates.has(f.id)) candidates.push(f);
+  const t2 = stage("moss", t1, candidates.length);
+
+  // 3. Jev, one batched ask() per decision. (a) Does group g fall under the exclusion text? Any
+  // real chance excludes the whole group in code. (b) Per candidate: does it fall under the
+  // exclusion (a maybe counts as excluded) and does it help with the task (a yes joins)? Own
+  // facts answer only the exclusion question — a member cannot lose their own memory to a
+  // relevance call, only to an exclusion.
+  const ctx = `Scope build for ${principal.id}. Task: "${rule.task}".`;
+  let eligible = candidates;
+  if (rule.exclude.text !== undefined && eligible.length > 0) {
+    const text = rule.exclude.text;
+    const groups = [...new Set(eligible.map((f) => f.folder))];
+    const answers = await deps.judge.ask(ctx, groups.map((g) => excludeGroupQ(`xg:${g}`, g, deps.world.groups.find((x) => x.id === g)?.description, text)));
+    const excludedGroups = groups.filter((g) => noulP(answers, `xg:${g}`, 1) >= TRIAGE_THRESHOLDS.EXCLUDE_GROUP);
+    eligible = eligible.filter((f) => !folderAllows(excludedGroups, f.folder));
+  }
+  const questions: Question[] = [];
+  for (const f of eligible) {
+    if (rule.exclude.text !== undefined) questions.push(excludeFactQ(`xf:${f.id}`, f, rule.exclude.text));
+    if (!own.has(f.id)) questions.push(inScopeQ(`rf:${f.id}`, f, rule.task));
+  }
+  const answers = questions.length > 0 ? await deps.judge.ask(ctx, questions) : [];
+  const joined = new Set<string>();
+  for (const f of eligible) {
+    if (rule.exclude.text !== undefined && noulP(answers, `xf:${f.id}`, 1) >= TRIAGE_THRESHOLDS.EXCLUDE_FACT) continue;
+    if (own.has(f.id) || noulP(answers, `rf:${f.id}`, 0) >= TRIAGE_THRESHOLDS.IN_SCOPE) joined.add(f.id);
+  }
+  stage("jev", t2, joined.size);
+
+  // 4. The yes answers are the scope: a fixed list of fact ids, in store order.
+  const fact_ids = pool.filter((f) => joined.has(f.id)).map((f) => f.id);
+  if (principal.kind === "agent" && principal.created_by !== undefined) {
+    // A moderator creator sees everything and has no scope record; any other creator's current scope caps the agent's.
     const creatorScope = deps.world.scopes.get(principal.created_by);
     if (creatorScope) {
       const creators = new Set(creatorScope.fact_ids);
       if (!fact_ids.every((fid) => creators.has(fid))) throw new HttpError(500, `agent ${principal.id} scope is not a subset of its creator's`);
     }
   }
+  const prevIds = new Set(deps.world.scopes.get(principal.id)?.fact_ids ?? []);
   const scope: Scope = { principal: principal.id, fact_ids, built_at: nowIso(), rule_updated_at: rule.updated_at };
   deps.world.scopes.set(principal.id, scope);
-  return scope;
+  stage("done", t0, fact_ids.length);
+
+  const kept = new Set(fact_ids);
+  const added = fact_ids.filter((fid) => !prevIds.has(fid));
+  const removed = [...prevIds].filter((fid) => !kept.has(fid));
+  logAudit(deps, {
+    kind: "scope.built",
+    actor,
+    principal: principal.id,
+    fact_ids,
+    detail:
+      `Scope built for "${rule.task}": ${base.length} fact(s) → exclusions in code ${pool.length} → ${deps.retriever.name} candidates ${candidates.length} → ` +
+      `${deps.judge.name} yes/no ${fact_ids.length}${principal.kind === "agent" ? `; subset of ${principal.created_by ?? "?"}'s scope` : ""}${simLabel(deps)}.`,
+  });
+  return { scope, added, removed };
 }
 
 /** The creator's scope as facts; a moderator creator has no scope and sees every hot fact. */
@@ -188,28 +302,113 @@ function scopeFacts(deps: ScopesDeps, principalId: string): Fact[] {
   return scope.fact_ids.map((fid) => deps.store.getFact(fid)).filter((f): f is Fact => f !== undefined);
 }
 
-/**
- * Re-applies a changed rule to an existing scope. STUB: only removes (newly allowed facts join
- * when the real builder lands); an agent's result is also intersected with its creator's scope,
- * so the subset check holds on every update.
- */
-function rebuildScope(deps: ScopesDeps, principal: Principal, rule: ScopeRule): { scope: Scope; removed: string[] } {
-  const old = deps.world.scopes.get(principal.id);
-  const oldIds = old?.fact_ids ?? [];
-  // A moderator creator has no scope record and caps nothing; any other creator's scope caps the agent's.
-  const creatorScope = principal.kind === "agent" && principal.created_by ? deps.world.scopes.get(principal.created_by) : undefined;
-  const creators = creatorScope ? new Set(creatorScope.fact_ids) : undefined;
-  const fact_ids = oldIds.filter((fid) => {
-    if (creators && !creators.has(fid)) return false;
-    const fact = deps.store.getFact(fid);
-    if (!fact) return false;
-    return allowedByRule(rule, fact);
+// ---------------------------------------------------------------------------- living scopes
+//
+// PRD #11. Facts in the inbox (and quarantined captures, which never become facts) join no member
+// scope, not even their author's, until a moderator files or releases them. Otherwise a member's
+// own new facts always join their scope; everyone else's join only if they clear the same code
+// exclusions and Jev checks as the original build, against each member's existing rule. An agent
+// gains a fact only when its creator's scope holds it AND the fact clears the agent's own rule —
+// checked in code, so an agent never exceeds its creator. A retired fact leaves every scope.
+
+/** Wires the living-scope updates to the bus. Returns the unsubscribe. */
+export function attachLivingScopes(deps: ScopesDeps): () => void {
+  return deps.bus.subscribe((e) => {
+    if (e.type === "fact.saved") {
+      void onFactSaved(deps, e.fact).catch((err: unknown) => {
+        console.error(`[scopes] living update for ${e.fact.id} failed: ${err instanceof Error ? err.message : String(err)}`);
+      });
+    } else if (e.type === "fact.retired") {
+      onFactRetired(deps, e.id);
+    }
   });
-  const kept = new Set(fact_ids);
-  const removed = oldIds.filter((fid) => !kept.has(fid));
-  const scope: Scope = { principal: principal.id, fact_ids, built_at: nowIso(), rule_updated_at: rule.updated_at };
-  deps.world.scopes.set(principal.id, scope);
-  return { scope, removed };
+}
+
+interface LiveCheck {
+  principal: Principal;
+  rule: ScopeRule;
+  scope: Scope;
+  /** The author's own fact: it joins without a relevance call (but an exclusion still removes it). */
+  own: boolean;
+}
+
+/** A new hot fact joins every scope whose checks it clears, with one batched judge() call across them all. */
+export async function onFactSaved(deps: ScopesDeps, fact: Fact): Promise<void> {
+  if (fact.tier !== "hot") return;
+  if (folderAllows([INBOX], fact.folder)) return; // moderators only until filed; joins no scope
+
+  const members: LiveCheck[] = [];
+  const agents: LiveCheck[] = [];
+  for (const p of deps.world.principals.values()) {
+    const rule = deps.world.rules.get(p.id);
+    const scope = deps.world.scopes.get(p.id);
+    if (!rule || !scope || scope.fact_ids.includes(fact.id)) continue;
+    if (!allowedByRule(rule, fact)) continue; // exclusions in code, before any model
+    const check: LiveCheck = { principal: p, rule, scope, own: p.kind === "person" && fact.author === p.id };
+    (p.kind === "agent" ? agents : members).push(check);
+  }
+  if (members.length === 0 && agents.length === 0) return;
+
+  // One batched ask across every scope this fact could join (CLAUDE.md: one call per decision).
+  const questions: Question[] = [];
+  for (const c of [...members, ...agents]) {
+    if (c.rule.exclude.text !== undefined) questions.push(excludeFactQ(`xf:${c.principal.id}`, fact, c.rule.exclude.text));
+    if (!c.own) questions.push(inScopeQ(`rf:${c.principal.id}`, fact, c.rule.task));
+  }
+  let answers: readonly Answer[] = [];
+  let judgeFailed = false;
+  if (questions.length > 0) {
+    try {
+      answers = await deps.judge.ask(`A new fact was saved. Which existing scopes does it join? ${fact.id} (group ${fact.folder}).`, questions);
+    } catch (err) {
+      judgeFailed = true; // uncertainty excludes: only pure-code joins proceed below
+      console.warn(`[scopes] ${deps.judge.name} failed on living update for ${fact.id} (${err instanceof Error ? err.message : String(err)}); only code-checked joins apply`);
+    }
+  }
+  const passes = (c: LiveCheck): boolean => {
+    if (c.rule.exclude.text !== undefined) {
+      if (judgeFailed) return false; // a maybe counts as excluded, and no answer is worse than a maybe
+      if (noulP(answers, `xf:${c.principal.id}`, 1) >= TRIAGE_THRESHOLDS.EXCLUDE_FACT) return false;
+    }
+    if (c.own) return true;
+    return !judgeFailed && noulP(answers, `rf:${c.principal.id}`, 0) >= TRIAGE_THRESHOLDS.IN_SCOPE;
+  };
+
+  for (const c of members) if (passes(c)) joinScope(deps, c, fact);
+  for (const c of agents) {
+    const creator = c.principal.created_by !== undefined ? deps.world.principals.get(c.principal.created_by) : undefined;
+    const creatorHolds =
+      creator?.kind === "person" && creator.tier === "moderator"
+        ? true // a moderator creator sees every hot fact and has no scope record
+        : c.principal.created_by !== undefined && (deps.world.scopes.get(c.principal.created_by)?.fact_ids.includes(fact.id) ?? false);
+    if (creatorHolds && passes(c)) joinScope(deps, c, fact); // members joined above, so a creator's gain reaches their agents in the same pass
+  }
+}
+
+function joinScope(deps: ScopesDeps, c: LiveCheck, fact: Fact): void {
+  // The judge call awaited above; the scope may have been rebuilt meanwhile, so write to the current one.
+  const scope = deps.world.scopes.get(c.principal.id) ?? c.scope;
+  if (scope.fact_ids.includes(fact.id)) return;
+  scope.fact_ids.push(fact.id);
+  logAudit(deps, {
+    kind: "fact.joined_scope",
+    actor: fact.author ?? fact.source.client,
+    principal: c.principal.id,
+    fact_ids: [fact.id],
+    detail: `${fact.id} (group ${fact.folder}) joined ${c.principal.id}'s scope${c.own ? " as the author's own fact" : ` for "${c.rule.task}"`}${simLabel(deps)}.`,
+  });
+  deps.bus.emit({ type: "scope.updated", principal: c.principal.id, reason: "fact_joined", added: [fact.id], removed: [], size: scope.fact_ids.length });
+}
+
+/** A retired fact leaves every scope that held it. */
+export function onFactRetired(deps: ScopesDeps, factId: string): void {
+  for (const scope of deps.world.scopes.values()) {
+    const i = scope.fact_ids.indexOf(factId);
+    if (i === -1) continue;
+    scope.fact_ids.splice(i, 1);
+    logAudit(deps, { kind: "fact.left_scope", actor: "server", principal: scope.principal, fact_ids: [factId], detail: `${factId} was retired and left ${scope.principal}'s scope.` });
+    deps.bus.emit({ type: "scope.updated", principal: scope.principal, reason: "fact_left", added: [], removed: [factId], size: scope.fact_ids.length });
+  }
 }
 
 // ------------------------------------------------------------------------------ validation
@@ -357,7 +556,7 @@ export async function handleScopesRoute(
       return sendJson(res, 200, { principals: [...state.principals.values()] }), true;
     }
     if (method === "POST" && path === ROUTES.principals) {
-      return sendJson(res, 200, addPerson(deps, callerId, await readJsonBody(req))), true;
+      return sendJson(res, 200, await addPerson(deps, callerId, await readJsonBody(req))), true;
     }
     const m = /^\/api\/principals\/([^/]+)\/tier$/.exec(path);
     if (method === "POST" && m) {
@@ -384,9 +583,26 @@ export async function handleScopesRoute(
       if (!targetPrincipal) throw new HttpError(404, `no principal "${target}"`);
       const rule = parseRuleBody(await readJsonBody(req), target, callerId);
       state.rules.set(target, rule);
-      const { scope, removed } = rebuildScope(deps, targetPrincipal, rule);
-      logAudit(deps, { kind: "scope.rule_changed", actor: callerId, principal: target, fact_ids: removed, detail: `Rule updated: "${rule.task}". ${removed.length} fact(s) left the scope.` });
-      deps.bus.emit({ type: "scope.updated", principal: target, reason: "rule_changed", added: [], removed, size: scope.fact_ids.length });
+      const { scope, added, removed } = await buildScope(deps, targetPrincipal, rule, callerId);
+      logAudit(deps, {
+        kind: "scope.rule_changed",
+        actor: callerId,
+        principal: target,
+        fact_ids: [...added, ...removed],
+        detail: `Rule updated: "${rule.task}". Scope rebuilt: ${added.length} fact(s) joined, ${removed.length} left.`,
+      });
+      deps.bus.emit({ type: "scope.updated", principal: target, reason: "rule_changed", added, removed, size: scope.fact_ids.length });
+      // The change reaches the member's agents: each is rebuilt from the creator's new scope with
+      // its own rule, so a narrowed creator narrows their agents before the agents' next step.
+      if (targetPrincipal.kind === "person") {
+        for (const agent of state.principals.values()) {
+          if (agent.kind !== "agent" || agent.created_by !== target) continue;
+          const agentRule = state.rules.get(agent.id);
+          if (!agentRule) continue;
+          const r = await buildScope(deps, agent, agentRule, callerId);
+          deps.bus.emit({ type: "scope.updated", principal: agent.id, reason: "rule_changed", added: r.added, removed: r.removed, size: r.scope.fact_ids.length });
+        }
+      }
       return sendJson(res, 200, rule), true;
     }
     return false;
@@ -410,7 +626,7 @@ export async function handleScopesRoute(
 
   // ---- /api/agents (POST: any person for themselves; DELETE: the creator or a moderator).
   if (path === ROUTES.agents && method === "POST") {
-    return sendJson(res, 200, createAgent(deps, callerId, isModerator, await readJsonBody(req))), true;
+    return sendJson(res, 200, await createAgent(deps, callerId, isModerator, await readJsonBody(req))), true;
   }
   if (path.startsWith(`${ROUTES.agents}/`) && method === "DELETE") {
     const target = decodeURIComponent(path.slice(ROUTES.agents.length + 1));
@@ -509,7 +725,7 @@ export async function handleScopesRoute(
 // -------------------------------------------------------------------------------- handlers
 
 /** POST /api/principals (moderator): adds a person; members come with a rule and get a scope. */
-function addPerson(deps: ScopesDeps, callerId: string, body: unknown): Principal {
+async function addPerson(deps: ScopesDeps, callerId: string, body: unknown): Promise<Principal> {
   if (!isRecord(body)) throw new HttpError(400, "body must be an AddPersonBody object");
   const { id: personId, name, tier, rule } = body;
   if (typeof personId !== "string" || !PERSON_ID_RE.test(personId)) throw new HttpError(400, `id must match ${PERSON_ID_RE} (people go by first name)`);
@@ -527,8 +743,7 @@ function addPerson(deps: ScopesDeps, callerId: string, body: unknown): Principal
   if (tier === "member") {
     const clean = parseRuleBody(rule, personId, callerId, "body.rule");
     deps.world.rules.set(personId, clean);
-    const scope = buildScope(deps, principal, clean);
-    logAudit(deps, { kind: "scope.built", actor: callerId, principal: personId, fact_ids: scope.fact_ids, detail: `Scope built for "${clean.task}" (exclusions applied in code).` });
+    const { scope } = await buildScope(deps, principal, clean, callerId); // logs the scope.built audit row
     deps.bus.emit({ type: "scope.updated", principal: personId, reason: "built", added: scope.fact_ids, removed: [], size: scope.fact_ids.length });
   }
   return principal;
@@ -549,7 +764,7 @@ function changeTier(deps: ScopesDeps, callerId: string, target: string, body: un
 }
 
 /** POST /api/agents: a member creates agents only for themselves; the scope comes from the creator's. */
-function createAgent(deps: ScopesDeps, callerId: string, isModerator: boolean, body: unknown): Principal {
+async function createAgent(deps: ScopesDeps, callerId: string, isModerator: boolean, body: unknown): Promise<Principal> {
   if (!isRecord(body)) throw new HttpError(400, "body must be a CreateAgentBody object");
   const { created_by, name, rule } = body;
   if (typeof created_by !== "string" || created_by === "") throw new HttpError(400, "created_by must be a principal id");
@@ -564,9 +779,8 @@ function createAgent(deps: ScopesDeps, callerId: string, isModerator: boolean, b
   const clean = parseRuleBody(rule, agent.id, callerId, "body.rule");
   deps.world.principals.set(agent.id, agent);
   deps.world.rules.set(agent.id, clean);
-  const scope = buildScope(deps, agent, clean);
   logAudit(deps, { kind: "agent.created", actor: callerId, principal: agent.id, detail: `${creator.name} gets agent "${agent.name}"; its scope is built from the creator's only.` });
-  logAudit(deps, { kind: "scope.built", actor: callerId, principal: agent.id, fact_ids: scope.fact_ids, detail: `Agent scope built for "${clean.task}": subset of ${created_by}'s scope, exclusions applied in code.` });
+  const { scope } = await buildScope(deps, agent, clean, callerId); // logs the scope.built audit row
   deps.bus.emit({ type: "principal.changed", principal: agent, change: "agent_created", by: callerId });
   deps.bus.emit({ type: "scope.updated", principal: agent.id, reason: "built", added: scope.fact_ids, removed: [], size: scope.fact_ids.length });
   return agent;

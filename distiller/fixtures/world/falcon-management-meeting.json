@@ -1,0 +1,20 @@
+{
+  "id": "ses_10240006",
+  "client": "ingest",
+  "kind": "transcript",
+  "principal": "dan",
+  "started_at": "2026-10-15T15:00:00.000Z",
+  "ended_at": "2026-10-15T16:45:00.000Z",
+  "title": "Project Falcon: Nimbus management meeting notes (Memphis, 2026-10-15)",
+  "meta": {
+    "location": "Nimbus Logistics HQ, Memphis, TN",
+    "attendees": ["Dan (Harbor Lane)", "Rob Castillo, CEO (Nimbus Logistics)", "Elena Vance, CFO (Nimbus Logistics)"]
+  },
+  "messages": [
+    {
+      "role": "user",
+      "content": "HARBOR LANE PARTNERS | PRIVILEGED & CONFIDENTIAL\nPROJECT FALCON: MANAGEMENT MEETING NOTES\nLocation: Nimbus Logistics HQ, Memphis, TN\nDate: 2026-10-15\nAttendees: Dan (Harbor Lane); Rob Castillo, CEO, and Elena Vance, CFO (Nimbus Logistics)\n\n[10:05] Castillo: Thanks for coming down. We want this to move fast once the IC range is set, our board doesn't like a long process.\n[10:09] Dan: Understood. Walk us through Q3 trends before the print next week.\n[10:11] Vance: Freight volumes are soft, we're guiding down for the year. EBITDA margin held up though, the automation project at the Memphis hub is still on budget, finishes Q2 2027.\n[10:20] Dan: On customer concentration — your top customer is about 22% of revenue?\n[10:21] Vance: Correct, contract renews 2027-03-31. They've been with us eight years, no issues, but I understand why you'll want comfort there.\n[10:30] Castillo: We'd rather you not call them before signing. Spooks them, and the terms are still in renewal talks.\n[10:34] Dan: We'll flag that for our diligence team. On labor — Memphis hub union contract?\n[10:36] Vance: Expires 2027-06-30. No early talks planned. It's been a stable relationship.\n[10:41] Dan: Real estate — we show three of your eleven hubs on leases rolling in 2027.\n[10:43] Vance: That's right. Memphis is one of them, but it auto-renews unless either side gives 180 days' notice, which nobody's planning to do. The other two are open.\n[10:50] Castillo: We know how analysts read NMBL, so we'd rather this stay quiet until there's a signed LOI. What's your timeline from here?\n[10:51] Dan: Our IC meets the 20th to set a non-binding range. If that goes well, we'd want an LOI to your board within the week after, ahead of your next board meeting.\n[10:55] Castillo: That works. Keep this tight on your side too, nothing on the record until there's a signed LOI.\n[10:58] Dan: Same wall rules as always. Appreciate the time.",
+      "at": "2026-10-15T15:00:00.000Z"
+    }
+  ]
+}

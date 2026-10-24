@@ -21,6 +21,8 @@ function load<T>(name: string): T {
 const SESSIONS = [
   { file: "dan-chatgpt-falcon-terms.json", kind: "ai_session", client: "chatgpt", principal: "dan", external: undefined },
   { file: "falcon-process-memo.json", kind: "memo", client: "ingest", principal: "dan", external: undefined },
+  { file: "falcon-loi-memo.json", kind: "memo", client: "ingest", principal: "dan", external: undefined },
+  { file: "falcon-management-meeting.json", kind: "transcript", client: "ingest", principal: "dan", external: undefined },
   { file: "hl-floor-chat-week.json", kind: "chat", client: "ingest", principal: undefined, external: undefined },
   { file: "outside-counsel-email.json", kind: "email", client: "ingest", principal: "dan", external: true },
   { file: "nimbus-public-news.json", kind: "note", client: "ingest", principal: "priya", external: undefined },
@@ -188,7 +190,7 @@ describe("synthetic world fixtures", () => {
   });
 
   test("the deal-side items name the deal verbatim; the public note names Nimbus from public sources", () => {
-    for (const file of ["dan-chatgpt-falcon-terms.json", "falcon-process-memo.json"]) {
+    for (const file of ["dan-chatgpt-falcon-terms.json", "falcon-process-memo.json", "falcon-loi-memo.json", "falcon-management-meeting.json"]) {
       const text = allText(load<CapturedSession>(file));
       assert.match(text, /falcon/i, file);
       assert.match(text, /\bNMBL\b/, file);

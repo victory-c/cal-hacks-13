@@ -5,7 +5,7 @@ import { createServer } from "node:http";
 import type { Server } from "node:http";
 import type { AddressInfo } from "node:net";
 
-import { createJudge, dataDir as defaultDataDir } from "@canon/shared";
+import { dataDir as defaultDataDir } from "@canon/shared";
 import type { Grant, Judge } from "@canon/shared";
 
 import { loadGrants, loadTokens } from "./auth.ts";
@@ -13,7 +13,8 @@ import { EventBus } from "./events.ts";
 import { createRetriever } from "./retrieval/index.ts";
 import type { Retriever } from "./retrieval/index.ts";
 import { createRouter } from "./router.ts";
-import { ScopeState, loadWorldFixtures } from "./scopes.ts";
+import { createServerJudge } from "./scope-judge.ts";
+import { ScopeState, attachLivingScopes, loadWorldFixtures } from "./scopes.ts";
 import type { WorldFixtures } from "./scopes.ts";
 import { FileStore } from "./store.ts";
 
@@ -50,7 +51,7 @@ export async function startServer(opts: StartOptions = {}): Promise<RunningServe
   const dir = opts.dataDir ?? defaultDataDir();
   const tokens = opts.tokens ?? loadTokens();
   const grants = opts.grants ?? loadGrants();
-  const judge = opts.judge ?? createJudge();
+  const judge = opts.judge ?? createServerJudge();
   const retriever = opts.retriever ?? createRetriever();
 
   const store = new FileStore(dir);
@@ -71,6 +72,8 @@ export async function startServer(opts: StartOptions = {}): Promise<RunningServe
   });
 
   const world = new ScopeState(opts.world ?? loadWorldFixtures());
+  // Living scopes (PRD #11): new hot facts join the scopes whose checks they clear; retired facts leave.
+  attachLivingScopes({ world, store, bus, grants, judge, retriever });
 
   const router = createRouter({ store, bus, grants, judge, retriever, tokens, world, startedAt: Date.now(), log: opts.log });
   const server = createServer((req, res) => void router(req, res));
