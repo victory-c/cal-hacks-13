@@ -17,7 +17,7 @@ export const EVENT_TYPES = [
   "fact.retired",
   "context.served",
   "access.denied",
-  // v2 (contract v2). Listened for, not rendered yet: the reducer passes them through.
+  // Finance contract (A1). Listened for, not rendered yet: the reducer passes them through.
   "triage.decided",
   "quarantine.flagged",
   "review.created",
@@ -179,7 +179,7 @@ export function reduce(state: State, e: CanonEvent): State {
       return { ...state, denied: insertNewestFirst(state.denied, e), seen: new Set(state.seen).add(key) };
     }
 
-    // v2 events: the control-room views (lane C) will render these.
+    // Finance events: the control-room views (lane C) will render these.
     case "triage.decided":
     case "quarantine.flagged":
     case "review.created":

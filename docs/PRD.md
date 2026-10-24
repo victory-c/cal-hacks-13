@@ -1,8 +1,6 @@
-# Canon PRD v2: Context with walls for small finance teams
+# Canon PRD: Context with walls for small finance teams
 
 **Cal Hacks 13.0 · team of 3 · submit by Sun 10/25 9:00 AM PDT · judging 10:30–12:30 · updated Sat 10/24**
-
-> v2 replaces the student and resume version. The engine is the same; the target is now small finance teams that must keep inside information walled off.
 
 ## Summary
 
@@ -12,12 +10,10 @@ Finance teams are legally required to keep certain information apart. When the d
 
 AI makes this harder. Context now lives in AI chats, agent sessions, memos and team chat, and every new agent is one more place inside information can leak. Canon captures that context, decides which facts are worth keeping, and hands each person and agent only their slice.
 
-The engine is the same as v1: capture, keep only what matters, hand over a small relevant slice, dispatch agents, update them live. What changed:
-
-- **Who it's for:** small finance teams (10–50 people) instead of students.
-- **What "the right context" means:** cleared *and* relevant, not just relevant. A hard permission layer decides who may see what; Jev decides what's relevant and flags anything that looks confidential.
-- **The moment:** someone on the trading side asks an agent about a company the deal team is advising. Canon refuses neutrally, logs it, and tells compliance.
-- **Dropped from v1:** the student and resume story, the Apify job-posting flow, SpacetimeDB.
+Canon captures context, keeps what matters, hands over a small relevant slice, dispatches agents,
+and updates them live. The permission layer decides who may see each fact before search or
+relevance runs. A public-side request about a restricted company receives a neutral refusal,
+with the full reason recorded for compliance.
 
 ## Problem and who it's for
 
@@ -71,7 +67,7 @@ The engine is the same as v1: capture, keep only what matters, hand over a small
 3. **Two dates per fact** (when it happened, when Canon learned it). Old facts are replaced, not deleted, so history stays.
 4. **Search** by meaning (Moss) plus simple keyword search.
 5. **MCP server** with `canon_context`, `canon_search`, `canon_save`, `canon_whoami`, and one access token per AI client.
-6. **Memory browser:** view, edit and delete facts.
+6. **Memory browser:** view and edit facts, and retire them (a retired fact moves to cold storage with its history kept; nothing is hard-deleted).
 7. **Pinned profile** per person and agent: role, desk, current clearances (about 200 tokens).
 
 **Must ship: walls (the new core)**
@@ -104,7 +100,7 @@ The engine is the same as v1: capture, keep only what matters, hand over a small
 
 **Cut**
 
-- SpacetimeDB, Apify, Hermes plugin, Gemini and Grok capture.
+- Capture integrations beyond the Claude Code hook, ingest API and ChatGPT extension.
 - Real Slack, email and Jira connectors (use synthetic data instead).
 - SSO, billing, a full knowledge graph of every person and company.
 
@@ -116,7 +112,7 @@ The engine is the same as v1: capture, keep only what matters, hand over a small
 flowchart TD
     SRC["Sources<br/>Deal memos, team chat, meeting notes, AI sessions"] --> TRI["Triage (Jev)<br/>Keep it? Confidential? Which deal? AI instructions?"]
     TRI -- flags --> CQ["Compliance queue<br/>Maya reviews unsure labels,<br/>quarantined text, access requests"]
-    TRI -- Claude writes facts --> STORE["Fact store (Postgres)<br/>Facts with sources, wall labels, history, audit log"]
+    TRI -- Claude writes facts --> STORE["Fact store (local files)<br/>Facts with sources, wall labels, history, audit log"]
     CQ -- wall labels --> STORE
     STORE --> PERM["Permission filter (code)<br/>Drops every fact the requester is not cleared for"]
     REQ["Request<br/>who + task"] --> PERM
@@ -136,15 +132,15 @@ Captured text is triaged and stored with wall labels; every request is filtered 
 
 | Part | Tool | Job |
 | --- | --- | --- |
-| Database | Postgres (Supabase, for built-in live updates) | Facts, edges, deals, entitlements, lists, inboxes, audit log; pushes changes to the dashboard |
+| Storage and events | Existing file store + plain SSE | Facts, deals, entitlements, lists, inboxes and audit records in local files; SSE pushes updates to the dashboard |
 | Search by meaning | Moss | Finds candidate facts in milliseconds, only within what the person or agent is cleared for |
-| Keyword search | Postgres full-text | Exact names and code names |
+| Keyword search | Existing keyword retriever | Exact names and code names within the permitted candidate set |
 | Judgment calls | Jev (Claude fallback behind the same `judge()` interface) | Yes/no and multiple-choice decisions with probabilities |
 | Writing | Claude; an open model on Bitdeer for high-volume chat and meeting text | Turns kept items into facts; writes agent briefs and compliance explanations |
 | Agents | Factory Droid, headless | Runs every dispatched agent in its own sandbox folder |
 | Capture | Claude Code hooks, ChatGPT extension, ingest API | Brings context in as it happens |
 | Access for AI tools | Remote MCP server with per-client tokens | `canon_context`, `canon_search`, `canon_save`, `canon_whoami` |
-| Dashboard | Next.js + shadcn/ui | Control room, agent lanes, inspector, wall map |
+| Dashboard | Existing `web/` app; Next.js + shadcn/ui optional | Edan owns the control room, agent lanes, inspector and wall map; consumes REST + SSE only |
 
 **Where Jev decides, and what code does with the answer:**
 
@@ -241,7 +237,7 @@ Captured text is triaged and stored with wall labels; every request is filtered 
 | --- | --- | --- |
 | 0:00 | Leo asks the desk assistant: "Anything going on with Nimbus Logistics? Should we add to our position?" It refuses neutrally. Maya's panel lights up with the full record. | The moment: the wall holds, and the refusal leaks nothing |
 | 0:15 | One line: "Canon is the control room for a small finance team's AI." Introduce Maya. | Who it's for |
-| 0:25 | Dan's ChatGPT session and a new memo arrive. Jev flags them as Falcon, live. The lawyers' email is quarantined for its planted instruction. | Capture, triage, injection resistance |
+| 0:25 | Dan's ChatGPT session (through the ingest API if the ChatGPT extension is cut) and a new memo arrive. Jev flags them as Falcon, live. The lawyers' email is quarantined for its planted instruction. | Capture, triage, injection resistance |
 | 0:45 | Dan types: "Prep Falcon board materials and update our logistics sector note." Two Droid lanes start: the deal analyst gets Falcon facts, the research analyst gets public facts only. The inspector shows a Falcon fact cut by the wall, not by relevance. | Dispatch, slices, permission before relevance |
 | 1:10 | Priya requests access to Falcon. Jev rates it borderline and sends it to Maya, who approves it with an expiry date. The wall map updates. | Knowing when to ask a human |
 | 1:25 | Falcon is announced. Restrictions lift: the desk assistant can now answer Leo, and the research agent gets the now-public facts at its next step. | Live updates when walls change |
@@ -300,9 +296,7 @@ Captured text is triaged and stored with wall labels; every request is filtered 
 | Add | Notability | 1 yr Pro + merch | C keeps design notes, sketches and decisions there from Saturday on | Notes showing how the idea evolved |
 | Auto | Cal Hacks general | Overall, Most Technically Complex, Best People-First, Hacker's Choice | Every project is entered | Nothing extra |
 
-**Dropped, to avoid spreading thin:** SpacetimeDB (Postgres does this job as well at our scale), Apify (no job-posting flow), CRS (needs credit data at the center), Capital One Nessie, Visa, Cartesia, SpaceXAI, Meta, Coinbase x402, Fetch.ai, Creao, Atlassian, Convex, Bright Data, Figma.
-
-**Check on Devpost Saturday:** whether there is a cap on sponsor tracks per project, and Armadin's and Elastic's posted criteria.
+**Check on Devpost Saturday:** whether there is a cap on sponsor tracks per project, and Armadin's posted criteria.
 
 ## Competitors and positioning
 
@@ -328,19 +322,19 @@ Captured text is triaged and stored with wall labels; every request is filtered 
 
 ## Build plan
 
-**Two builders and one non-coding owner, working toward a 08:30 Sunday submit, with two early gates that decide the fallbacks.**
+**Three owners working toward an 08:30 Sunday submit, with two early gates that decide the fallbacks. Detailed ownership and build order are in `docs/WORK_SPLIT.md`.**
 
 | Owner | Owns |
 | --- | --- |
-| A · Builder: server and walls | Postgres schema (facts, edges, deals, entitlements, lists, audit log), permission layer, MCP server, Moss index, handoff pipeline with the Jev filter, live updates, benchmark runner |
-| B · Builder: capture, agents and UI | Claude Code hook, ChatGPT extension, ingest endpoint, Jev triage, fact writer, Droid dispatch and inboxes, dashboard (control room, lanes, inspector, wall map) |
-| C · Story, data and sponsors | Synthetic world (firm, deal, memos, chat, the planted email), attack and task sets, finance interviews at sponsor booths, Notability notes, Mana prototype, Moss post, Devpost, README sponsor lines, video, pitch, timekeeping |
+| A · Henry: server and walls | File-backed schema, synthetic-world fixtures, permission layer, lists, MCP, Moss, handoff pipeline, audit, live updates and benchmark runner |
+| B · Victor: capture, triage, agents and story | Claude Code hook, ChatGPT extension, ingest client, Jev triage, Claude fact writer, Droid dispatch, inbox routing, Devpost text, README sponsor lines, video script and pitch |
+| C · Edan: frontend, QA and logistics | Control room, agent lanes and handoff inspector; attack and task sets; finance interviews, sponsor answers, QA, notes, recording, submission and timekeeping |
 
 **Build windows:**
 
 | When | Phase | Done means | Gate |
 | --- | --- | --- | --- |
-| Sat 04:00–09:00 | Foundations | Schema frozen, permission layer, ingest endpoint, synthetic world v1 | 09:00: Jev access confirmed, or switch to the Claude fallback |
+| Sat 04:00–09:00 | Foundations | Schema frozen, permission layer, ingest endpoint, synthetic-world fixtures | 09:00: Jev access confirmed, or switch to the Claude fallback |
 | Sat 09:00–14:00 | Handoff pipeline | Permission filter, Moss, Jev filter end to end; save-time triage; live feed | 11:00: Droid runs finance tasks headless, or switch to the Claude Agent SDK |
 | Sat 14:00–20:00 | Agents and walls | Two Droid lanes, live routing, wall-crossing flow, neutral refusals; exit check and quarantine; C finishes the attack and task sets | |
 | Sat 20:00–24:00 | Proof | Benchmark run and chart; Devpost draft by midnight; first video cut | |
@@ -361,9 +355,9 @@ If Jev or Droid fails its gate, switch to the fallback right away and keep going
 | Jev early access doesn't come through | Claude fallback behind the same `judge()` interface |
 | Droid can't run headless finance tasks well | Ask at the Factory booth by 11:00 Saturday; fallback is a Claude Agent SDK runner, which drops the Factory track |
 | No real finance quote | C asks at the Hyphenate and other finance sponsor booths; fallback is published regulator guidance |
-| Synthetic data looks fake (Hyphenate asks "is it real enough?") | C writes realistic memos, chat and an email thread with deal code names and messy details |
+| Synthetic data looks fake (Hyphenate asks "is it real enough?") | A generates the world and fixtures; C reviews realism and writes the task and attack sets |
 | ChatGPT changes its page and breaks the extension | The Claude Code hook and ingest endpoint are the guaranteed capture paths |
-| Only two people building | Cut order: wall map, attack box, quarantine view, Bitdeer, ChatGPT extension |
+| Three owners with limited build time | Cut order: wall map, attack box, quarantine view, Bitdeer, ChatGPT extension |
 | Venue Wi-Fi fails | Local server plus a recorded run of the full demo |
 
 **Open questions:**

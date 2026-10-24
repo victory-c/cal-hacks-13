@@ -10,7 +10,7 @@ export interface Grant {
   read: Folder[];
   write: Folder[];
   /**
-   * v2: the principal this client acts for (`leo` for the desk assistant's token). The permission
+   * The principal this client acts for (`leo` for the desk assistant's token). The permission
    * filter checks that principal's entitlements against each fact's wall, on top of folders.
    */
   principal?: string;

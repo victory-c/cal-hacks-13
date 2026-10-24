@@ -5,17 +5,17 @@
 # /server/     @<henry>
 # /bench/      @<henry>
 
-# B · capture, distill, UI & story
+# B · capture, distill, agents & story
 /hooks/        @victory-c
 /extension/    @victory-c
 /distiller/    @victory-c
-/web/          @victory-c
 /docs/         @victory-c
 
 # Shared contract: both builders
 /shared/       @victory-c
 /CLAUDE.md     @victory-c
 
-# C · ops & QA
+# C · frontend, QA & logistics
+# /web/        @<edan>
 # /status/     @<edan>
 # /bench/tasks/ @<edan>

@@ -1,6 +1,6 @@
 # Agent dispatch: where Droid runs
 
-**Owner:** lane B, Victor Chun (tasks B21 dispatch, B22 live routing). A worker process on the
+**Owner:** lane B, Victor Chun (tasks B2 Droid dispatch, B18 inbox routing). A worker process on the
 server's event stream, inside the `distiller` package but its own entrypoint. It never imports
 server code: everything goes over HTTP as the internal `dispatcher` client (`CANON_TOKEN_DISPATCHER`).
 
@@ -125,7 +125,7 @@ is always a fixed line: never Droid's stderr, never a quoted fact (the worker lo
 | `routing.ts` | Pure given a `Judge`: `routeFact`, `routeDealStatus`, `routeEntitlementChange`, `canSee`. |
 | `sandbox.ts` | Where sandboxes may sit (never in the repo or data dir), folder layout, `facts.md` rendering, path confinement (`..`, absolute, NUL, symlinks), `freeze()`, `lock()`, the record copy. |
 | `runners/` | `droid.ts` (real), `claude.ts` (fallback tool loop: list/read/write under out/, finish), `fake.ts` (offline, simulated). |
-| `client.ts` | The v2 routes over raw fetch; 404/401 degrade once per route. |
+| `client.ts` | The finance-contract routes over raw fetch; 404/401 degrade once per route. |
 | `offline.ts` | A tiny synthetic Harbor Lane world with a simulated permission filter and code-only exit check, for the CLI. |
 | `anthropic.ts` | Raw Messages API helper (Sonnet, auto tool choice, strict tools, fallbacks). |
 
@@ -137,7 +137,7 @@ npm run dispatch -w distiller -- --by dan "Prep Falcon board materials and updat
 npm run dispatch -w distiller -- --by dan "<same task>" --then terminate   # deal agent cancelled, folder locked
 npm run dispatch -w distiller -- --by dan "<same task>" --then announce    # research agent's next slice gets Falcon facts
 npm run dispatch -w distiller -- --by priya "<same task>"                  # not cleared: both run public; the draft naming Falcon is held by the exit check
-npm run dispatch -w distiller -- --by dan "<task>" --server                # against the live server's v2 routes
+npm run dispatch -w distiller -- --by dan "<task>" --server                # against the live server's finance routes
 
 npm run dispatch -w distiller          # the worker; needs the server on CANON_URL
 npm test -w distiller                  # offline, no keys; the Droid test puts a fake droid on PATH
@@ -154,8 +154,8 @@ at start and logged. A failing runtime is a failed run, never a silent switch to
 
 | Runtime | Real? | Needs | Notes |
 |---|---|---|---|
-| `droid` | Yes | `droid` on PATH, `FACTORY_API_KEY` | The Factory track. Steps stream from stream-json. |
-| `claude` | Yes | `ANTHROPIC_API_KEY` | Fallback if the 11:00 gate fails. `claude-sonnet-5-5` tool loop, raw fetch, four tools confined by code (writes only under out/), no shell, no network. |
+| `droid` | Yes, but not yet run against a real `droid` (tests use a fake `droid` on PATH) | `droid` on PATH, `FACTORY_API_KEY` | The Factory track. Steps stream from stream-json. |
+| `claude` | Yes | `ANTHROPIC_API_KEY` | Fallback if the 11:00 gate (blocker Q1) fails. `claude-sonnet-5-5` tool loop, raw fetch, four tools confined by code (writes only under out/), no shell, no network. |
 | `fake` | **No, simulated** | nothing | Writes `out/plan.md`, then the deliverable assembled from facts.md. |
 
 Planner and brief writer: Claude Sonnet with `ANTHROPIC_API_KEY`, else the heuristic planner and
@@ -167,19 +167,19 @@ Haiku fallback); with no keys the worker uses the fake judge with routing's own 
 
 `CANON_URL` · `CANON_TOKEN_DISPATCHER` (dev default `dev-dispatcher`; the server needs
 `dispatcher=dev-dispatcher` in `CANON_CLIENT_TOKENS`, lane A's line: add it to your own `.env`
-until the v2 server ships it) · `DISPATCH_RUNTIME` · `DISPATCH_MAX_STEPS` (default 4) ·
+until lane A ships it with the finance routes) · `DISPATCH_RUNTIME` · `DISPATCH_MAX_STEPS` (default 4) ·
 `DISPATCH_STEP_TIMEOUT_MS` (default 300000) · `DISPATCH_DROID_MODEL` (default
 `claude-sonnet-5-5`) · `DISPATCH_SANDBOX_DIR` (default `$TMPDIR/canon-agents`; refused inside the
 repo or the data dir) · `DISPATCH_OS_SANDBOX` (`auto` | `on` | `off`, default `auto`) ·
 `FACTORY_API_KEY` · `ANTHROPIC_API_KEY` · `JUDGE_PROVIDER`.
 
-## Against today's v1 server
+## Against today's server (before lane A's finance routes)
 
-Every v2 route 404s, and the server does not know the dispatcher token yet (401). Each is logged
+Every finance-contract route 404s, and the server does not know the dispatcher token yet (401). Each is logged
 once per route and degrades: no deals or entitlements (every run public), no principal
 registration, an empty slice (facts.md says why), events dropped, and **no exit check, so every
 run fails closed** ("Output held: the exit check is not available on this server yet."). The worker
-keeps running. Use the offline CLI until lane A's v2 routes land.
+keeps running. Use the offline CLI until lane A's finance routes land.
 
 ## Limits and open questions
 

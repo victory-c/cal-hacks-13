@@ -1,6 +1,9 @@
 # `@canon/distiller` — captured session in, decided facts out
 
-**Owner:** lane B, Victor Chun. A worker process on the server's event stream. It never imports
+**Owner:** lane B, Victor Chun. This README describes the implemented worker. Finance triage,
+wall labels, Claude fact writing and Droid agent dispatch are tracked in `../docs/WORK_SPLIT.md`.
+
+A worker process on the server's event stream. It never imports
 server code: everything goes over HTTP as the `distiller` client (`CANON_TOKEN_DISTILLER`).
 
 ```
@@ -22,7 +25,7 @@ logged and skipped; the loop never dies.
 | `src/engines/` | `Distiller` interface, `createDistiller()`, the three engines (below). |
 | `src/decide.ts` | Save-time Jev decisions, thresholds applied by us. Pure given a `Judge`. |
 | `src/cli.ts` | Run the pipeline on a recorded session; `--post` sends the result to the server. |
-| `fixtures/session.sample.json` | A Claude Code session: ships the capture hook, decides folders, targets backend internships. |
+| `fixtures/session.sample.json` | Existing compatibility transcript for exercising the pipeline; not the finance demo world. |
 
 ## Run and test
 
@@ -43,18 +46,23 @@ in its output are real measurements (`usage` from the API, wall clock); nothing 
 when it is. The worker never switches engine on its own: a failing engine is a logged error, not
 a silent downgrade.
 
+**Until B2 wires the Droid SDK, set `DISTILLER=claude` (or `heuristic`) whenever `FACTORY_API_KEY`
+is in `.env`.** Otherwise the worker picks the `droid` engine, which throws `NotConfiguredError` on
+every session, and no facts are written. In the product plan Claude writes facts and Droid runs
+dispatched agents (B2), so adding the Factory key for agent work must not switch the distiller.
+
 | Engine | Real? | Needs | Where it plugs in |
 |---|---|---|---|
 | `droid` | **Pending blocker Q1.** Constructs; `distill()` throws `NotConfiguredError` until the SDK is wired (task B2). | `FACTORY_API_KEY` | `src/engines/droid.ts` |
 | `claude` | Yes. `claude-sonnet-5-5`, one strict `emit_facts` tool, raw Messages API over `fetch` (no SDK dependency). | `ANTHROPIC_API_KEY` | `src/engines/claude.ts` |
 | `heuristic` | **No, simulated.** Keyword sentences (built/shipped/decided/…), folder guessed by keywords, max 8. | nothing | `src/engines/heuristic.ts` |
 
-**Factory Droid track (design, SDK wiring pending Q1).** Droid is the distiller, not a chatbot:
-it runs headless on *our* trigger (every captured session), gets the session + the fact-file
-format + the folder list, and may only write the fact store, through our `POST /api/facts`.
-Jev still answers the save-time questions on every draft, so Droid cannot bypass them. It returns
-a plan and drafts; the plan and the fact diffs go on the dashboard as the proof of work. The
-intended contract is written out at the top of `src/engines/droid.ts`.
+**Factory integration:** `src/engines/droid.ts` is a distiller adapter stub, not an implemented
+agent runner. The current product target is headless finance-agent dispatch with isolated
+context, work steps, inbox updates and checked outputs (B2 and B18). Confirm headless finance
+work at the Factory gate before claiming the integration. The existing Claude and heuristic
+engines remain usable for development. The agent dispatcher itself (B2, B18) is a separate
+entrypoint in `src/dispatch/` (`npm run dispatch -w distiller`); see `src/dispatch/README.md`.
 
 **Anthropic track.** `claude-sonnet-5-5` follows the claude-api skill: forced `tool_choice` is a
 400 on this model, so the request uses `auto` + `strict: true` + a system prompt that says to call

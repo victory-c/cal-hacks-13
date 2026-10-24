@@ -1,4 +1,4 @@
-// Agent dispatch contract (PRD v2 "Agents and dispatch"). Lane B's dispatcher process owns runs,
+// Agent dispatch contract (PRD "Agents and dispatch"). Lane B's dispatcher process owns runs,
 // sandboxes and inboxes; it publishes every change as an event (POST /api/events) so the
 // dashboard draws one lane per agent and the audit log has the record. Agents get their slice
 // from POST /api/handoff as their own principal, so the permission filter always runs first.

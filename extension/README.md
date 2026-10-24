@@ -12,7 +12,7 @@ while you are still typing in it.
 | `src/background.ts` | extension service worker | Throttles per conversation (2 s), stamps `started_at`, `POST /api/sessions` with the bearer token. Badge `•` green on success, `!` red on failure. |
 | `src/options.html` + `options.ts` | options page | Canon URL, client token, Save, Test connection (`GET /health`), last post result. |
 | `src/shared/` | both | `protocol.ts` (messages), `session.ts` (turns → `CapturedSession`, FNV-1a session ids), `settings.ts` (storage keys). Pure, tested. |
-| `src/content/claude.ts`, `gemini.ts` | claude.ai / gemini.google.com | Stubs: `console.info("not implemented (B9)")`. |
+| Other content scripts | Other declared sites | Inactive compatibility stubs; outside the current capture scope. |
 
 What gets captured: **turn text only** (`user` / `assistant`), the page URL and the conversation title.
 No cookies, no account data, no DOM beyond the message nodes. Every snapshot re-sends the whole
@@ -71,8 +71,8 @@ package.
 None plug in here. The extension is a capture client; Droid, Jev and Moss do their work in
 `distiller/` and `server/` on what it sends.
 
-## Stretch (B9)
+## Current capture scope
 
-claude.ai and gemini.google.com: replace the stubs with a copy of `chatgpt.ts` using that site's
-selectors and `site: "claude" | "gemini"`; `clientFor()` already maps them to `claude-web` /
-`gemini-web`, which need tokens and grants on the server side.
+The finance demo uses the Claude Code hook, ingest API and ChatGPT capture. Other capture
+stubs are preserved in source and are not scheduled work. The ChatGPT extension is the first
+capture path to cut if time runs short. Use `../docs/WORK_SPLIT.md` for ownership and gates.
