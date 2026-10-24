@@ -3,7 +3,7 @@
 
 import type { ClientId } from "./fact.ts";
 
-/** v2: what kind of item this is. AI sessions come from the hook / extension; the rest from ingest. */
+/** What kind of item this is. AI sessions come from the hook / extension; the rest from ingest. */
 export const SOURCE_KINDS = ["ai_session", "memo", "chat", "transcript", "email", "note"] as const;
 export type SourceKind = (typeof SOURCE_KINDS)[number];
 
@@ -39,10 +39,10 @@ export interface CapturedSession {
   /** Full message list so far. Clients re-send the whole list; the server replaces. */
   messages: SessionMessage[];
   meta?: SessionMeta;
-  /** v2: whose context this is (principal id: `dan`). Missing = unknown, triage treats it cautiously. */
+  /** Whose context this is (principal id: `dan`). Missing = unknown, triage treats it cautiously. */
   principal?: string;
-  /** v2: missing = "ai_session". */
+  /** Missing = "ai_session". */
   kind?: SourceKind;
-  /** v2: true when the text came from outside the firm (the target's lawyers). Triage reads it with extra suspicion. */
+  /** True when the text came from outside the firm (the target's lawyers). Triage reads it with extra suspicion. */
   external?: boolean;
 }
