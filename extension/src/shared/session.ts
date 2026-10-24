@@ -42,8 +42,10 @@ export function titleFrom(turns: readonly Turn[]): string | undefined {
 /**
  * `startedAt` is when the service worker first saw this conversation (kept in chrome.storage.session).
  * `endedAt` is stamped only when the message says the page is going away.
+ * Every web chat is kind "ai_session"; `principal` (from the options page) goes out only when set.
+ * It is the author of the facts distilled from the chat; left out, they have no author.
  */
-export function toCapturedSession(msg: TurnsMessage, startedAt: string, endedAt: string = new Date().toISOString()): CapturedSession {
+export function toCapturedSession(msg: TurnsMessage, startedAt: string, endedAt: string = new Date().toISOString(), principal = ""): CapturedSession {
   const turns = [...msg.turns].sort((a, b) => a.index - b.index);
   const messages: SessionMessage[] = turns.map((t) => ({ role: t.role, content: t.text }));
   const session: CapturedSession = {
@@ -52,9 +54,33 @@ export function toCapturedSession(msg: TurnsMessage, startedAt: string, endedAt:
     started_at: startedAt,
     messages,
     meta: { url: msg.url, site: msg.site },
+    kind: "ai_session",
   };
   const title = msg.title ?? titleFrom(turns);
   if (title) session.title = title;
   if (msg.ended) session.ended_at = endedAt;
+  const who = normalizePrincipal(principal);
+  if (who) session.principal = who;
   return session;
+}
+
+/** A person's principal id: their first name, as the contract writes it (`dan`, `maya`). */
+const PERSON_ID_RE = /^[a-z][a-z0-9_]*$/;
+/** An agent's principal id: `agt_` + slug or hex, hyphens allowed (`agt_deal-analyst`). */
+const AGENT_ID_RE = /^agt_[a-z0-9][a-z0-9_-]*$/;
+
+/**
+ * The principal id every capture path sends: trimmed and lowercased, and only when the value
+ * already is an id. " Dan " → "dan"; "AGT_Deal-Analyst" → "agt_deal-analyst" (kept whole). A name
+ * or an email address is not an id: "Dan Okafor", "Okafor, Dan", "D. Okafor",
+ * "dan.okafor@harborlane.com" → "" (not sent). The principal decides access, so an id is never
+ * guessed from a name: taking the first token gave two people one id ("Leo Chen" and "Leo
+ * Brandt" → "leo") and one person several.
+ * Mirrors normalizePrincipal in hooks/claude-code/lib.mjs (the hook and the ingest CLI); keep the
+ * two in step.
+ */
+export function normalizePrincipal(value: unknown): string {
+  if (typeof value !== "string") return "";
+  const v = value.trim().toLowerCase();
+  return PERSON_ID_RE.test(v) || AGENT_ID_RE.test(v) ? v : "";
 }

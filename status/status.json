@@ -1,6 +1,6 @@
 {
   "project": "Bullwark",
-  "updated": "2026-10-24T14:34:42Z",
+  "updated": "2026-10-24T15:06:56Z",
   "team": [
     {
       "id": "A",
@@ -242,9 +242,9 @@
       "owner": "B",
       "milestone": "M3",
       "priority": "must",
-      "state": "todo",
+      "state": "doing",
       "title": "ChatGPT capture for the synthetic finance demo",
-      "note": "Optional capture path in the cut order; hook and ingest are guaranteed paths."
+      "note": "Built and tested on b/ingest (PR #12), updated for the scopes PRD: the options-page principal is documented as the author of the chat's facts. Remaining: lane A keeping principal and kind on POST /api/sessions and binding the principal to the token, then a live chatgpt.com run."
     },
     {
       "id": "B5",
@@ -341,9 +341,9 @@
       "owner": "B",
       "milestone": "M1",
       "priority": "must",
-      "state": "todo",
+      "state": "doing",
       "title": "Ingest client for synthetic memos, chat and meeting notes",
-      "note": ""
+      "note": "Built and tested on b/ingest (PR #12), updated for the scopes PRD: principal = fact author, never guessed from a chat or meeting speaker, an email recipient or a name's first token (names and addresses only via --principals; outside mail has no author); Greptile fixes (merged lines keep their times; one-word aliases resolve through --principals; JSON in a shape we cannot read fails the run; the worker re-distills a re-imported item whose content changed, also one restored to an earlier text); unreadable JSON/JSONL rows (incl. Claude text blocks, ChatGPT parts) are read or reported and exit 1, and so are rows read only in part (text next to an image). Remaining: lane A keeping principal/kind/external on POST /api/sessions, then a run on Henry's official world."
     },
     {
       "id": "B20",

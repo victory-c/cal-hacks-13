@@ -10,6 +10,8 @@ import { createHash } from "node:crypto";
 import { readFileSync } from "node:fs";
 
 export const CLIENT = "claude-code";
+/** v2 SourceKind for every session this hook captures. */
+export const KIND = "ai_session";
 export const TITLE_MAX = 80;
 /** Per-message cap. A pasted log or a huge answer should not dominate the distiller's input. */
 export const MESSAGE_MAX = 8000;
@@ -135,8 +137,12 @@ export function sessionIdFor(sessionId) {
 /**
  * Assemble the CapturedSession body for POST /api/sessions.
  * ended_at is set only on SessionEnd: that is what tells the server to run the final distill.
+ * kind is always "ai_session"; principal (CANON_PRINCIPAL, e.g. `dan`) is sent only when it is set
+ * and is an id (see normalizePrincipal). It is the author of the facts distilled from the session,
+ * which join that person's scope as their own; never guessed, because a missing principal (no
+ * author) is the safe default.
  */
-export function buildSession({ payload = {}, messages = [], hookEvent, git = {} }) {
+export function buildSession({ payload = {}, messages = [], hookEvent, git = {}, principal }) {
   const event = hookEvent ?? payload.hook_event_name ?? "Stop";
   const firstUser = messages.find((m) => m.role === "user");
   const session = {
@@ -150,10 +156,37 @@ export function buildSession({ payload = {}, messages = [], hookEvent, git = {} 
       branch: git.branch,
       hook_event: event,
     }),
+    kind: KIND,
   };
   if (event === "SessionEnd") session.ended_at = new Date().toISOString();
   if (firstUser) session.title = makeTitle(firstUser.content);
+  const who = normalizePrincipal(principal);
+  if (who) session.principal = who;
   return session;
+}
+
+/** A person's principal id: their first name, as the contract writes it (`dan`, `maya`). */
+export const PERSON_ID_RE = /^[a-z][a-z0-9_]*$/;
+/** An agent's principal id: `agt_` + slug or hex, hyphens allowed (`agt_deal-analyst`). */
+export const AGENT_ID_RE = /^agt_[a-z0-9][a-z0-9_-]*$/;
+
+/**
+ * A principal id the way every capture path writes it: trimmed and lowercased, and only when the
+ * value already is an id. " Dan " → "dan"; "AGT_Deal-Analyst" → "agt_deal-analyst" (an agent id
+ * is kept whole). A name or an email address is not an id: "Dan Okafor", "Okafor, Dan",
+ * "D. Okafor", "Maya (Compliance)", "dan.okafor@harborlane.com" → undefined, and the field is
+ * left out (no author, the safe default).
+ *
+ * Security rule: the principal decides access (a member's own facts join their scope without the
+ * exclusion checks), so an id is never guessed from a name. Taking the first token gave two people
+ * one id ("Leo Chen" and "Leo Brandt" → "leo") and one person several ("okafor", "d"). The ingest
+ * CLI maps names and addresses to ids only through an explicit directory (--principals).
+ * Mirrored in extension/src/shared/session.ts (normalizePrincipal); keep the two in step.
+ */
+export function normalizePrincipal(value) {
+  if (typeof value !== "string") return undefined;
+  const v = value.trim().toLowerCase();
+  return PERSON_ID_RE.test(v) || AGENT_ID_RE.test(v) ? v : undefined;
 }
 
 /** First user message, whitespace collapsed, cut to TITLE_MAX chars. */
@@ -166,7 +199,8 @@ export function makeTitle(text) {
  * Tiny .env reader: KEY=value per line, `#` comments and blank lines ignored, optional
  * `export ` prefix, matching quotes stripped, and an unquoted ` #` starts an inline comment.
  * Returns {} when the file is missing. Not a full dotenv (no multiline, no interpolation):
- * .env.example is flat, and the hook only needs CANON_URL and CANON_TOKEN_CLAUDE_CODE.
+ * .env.example is flat, and the hook only needs CANON_URL, CANON_TOKEN_CLAUDE_CODE and
+ * CANON_PRINCIPAL (the ingest CLI reuses it for CANON_TOKEN_INGEST).
  */
 export function readDotEnv(path) {
   let text;

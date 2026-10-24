@@ -2,8 +2,10 @@
 // Built as a factory over an injected client/distiller/judge so worker.test.ts drives it with
 // fakes and no network. One bad session is logged and skipped; the loop never dies.
 
+import { createHash } from "node:crypto";
+
 import { timed } from "@canon/shared";
-import type { CanonEvent, Judge } from "@canon/shared";
+import type { CanonEvent, CapturedSession, Judge } from "@canon/shared";
 import type { CanonClient } from "./client.ts";
 import { decideFacts } from "./decide.ts";
 import type { Distiller } from "./engines/index.ts";
@@ -39,7 +41,7 @@ export function createHandler(opts: HandlerOptions): Handler {
   const debounceMs = opts.debounceMs ?? 3000;
   const startedAt = Date.now();
   const replayCutoff = startedAt - (opts.replayGraceMs ?? 5000);
-  const processed = new Set<string>(); // "<id>:<messages>" keys; a re-sent session is a no-op
+  const processed = new RevisionLedger(); // last revision distilled per session; an unchanged re-send is a no-op
   const pending = new Map<string, Pending>(); // live-mode debounce, one per session id
   const inflight = new Set<Promise<void>>();
 
@@ -96,17 +98,55 @@ export function createHandler(opts: HandlerOptions): Handler {
   return handler;
 }
 
-async function processSession(event: Captured, opts: HandlerOptions, processed: Set<string>): Promise<void> {
-  const { id, messages } = event.session;
-  const key = `${id}:${messages}`;
-  if (processed.has(key)) {
-    log(`session ${id}: already processed at ${messages} messages, skipping`);
-    return;
+/**
+ * What the distiller reads from a session, hashed: every message (role, text, time) plus the
+ * principal, kind and external flag. Not the times or meta, which a re-send may restamp.
+ */
+export function sessionRevision(session: CapturedSession): string {
+  const content = [session.messages.map((m) => [m.role, m.content, m.at ?? null]), session.principal ?? null, session.kind ?? null, session.external ?? null];
+  return createHash("sha1").update(JSON.stringify(content)).digest("hex").slice(0, 12);
+}
+
+/**
+ * The one revision per session that was last handed to the distiller, so an unchanged re-send is
+ * a no-op and any change is distilled again. Only the latest counts, not every past one: a memo
+ * imported as A, corrected to B, then restored to A distills A again, because the archive now
+ * holds A while the store last saw B. claim() checks and records with no await in between, so two
+ * copies of one event distill once.
+ */
+export class RevisionLedger {
+  readonly #last = new Map<string, string>();
+
+  /** The fetched session's revision when it is not the one last claimed for `id`, else undefined. */
+  claim(id: string, session: CapturedSession): string | undefined {
+    const revision = sessionRevision(session);
+    if (this.#last.get(id) === revision) return undefined;
+    this.#last.set(id, revision);
+    return revision;
   }
-  processed.add(key);
+
+  /**
+   * A failed distill: forget it so a re-post runs again, unless a newer revision was claimed since.
+   * Never puts back the one before, which may have failed too.
+   */
+  release(id: string, revision: string): void {
+    if (this.#last.get(id) === revision) this.#last.delete(id);
+  }
+}
+
+async function processSession(event: Captured, opts: HandlerOptions, processed: RevisionLedger): Promise<void> {
+  const { id } = event.session;
+  // Keyed by the fetched content, not the event's message count: a re-imported memo keeps its id
+  // and usually its one message, so a corrected file must still be distilled again.
+  let claimed: string | undefined;
   try {
     const fetched = await timed(() => opts.client.getSession(id));
     const session = fetched.result;
+    claimed = processed.claim(id, session);
+    if (!claimed) {
+      log(`session ${id}: unchanged since it was distilled (${session.messages.length} messages), skipping`);
+      return;
+    }
     log(`session ${id}: fetched ${session.messages.length} messages in ${fetched.ms} ms`);
 
     const distilled = await timed(() => opts.distiller.distill(session));
@@ -127,7 +167,7 @@ async function processSession(event: Captured, opts: HandlerOptions, processed: 
     log(`session ${id}: saved ${posted.result.saved.length}, retired ${posted.result.retired.length} in ${posted.ms} ms`);
   } catch (err) {
     // Let a later re-post of the same session retry; do not take the loop down.
-    processed.delete(key);
+    if (claimed) processed.release(id, claimed);
     warn(`session ${id}: failed, skipping: ${errorMessage(err)}`);
   }
 }

@@ -2,13 +2,15 @@
   "name": "@canon/hooks",
   "version": "0.1.0",
   "private": true,
-  "description": "Claude Code capture hook: posts each session to the Bullwark server. Plain Node, no dependencies, because hooks run as shell commands. Lane B.",
+  "description": "Capture clients: the Claude Code hook (each session to the Bullwark server) and the ingest CLI (memos, team chat, transcripts, email). Plain Node, no dependencies, because hooks run as shell commands. Lane B.",
   "type": "module",
   "scripts": {
     "test": "node --test \"test/**/*.test.mjs\"",
-    "typecheck": "node --check claude-code/lib.mjs && node --check claude-code/canon-capture.mjs && node --check claude-code/install.mjs",
+    "typecheck": "node --check claude-code/lib.mjs && node --check claude-code/canon-capture.mjs && node --check claude-code/install.mjs && node --check ingest/lib.mjs && node --check ingest/canon-ingest.mjs",
     "smoke": "CANON_DEBUG=1 node claude-code/canon-capture.mjs < fixtures/stop-payload.json",
     "snippet": "node claude-code/install.mjs",
-    "install-hook": "node claude-code/install.mjs --write"
+    "install-hook": "node claude-code/install.mjs --write",
+    "ingest": "node ingest/canon-ingest.mjs",
+    "ingest:world": "node ingest/canon-ingest.mjs fixtures/world --principals fixtures/principals.json"
   }
 }
