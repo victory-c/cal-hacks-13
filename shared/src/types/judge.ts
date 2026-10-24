@@ -106,7 +106,11 @@ export interface TriageDecision {
   relation: Relation;
   /** The existing fact it relates to, when relation is not "unrelated". */
   relation_to?: string;
-  /** The wall code assigned (code rules + Jev, raise-only). */
+  /**
+   * The wall code assigned (code rules + Jev, raise-only). For outcome "compliance" the fact is
+   * written with no wall (unlabeled: nobody but compliance sees it) and this is the proposed wall
+   * that goes on the label_unsure review item.
+   */
   wall: Wall;
   wall_reason: string;
   judge: JudgeName;
