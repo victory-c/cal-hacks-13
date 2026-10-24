@@ -1,10 +1,11 @@
-# `@canon/web` — dashboard and control room frontend
+# `@canon/web` — dashboard, moderator console and member view
 
 **Owner:** lane C, Edan Wong. The current app is HTML and TypeScript bundled by esbuild and
 served by `scripts/serve.mjs`. This README documents its working event panels and counters.
-The target control room adds deals, clearances, pending requests, Droid agent lanes and a
-handoff inspector. Those are implementation tasks C13 and C14; the demo opens on a neutral
-refusal and its compliance record. Optional views are the wall map and attack box.
+The target is two views: the moderator console (people and tiers, scope builder, scope
+inspector, live feed, agent lanes, handoff inspector) and the member view (my agents, create an
+agent, my memory). Those are tasks C13 and C14; the demo opens on a question that doesn't leak and
+the scope inspector showing why. Optional views are the scope map and attack box.
 
 Build against the agreed mock REST and SSE contract, then connect to Henry's server. The
 frontend never imports server code. Framework choice is optional within `web/`.

@@ -9,10 +9,10 @@ baselines we run*). The runner refuses to write quotable files from a simulated 
 
 ## Finance evaluation target
 
-C6 supplies 50 attacks (10 per PRD style) and 30 legitimate tasks in the synthetic Harbor Lane
-world. A8 extends the evaluator to four setups: no memory, shared memory, Canon + Claude filter
-and Canon + Jev. Measure leak rate, wrongly blocked rate, task accuracy, tokens, latency and cost;
-also record save-time cost per 100 captured items. These are planned extensions, not capabilities
+C6 supplies 60 attacks (10 per PRD style, including agent escalation) and 30 legitimate tasks in
+the synthetic Axe Capital world. A8 extends the evaluator to four setups: no memory, shared memory,
+Bullwark + Claude filter and Bullwark + Jev. Measure leak rate, missing-context rate, task accuracy,
+tokens, latency and cost; also record scope build time and save-time cost per 100 captured items. These are planned extensions, not capabilities
 of the existing three-strategy runner. Only measured runs support pitch claims.
 
 ## Existing runner
@@ -80,7 +80,7 @@ is the end-to-end plumbing test for lane A. The canon baseline also flags itself
 
 - **Anthropic:** `src/responder.ts` is the answering model (raw Messages API, no SDK dependency
   here). The judge and distiller it measures live in `shared/` and `distiller/`.
-- **Microsoft (Built for the Real World):** the pitch chart is leak rate against wrongly blocked
+- **Microsoft (Built for the Real World):** the pitch chart is leak rate against missing-context
   rate (PRD), which needs the A8 finance evaluator. Today's `results/chart.json` is the scaffold's
   accuracy-vs-tokens chart; `results/latest.json` feeds the scale slide.
 

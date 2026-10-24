@@ -4,8 +4,8 @@
 other package imports it (`import { ... } from "@canon/shared"`, never a relative path). Pure
 TypeScript, zero dependencies, runs under `tsx` with no build step.
 
-The existing folder-based contracts remain the implemented interface. Finance wall labels,
-deals, expiring entitlements, lists and audit events are planned extensions (A1), not fields
+The existing folder-based contracts remain the implemented interface. Principals and tiers,
+groups and labels, scope rules, scopes and audit events are planned extensions (A1), not fields
 available to consumers yet. Coordinate with both builders before changing them.
 
 ## Frozen vs free

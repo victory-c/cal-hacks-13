@@ -1,7 +1,7 @@
 # `@canon/distiller` — captured session in, decided facts out
 
-**Owner:** lane B, Victor Chun. This README describes the implemented worker. Finance triage,
-wall labels, Claude fact writing and Droid agent dispatch are tracked in `../docs/WORK_SPLIT.md`.
+**Owner:** lane B, Victor Chun. This README describes the implemented worker. Triage and
+grouping, Claude fact writing and Droid agent runs are tracked in `../docs/WORK_SPLIT.md`.
 
 A worker process on the server's event stream. It never imports
 server code: everything goes over HTTP as the `distiller` client (`CANON_TOKEN_DISTILLER`).

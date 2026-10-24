@@ -1,11 +1,15 @@
 # Bullwark — working agreement
 
-Bullwark (formerly Canon) is the control room for a small finance team's AI. Each person and agent gets only
-the context they are cleared to see and need; information barriers stay enforced as deals change.
+Bullwark is the control room for a small finance team's AI. Moderators see everything; every other
+person and agent gets a memory that holds only what their task needs. Anything else simply isn't
+there: nobody is refused, and nothing hints that hidden data exists. It has two parts: **Bullwark**,
+the product and its frontend, and **Canon**, the agentic backend. They meet only through the
+integration contract.
 
-Read `docs/PRD.md` for product scope, `docs/WORK_SPLIT.md` for ownership and build order, and
-`STATUS.md` for progress. The PRD describes the target; package READMEs describe the code that
-currently runs. A planned feature is not implemented until its code and validation land.
+Read `docs/BULLWARK-PRD.md` (product and frontend), `docs/CANON-PRD.md` (agentic backend) and
+`docs/INTEGRATION.md` (the contract between them) for product scope, `docs/WORK_SPLIT.md` for
+ownership and build order, and `STATUS.md` for progress. The PRDs describe the target; package
+READMEs describe the code that currently runs. A planned feature is not implemented until its code and validation land.
 
 ## Agent context
 
@@ -13,6 +17,9 @@ currently runs. A planned feature is not implemented until its code and validati
 - `.archive/` is excluded human tracking material. Do not open, search, summarize, index,
   retrieve through Git history, or use its contents as context unless the user explicitly
   asks to review that material. Do not bypass exclusions through shell commands or scripts.
+- `docs/history/` records abandoned designs for humans. It is tracked in Git, but do not read,
+  search, summarize or use it as context unless the user explicitly asks to review the project's
+  history. Following it would bring back cut features.
 - Existing source, fixtures and tests describe the working scaffold. They do not expand the
   product scope. Preserve working behavior unless the task calls for an implementation change.
 
@@ -20,38 +27,44 @@ currently runs. A planned feature is not implemented until its code and validati
 
 | Lane | Owner | Responsibility | Folders |
 |---|---|---|---|
-| A | Henry Lai | Walls, entitlements, neutral refusals, handoff pipeline, audit log, synthetic-world fixtures, benchmark runner | `server/`, `bench/`; shared contract with B |
-| B | Victor Chun | Capture, triage, fact writer, Droid dispatch, live routing, story and sponsor documentation | `hooks/`, `extension/`, `distiller/`, `docs/`; shared contract with A |
-| C | Edan Wong | Control room frontend, task and attack sets, QA, finance interviews, sponsor answers and submission logistics | `web/`, `status/`, `bench/tasks/` |
+| A | Henry Lai | Tiers and principals, groups and scope rules, scope builder, living scopes, handoff pipeline, audit log, synthetic-world fixtures, benchmark runner | `server/`, `bench/`; shared contract with B |
+| B | Victor Chun | Capture, triage and grouping, fact writer, Droid agent runs, live routing, story and sponsor documentation | `hooks/`, `extension/`, `distiller/`, `docs/`; shared contract with A |
+| C | Edan Wong | Moderator console and member view, task and attack sets, QA, finance interviews, sponsor answers and submission logistics | `web/`, `status/`, `bench/tasks/` |
 
 Work in the relevant lane. Coordinate shared interfaces with the affected owners; the user's
 explicit task authorization takes precedence over routine lane boundaries.
 
 ## Decisions
 
-- Target: small finance teams of 10–50 people. Demo: Harbor Lane Partners, Project Falcon,
-  Nimbus Logistics, Maya (compliance), Dan (banker), Priya (research), Leo (trader). All data is synthetic.
+- Target: small finance teams of 10–50 people. Demo: Axe Capital (a 30-person hedge fund), Project
+  Stonewall (Axe Capital's bid for its rival Taylor Mason Capital), Wags (COO and compliance,
+  moderator), Axe (founder, deal lead), Ben Kim (research), Dollar Bill (portfolio manager). All data is synthetic.
 - Keep the existing file store and plain SSE. A database migration is outside the current build.
-- Keep packages separate over HTTP. The frontend uses REST and SSE and never imports server code.
+- Keep packages separate over HTTP. Bullwark's frontend talks to Canon only through
+  `docs/INTEGRATION.md` (REST and SSE) and never imports server code.
 - Guaranteed capture paths are the Claude Code hook and ingest API; ChatGPT extension is cut first
   if capture work runs late.
-- Code enforces access before search or relevance. Jev flags, ranks and pre-screens; compliance
-  approves wall-crossings and uncertain labels. Models never grant access.
+- Access is decided when a scope is built: exclusions remove whole groups and labels in code, then
+  Moss finds candidates and Jev answers yes or no. A scope is a fixed list of fact ids; at question time
+  code searches only inside it. Only moderators add people, edit scope rules or change tiers. Agents
+  never exceed their creator's scope. Models never grant access. No refusals, no existence signals.
 - Facts retain their sources and history; raw sessions stay in the cold archive.
-- Droid runs dispatched finance agents in separate folders containing only permitted context.
+- Droid runs every agent in its own folder holding only its scope's facts as markdown.
   At the 11:00 Saturday gate, use the Claude Agent SDK fallback if Droid cannot do the work.
 - At the 09:00 Saturday gate, use the Claude fallback behind `judge()` if Jev access is unavailable.
 - Core tracks: Hyphenate, Anthropic, Microsoft and Factory. Add-ons are in the PRD; each must
   do real work before we claim an integration.
-- Cut order: wall map → attack box → quarantine view → Bitdeer → ChatGPT extension.
+- Cut order: scope map → attack box → quarantine view → Bitdeer → ChatGPT extension.
 
 ## Architecture and contracts
 
 ```text
-capture / ingest → cold archive → triage → fact writer → facts with wall labels
-request → permission filter → search → relevance → token budget → audit log → permitted slice
-dispatch → permitted brief → isolated agent folder → work steps + inbox updates → exit check
-REST + SSE → control room, agent lanes, handoff inspector
+capture / ingest → cold archive → triage → fact writer → facts filed into one group (+ labels)
+scope rule (task + exclusions) → exclusions in code → Moss candidates → Jev yes/no → scope (fact ids)
+new fact → exclusions + Moss + Jev against each member's original rule → joins scopes it fits
+request → search inside the scope → Jev relevance → token budget → audit log → slice
+agent profile → scope inside its creator's → sandbox folder → steps + inbox → restart on narrowing
+REST + SSE → moderator console, member view, agent lanes, handoff inspector
 ```
 
 The implemented contracts live in `shared/src/types/`: facts, sessions, MCP inputs and outputs,
@@ -62,12 +75,13 @@ events, grants, judge questions and REST bodies. Keep these and their consumers 
 Facts currently use markdown frontmatter plus an optional body, stored at
 `data/facts/<folder>/<id>.md`; raw sessions are `data/sessions/<id>.json`. The serializer and
 validator in `shared/src/fact-file.ts` define the exact format. Folder grants in the scaffold
-are not deal entitlements. The wall labels, deals, expiring clearances, lists, audit events and
-dashboard APIs described in the PRD must be added and tested before finance access claims are made.
+are not scopes. The tiers, groups, labels, scope rules, scopes, audit events and console APIs
+described in the PRD must be added and tested before access claims are made.
 
 Batch candidate questions into one `judge.ask()` per decision. Apply thresholds in code.
-Security uncertainty means restrict or send to compliance; content cannot lower its own label.
-Use neutral refusals, quarantine suspected instructions, and check outputs before they cross a wall.
+Security uncertainty means exclude: a "maybe" on an exclusion counts as yes, and a fact Jev can't
+place goes to the moderators-only `inbox` group. Quarantine suspected instructions. Never refuse or
+mention, count or name anything outside a scope; `canon_whoami` shows the task, never the exclusions.
 
 ## Run and verify
 
@@ -103,8 +117,9 @@ work recorded accurately. Do not edit generated `STATUS.md` by hand. Edan mainta
 
 - No secrets in Git, chat logs or tracking documents. Credentials come from `.env`.
 - Never invent numbers. Quote measured runs only; label estimates and simulated providers.
-- The benchmark target is 50 attacks and 30 legitimate tasks across four setups defined in the
-  PRD. The existing runner's three strategies do not yet establish finance barrier performance.
+- The benchmark target is 60 attacks (10 per style, including agent escalation) and 30 legitimate
+  tasks across four setups defined in the PRD, measuring leak and missing-context rates. The existing
+  runner's three strategies do not yet establish finance barrier performance.
 - Keep `main` runnable; finish required work before optional views. Keep dependencies few.
 - Import shared contracts from `@canon/shared`. Relative TypeScript imports use `.ts` extensions.
 - Branch per task: `a/<thing>`, `b/<thing>`, `c/<thing>`. Keep PRs small, run relevant checks,

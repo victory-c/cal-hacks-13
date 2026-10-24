@@ -8,12 +8,8 @@ serialization, cold and superseded facts, source links and folder-grant refusals
 format is defined in `shared/src/types/fact.ts` and `shared/src/fact-file.ts` at the repo root.
 Session ids must be `ses_` followed by hex digits, as defined by `SESSION_ID_RE`.
 
-These fixtures are not the finance demo world or benchmark evidence. A14 owns the Harbor Lane
-Partners / Project Falcon / Nimbus Logistics world: memos, chat, a meeting transcript, an AI
-session and a lawyers email containing a planted instruction. C5 reviews realism; C6 writes
+These fixtures are not the finance demo world or benchmark evidence. A14 owns the Axe Capital /
+Project Stonewall / Taylor Mason Capital world: memos, chat, a meeting transcript, an AI session,
+a public letter and an email from counsel containing a planted instruction. C5 reviews realism; C6 writes
 legitimate tasks and attacks against that world. Replace fixtures only alongside the required
-schema, permission behavior and tests. Use synthetic data throughout.
-
-Two seeded facts predate the finance product: `facts/team/decisions/fct_80a2c4e6.md` records an
-earlier cut order, and `facts/career/projects/fct_3c5e7f91.md` describes the earlier general-purpose
-product. The current cut order and scope are in `../../CLAUDE.md` and `../../docs/PRD.md`.
+schema, permission behavior and tests. Use synthetic data throughout. These fixtures do not define product scope; the PRDs in `../../docs/` do.

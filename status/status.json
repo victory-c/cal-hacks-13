@@ -1,6 +1,6 @@
 {
   "project": "Bullwark",
-  "updated": "2026-10-24T13:00:14.035744+00:00",
+  "updated": "2026-10-24T17:30:25.377405+00:00",
   "team": [
     {
       "id": "A",
@@ -50,19 +50,19 @@
       "id": "M1",
       "window": "Sat 04:00–09:00",
       "end": "2026-10-24T09:00:00-07:00",
-      "label": "Finance contract, permission foundations, ingest and synthetic fixtures"
+      "label": "Schema frozen (tiers, groups, scope rules, scopes), ingest and synthetic fixtures"
     },
     {
       "id": "M2",
       "window": "Sat 09:00–14:00",
       "end": "2026-10-24T14:00:00-07:00",
-      "label": "Permission-scoped handoff pipeline, triage and live feed"
+      "label": "Scope builder end to end, grouping at save, filtered handoff and live feed"
     },
     {
       "id": "M3",
       "window": "Sat 14:00–20:00",
       "end": "2026-10-24T20:00:00-07:00",
-      "label": "Agents, wall-crossings, deal updates, control room and evaluation sets"
+      "label": "Agent profiles, Droid lanes, living scopes, people and tiers, quarantine and evaluation sets"
     },
     {
       "id": "M4",
@@ -74,7 +74,7 @@
       "id": "M5",
       "window": "Sun 00:00–07:00",
       "end": "2026-10-25T07:00:00-07:00",
-      "label": "Polish, fallback recording, sponsor READMEs"
+      "label": "Polish, scope map, attack box, fallback recording, sponsor READMEs"
     },
     {
       "id": "M6",
@@ -90,7 +90,7 @@
       "milestone": "M1",
       "priority": "must",
       "state": "todo",
-      "title": "Freeze finance fact, deal, entitlement, audit, REST and SSE contracts with Victor",
+      "title": "Freeze the contract with Victor: principals and tiers, groups and labels, scope rules, scopes, audit, REST and SSE",
       "note": "Unblocks all three lanes; current source types remain the implemented contract until changed."
     },
     {
@@ -99,7 +99,7 @@
       "milestone": "M1",
       "priority": "must",
       "state": "todo",
-      "title": "Fixture-backed REST and MCP stubs for the finance control room",
+      "title": "Fixture-backed REST and MCP stubs for the moderator console and member view",
       "note": "Publish agreed responses early so B and C can build independently."
     },
     {
@@ -117,8 +117,8 @@
       "milestone": "M2",
       "priority": "must",
       "state": "todo",
-      "title": "Moss search over permission-filtered facts",
-      "note": "Needs Moss credentials (Q2); no restricted candidates reach search."
+      "title": "Moss index with group and label metadata; scope builds and handoffs filter by scope fact ids",
+      "note": "Needs Moss credentials (Q2). Handoffs filter with $in on the scope's fact ids; fall back to group/label filters plus a code check if slow."
     },
     {
       "id": "A5",
@@ -126,8 +126,8 @@
       "milestone": "M2",
       "priority": "must",
       "state": "todo",
-      "title": "SSE events for control room, audit and urgent wall changes",
-      "note": "Keep plain SSE; extend the agreed event contract."
+      "title": "SSE events for the console: scope builds and changes, facts joining scopes, handoffs, audit",
+      "note": "Keep plain SSE; members' streams carry only their own scope's events."
     },
     {
       "id": "A6",
@@ -135,8 +135,8 @@
       "milestone": "M1",
       "priority": "must",
       "state": "todo",
-      "title": "Deny-by-default deal entitlements and permission filter",
-      "note": "Expiring clearances; permission filter runs before search and Jev."
+      "title": "Scope builder: exclusions in code → Moss candidates → Jev yes/no → scope, with living updates",
+      "note": "Excluded groups and labels never reach Moss or Jev; maybe counts as excluded; inbox and quarantined facts join no member scope; shows each stage's measured time."
     },
     {
       "id": "A7",
@@ -144,8 +144,8 @@
       "milestone": "M2",
       "priority": "must",
       "state": "todo",
-      "title": "Handoff: permission → search → Jev → budget → audit",
-      "note": "Include inject-nothing check and Claude fallback behind judge()."
+      "title": "Handoff: search inside the scope → Jev relevance → token budget → audit",
+      "note": "Include the inject-nothing check and the Claude fallback behind judge()."
     },
     {
       "id": "A8",
@@ -153,35 +153,8 @@
       "milestone": "M4",
       "priority": "must",
       "state": "todo",
-      "title": "Finance benchmark runner: four setups, leak and wrongly blocked rates, accuracy, tokens, latency and cost",
-      "note": "C6 supplies 30 legitimate tasks and 50 attacks; existing three strategies are scaffold only."
-    },
-    {
-      "id": "A11",
-      "owner": "A",
-      "milestone": "M2",
-      "priority": "must",
-      "state": "todo",
-      "title": "Restricted and watch list checks with neutral refusals",
-      "note": "Compliance sees full reasons; requesters never learn secret watch-list names."
-    },
-    {
-      "id": "A12",
-      "owner": "A",
-      "milestone": "M3",
-      "priority": "must",
-      "state": "todo",
-      "title": "Wall-crossing request, pre-screen, approval, denial and expiry API",
-      "note": ""
-    },
-    {
-      "id": "A13",
-      "owner": "A",
-      "milestone": "M3",
-      "priority": "must",
-      "state": "todo",
-      "title": "Exit checks for agent output",
-      "note": "Code checks names; Jev checks indirect references; block and alert compliance."
+      "title": "Finance benchmark runner: four setups, leak and missing-context rates, accuracy, tokens, latency, cost and scope build time",
+      "note": "C6 supplies 30 legitimate tasks and 60 attacks; existing three strategies are scaffold only."
     },
     {
       "id": "A14",
@@ -189,17 +162,8 @@
       "milestone": "M1",
       "priority": "must",
       "state": "todo",
-      "title": "Generate Harbor Lane / Falcon / Nimbus synthetic world and fixture endpoints",
-      "note": "Memos, chat, transcript, AI session and lawyers email with planted instruction; C reviews realism."
-    },
-    {
-      "id": "A15",
-      "owner": "A",
-      "milestone": "M3",
-      "priority": "must",
-      "state": "todo",
-      "title": "Deal announced and terminated transitions with urgent updates",
-      "note": "Lift permitted restrictions or cancel work; maintain audit records."
+      "title": "Generate the Axe Capital / Stonewall / Taylor Mason Capital synthetic world (people and tiers, groups, scope rules) and fixture endpoints",
+      "note": "Memos, chat, transcript, Axe's AI session, TMC's public Q3 letter and counsel's email with a planted instruction; C reviews realism."
     },
     {
       "id": "A16",
@@ -207,7 +171,7 @@
       "milestone": "M2",
       "priority": "must",
       "state": "todo",
-      "title": "Pinned profile per person and agent: role, desk and current clearances",
+      "title": "Pinned profile per person and agent: name, tier and task (never the exclusions)",
       "note": "PRD must-ship #7 (about 200 tokens). Sent on every handoff, including when the inject-nothing check sends no facts."
     },
     {
@@ -217,7 +181,25 @@
       "priority": "stretch",
       "state": "done",
       "title": "Visual HTML PRD for review and handoff",
-      "note": "docs/prd/backlog/Bullwark_Web-MCP-Agents_SmallFinanceTeams.html, generated from docs/PRD.md (two tiers, task-built scopes)."
+      "note": "Moved to docs/history/ (a human-only record of earlier designs)."
+    },
+    {
+      "id": "A18",
+      "owner": "A",
+      "milestone": "M3",
+      "priority": "must",
+      "state": "todo",
+      "title": "People and tiers: moderators add people, edit any scope rule and promote; members create only agent profiles",
+      "note": "No MCP tool or agent can change rules, scopes or tiers."
+    },
+    {
+      "id": "A19",
+      "owner": "A",
+      "milestone": "M3",
+      "priority": "must",
+      "state": "todo",
+      "title": "Agent profiles: scope built from and kept inside the creator's scope",
+      "note": "Subset checked in code at build time and on every live update."
     },
     {
       "id": "B1",
@@ -234,7 +216,7 @@
       "milestone": "M3",
       "priority": "must",
       "state": "todo",
-      "title": "Droid finance-agent dispatch with isolated context, steps and files",
+      "title": "Droid agent runs: sandbox folder holding only the agent's scope as markdown, with steps and files streamed",
       "note": "Confirm headless non-coding work by Sat 11:00 (Q1); fallback drops the Factory track. Until then, FACTORY_API_KEY makes the distiller default to the stub droid engine; set DISTILLER=claude (distiller/README.md)."
     },
     {
@@ -252,8 +234,8 @@
       "milestone": "M2",
       "priority": "must",
       "state": "todo",
-      "title": "Jev triage: keep, confidential, deal, instructions and relation to existing facts",
-      "note": "Uncertain labels go to compliance; planted instructions are quarantined."
+      "title": "Jev triage: keep, group, labels, instructions aimed at an AI, relation to existing facts",
+      "note": "Unplaceable facts go to the moderators-only inbox group; planted instructions are quarantined."
     },
     {
       "id": "B6",
@@ -262,7 +244,7 @@
       "priority": "must",
       "state": "todo",
       "title": "ChatGPT MCP read connector configured and demo-tested",
-      "note": "Capture remains through the extension; enforce the requesting principal clearance."
+      "note": "Capture remains through the extension; the token maps to one person, so answers come only from their scope."
     },
     {
       "id": "B11",
@@ -297,8 +279,8 @@
       "milestone": "M4",
       "priority": "must",
       "state": "todo",
-      "title": "Video script and voiceover opening on the neutral refusal",
-      "note": "C9 records footage and backup; show compliance record and wall behavior."
+      "title": "Video script and voiceover opening on the question that doesn't leak",
+      "note": "C9 records footage and backup; show the scope inspector and agents capped at their creator."
     },
     {
       "id": "B15",
@@ -324,8 +306,8 @@
       "milestone": "M2",
       "priority": "must",
       "state": "todo",
-      "title": "Claude fact writer with source links, dates, history and wall labels",
-      "note": "Content can make labels more restricted, never less."
+      "title": "Claude fact writer with source, author, dates and history",
+      "note": "Each fact is filed into one group, with labels where the group is too coarse."
     },
     {
       "id": "B18",
@@ -333,8 +315,8 @@
       "milestone": "M3",
       "priority": "must",
       "state": "todo",
-      "title": "Route new facts and urgent wall updates to agent inboxes",
-      "note": "Check between work steps; stop terminated-deal work."
+      "title": "Route newly in-scope facts to agent inboxes; restart runs when a scope narrows",
+      "note": "Check between work steps; a narrowed scope discards the run folder and restarts from the plan step."
     },
     {
       "id": "B19",
@@ -397,7 +379,7 @@
       "priority": "must",
       "state": "todo",
       "title": "Review synthetic-world realism and run finance capture sessions",
-      "note": "A14 generates the world; use only synthetic deal data."
+      "note": "A14 generates the world; check it against how a hedge fund works. Synthetic data only."
     },
     {
       "id": "C6",
@@ -405,8 +387,8 @@
       "milestone": "M3",
       "priority": "must",
       "state": "todo",
-      "title": "Write 30 legitimate finance tasks and 50 attacks with answer keys",
-      "note": "10 attacks per PRD style; A8 implements and runs the finance evaluator."
+      "title": "Write 30 legitimate finance tasks and 60 attacks with answer keys",
+      "note": "10 attacks per PRD style, including agent escalation; A8 implements and runs the finance evaluator."
     },
     {
       "id": "C7",
@@ -415,7 +397,7 @@
       "priority": "must",
       "state": "todo",
       "title": "QA after Saturday syncs at 09:00, 15:00 and 21:00",
-      "note": "Full demo run; rank failures, review neutral wording and check the wall."
+      "note": "Full demo run; rank failures and check that nothing outside a scope is ever mentioned, counted or named."
     },
     {
       "id": "C8",
@@ -468,7 +450,7 @@
       "milestone": "M3",
       "priority": "must",
       "state": "todo",
-      "title": "Control room: deals, clearances, access requests, feed and agent lanes",
+      "title": "Moderator console: people and tiers, scope builder, scope inspector, live feed and agent lanes",
       "note": "Edan owns web/; build against agreed mock REST and SSE before connecting to the server."
     },
     {
@@ -486,7 +468,7 @@
       "milestone": "M5",
       "priority": "stretch",
       "state": "todo",
-      "title": "Wall map",
+      "title": "Scope map",
       "note": ""
     },
     {
@@ -496,7 +478,7 @@
       "priority": "stretch",
       "state": "todo",
       "title": "Judge attack box",
-      "note": ""
+      "note": "Judges attack as a member or by creating an agent."
     },
     {
       "id": "C17",
@@ -514,7 +496,16 @@
       "priority": "must",
       "state": "todo",
       "title": "Memory browser: view, edit and retire facts",
-      "note": "PRD must-ship #6. Retire moves a fact to cold with history kept; no hard delete. Needs fact edit and retire REST endpoints from A."
+      "note": "PRD must-ship #6. Members browse only their scope. Retire moves a fact to cold with history kept; needs fact edit and retire REST endpoints from A."
+    },
+    {
+      "id": "C19",
+      "owner": "C",
+      "milestone": "M3",
+      "priority": "must",
+      "state": "todo",
+      "title": "Member view: my agents, create an agent, my memory",
+      "note": "Members see only their own agents and scope; no people list, scope inspector or audit log."
     }
   ],
   "tracks": [
@@ -525,7 +516,7 @@
       "prize": "$8,000 / $5,000 / $3,000 + interviews",
       "proofs": [
         {
-          "label": "Video opens on neutral refusal",
+          "label": "Video opens on the question that doesn't leak",
           "done": false
         },
         {
@@ -553,7 +544,7 @@
           "done": false
         },
         {
-          "label": "Wall behavior shown without leaking deal information",
+          "label": "Scope inspector shows the wall held without hinting at hidden data",
           "done": false
         }
       ]
@@ -565,7 +556,7 @@
       "prize": "Surface per member + FDE mentorship",
       "proofs": [
         {
-          "label": "Measured leak versus wrongly blocked chart",
+          "label": "Measured leak versus missing-context chart",
           "done": false
         },
         {
@@ -585,7 +576,7 @@
       "prize": "$2,000 + credits",
       "proofs": [
         {
-          "label": "Droid dispatches isolated finance work agents",
+          "label": "Droid runs each agent in a scope-limited sandbox",
           "done": false
         },
         {
@@ -605,7 +596,7 @@
       "prize": "AirPods Max / Pro",
       "proofs": [
         {
-          "label": "Permission-scoped retrieval and measured latency",
+          "label": "Scope builds and in-scope handoffs on Moss, with measured latency",
           "done": false
         },
         {
@@ -629,7 +620,7 @@
           "done": false
         },
         {
-          "label": "Attack handling, quarantine and output checks",
+          "label": "Scopes in code, agent escalation and quarantine shown",
           "done": false
         }
       ]
@@ -747,7 +738,7 @@
     }
   ],
   "cutList": [
-    "Wall map",
+    "Scope map",
     "Attack box",
     "Quarantine view",
     "Bitdeer",
