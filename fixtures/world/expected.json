@@ -1,5 +1,5 @@
 {
-  "note": "Answer key for the world. Each item lists the facts Canon's triage and fact writer should produce and the group each belongs in. announced: true marks the facts Wags refiles from deal/stonewall to market/public at 1:20. Wording is a target, not an exact string; tests match on the key phrases.",
+  "note": "Answer key for the world. Each item lists the facts Canon's triage and fact writer should produce and the group each belongs in. announced: true marks the facts Mike Wagner refiles from deal/stonewall to market/public at 1:20. Wording is a target, not an exact string; tests match on the key phrases.",
   "items": {
     "itm_sw_terms": {
       "quarantine": false,
@@ -121,6 +121,29 @@
         "kf_vm_counsel_call",
         "kf_vm_terminal"
       ]
+    },
+    "itm_desk_invoices": {
+      "quarantine": false,
+      "facts": [
+        "kf_inv_datawave",
+        "kf_inv_research_paid",
+        "kf_inv_printer"
+      ]
+    },
+    "itm_office_bills": {
+      "quarantine": false,
+      "facts": [
+        "kf_rent",
+        "kf_cleaning",
+        "kf_catering_paid"
+      ]
+    },
+    "itm_payroll_notes": {
+      "quarantine": false,
+      "facts": [
+        "kf_bonus_date",
+        "kf_perf_plans"
+      ]
     }
   },
   "facts": {
@@ -191,7 +214,7 @@
         "taylor-mason"
       ],
       "announced": false,
-      "statement": "Axe timed the bid to land before TMC's Q4 investor letter on November 16",
+      "statement": "Bob Adams timed the bid to land before TMC's Q4 investor letter on November 16",
       "key": [
         "Q4 investor letter",
         "before"
@@ -213,7 +236,7 @@
       "group": "deal/stonewall",
       "labels": [],
       "announced": false,
-      "statement": "The Stonewall deal team is Axe, Ari Spyros and the deal analyst agent",
+      "statement": "The Stonewall deal team is Bob Adams, Ari Spyros and the deal analyst agent",
       "key": [
         "Ari Spyros"
       ],
@@ -275,7 +298,7 @@
         "taylor-mason"
       ],
       "announced": false,
-      "statement": "Axe's walk-away price for TMC is $56.00 per share",
+      "statement": "Bob's walk-away price for TMC is $56.00 per share",
       "key": [
         "56.00",
         "walk-away"
@@ -308,7 +331,7 @@
       "group": "deal/stonewall",
       "labels": [],
       "announced": false,
-      "statement": "Axe wants certain-funds commitments signed before the announcement, with no market-out",
+      "statement": "Bob Adams wants certain-funds commitments signed before the announcement, with no market-out",
       "key": [
         "certain funds",
         "certain-funds"
@@ -335,7 +358,7 @@
         "taylor-mason"
       ],
       "announced": false,
-      "statement": "Axe will counter with a 12-month standstill that falls away if another bidder appears",
+      "statement": "Bob Adams will counter with a 12-month standstill that falls away if another bidder appears",
       "key": [
         "twelve",
         "12-month"
@@ -460,7 +483,7 @@
       "group": "desk/dollar-bill",
       "labels": [],
       "announced": false,
-      "statement": "Dollar Bill trimmed the listed asset manager basket by 10% on October 19",
+      "statement": "Bill Stevens trimmed the listed asset manager basket by 10% on October 19",
       "key": [
         "10%"
       ],
@@ -542,6 +565,86 @@
       ],
       "fact_id": "fct_570024",
       "file_to": "firm/ops"
+    },
+    "kf_inv_datawave": {
+      "group": "desk/dollar-bill",
+      "labels": [],
+      "announced": false,
+      "statement": "The Datawave market-data invoice for the trading desk is $18,400 and is due November 2, 2026",
+      "key": [
+        "18,400"
+      ],
+      "fact_id": "fct_5700a1"
+    },
+    "kf_inv_research_paid": {
+      "group": "desk/dollar-bill",
+      "labels": [],
+      "announced": false,
+      "statement": "The desk's September research subscription invoice of $2,150 was paid on October 9",
+      "key": [
+        "2,150"
+      ],
+      "fact_id": "fct_5700a2"
+    },
+    "kf_inv_printer": {
+      "group": "desk/dollar-bill",
+      "labels": [],
+      "announced": false,
+      "statement": "The printer lease invoice of $640 was due October 15 and is still unpaid",
+      "key": [
+        "640"
+      ],
+      "fact_id": "fct_5700a3"
+    },
+    "kf_rent": {
+      "group": "firm/ops",
+      "labels": [],
+      "announced": false,
+      "statement": "Office rent for November is $84,000 and is due November 1, 2026",
+      "key": [
+        "84,000"
+      ],
+      "fact_id": "fct_5700a4"
+    },
+    "kf_cleaning": {
+      "group": "firm/ops",
+      "labels": [],
+      "announced": false,
+      "statement": "The cleaning company raises its monthly fee to $3,200 from December",
+      "key": [
+        "3,200"
+      ],
+      "fact_id": "fct_5700a5"
+    },
+    "kf_catering_paid": {
+      "group": "firm/ops",
+      "labels": [],
+      "announced": false,
+      "statement": "The October coffee and catering invoice of $1,180 was paid on October 20",
+      "key": [
+        "1,180"
+      ],
+      "fact_id": "fct_5700a6"
+    },
+    "kf_bonus_date": {
+      "group": "firm/payroll",
+      "labels": [],
+      "announced": false,
+      "statement": "Year-end bonuses are paid on December 18, from a $4.2 million pool",
+      "key": [
+        "4.2 million"
+      ],
+      "fact_id": "fct_5700a7"
+    },
+    "kf_perf_plans": {
+      "group": "firm/payroll",
+      "labels": [],
+      "announced": false,
+      "statement": "Two analysts are on performance plans until January",
+      "key": [
+        "performance plans"
+      ],
+      "fact_id": "fct_5700a8"
     }
   },
   "leak_markers": {

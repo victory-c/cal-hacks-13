@@ -24,7 +24,10 @@
   },
   "target": {
     "name": "Taylor Mason Capital",
-    "short_names": ["TMC", "Taylor Mason"],
+    "short_names": [
+      "TMC",
+      "Taylor Mason"
+    ],
     "kind": "public alternative asset manager",
     "founder_ceo": "Taylor Mason",
     "shares_outstanding_millions": 60.7,
@@ -35,63 +38,190 @@
     "aum_q2_billions": 39.6
   },
   "principals": [
-    { "id": "wags", "kind": "person", "name": "Wags", "full_name": "Mike Wagner", "role": "COO and compliance", "tier": "moderator", "email": "wags@axecapital.example" },
-    { "id": "axe", "kind": "person", "name": "Axe", "full_name": "Bobby Axelrod", "role": "Founder; leads Project Stonewall", "tier": "member", "email": "axe@axecapital.example" },
-    { "id": "ben", "kind": "person", "name": "Ben Kim", "full_name": "Ben Kim", "role": "Research analyst, asset managers", "tier": "member", "email": "ben@axecapital.example" },
-    { "id": "dollar-bill", "kind": "person", "name": "Dollar Bill", "full_name": "Bill Stearn", "role": "Portfolio manager, trading desk", "tier": "member", "email": "dollarbill@axecapital.example" },
-    { "id": "deal-analyst", "kind": "agent", "name": "Deal analyst", "creator": "axe" },
-    { "id": "research-analyst", "kind": "agent", "name": "Research analyst", "creator": "ben" },
-    { "id": "desk-assistant", "kind": "agent", "name": "Desk assistant", "creator": "dollar-bill" }
+    {
+      "id": "wags",
+      "kind": "person",
+      "name": "Mike Wagner",
+      "full_name": "Mike Wagner",
+      "role": "COO and compliance",
+      "tier": "moderator",
+      "email": "wags@axecapital.example"
+    },
+    {
+      "id": "axe",
+      "kind": "person",
+      "name": "Bob Adams",
+      "full_name": "Bob Adams",
+      "role": "Founder; leads Project Stonewall",
+      "tier": "member",
+      "email": "axe@axecapital.example"
+    },
+    {
+      "id": "ben",
+      "kind": "person",
+      "name": "Ben Carter",
+      "full_name": "Ben Carter",
+      "role": "Research analyst, asset managers",
+      "tier": "member",
+      "email": "ben@axecapital.example"
+    },
+    {
+      "id": "dollar-bill",
+      "kind": "person",
+      "name": "Bill Stevens",
+      "full_name": "Bill Stevens",
+      "role": "Portfolio manager, trading desk",
+      "tier": "member",
+      "email": "dollarbill@axecapital.example"
+    },
+    {
+      "id": "deal-analyst",
+      "kind": "agent",
+      "name": "Deal analyst",
+      "creator": "axe"
+    },
+    {
+      "id": "research-analyst",
+      "kind": "agent",
+      "name": "Research analyst",
+      "creator": "ben"
+    },
+    {
+      "id": "desk-assistant",
+      "kind": "agent",
+      "name": "Desk assistant",
+      "creator": "dollar-bill"
+    }
   ],
   "groups": [
-    { "id": "deal/stonewall", "display": "Project Stonewall", "description": "Axe Capital's confidential takeover bid for Taylor Mason Capital: offer terms, valuation, financing, timing and the counterparty process.", "code_names": ["Project Stonewall", "Stonewall"] },
-    { "id": "research/asset-managers", "display": "Asset manager research", "description": "Axe Capital research on listed asset managers, written from public information.", "code_names": [] },
-    { "id": "market/public", "display": "Public market", "description": "Public news, filings, shareholder letters and prices.", "code_names": [] },
-    { "id": "desk/dollar-bill", "display": "Dollar Bill's desk", "description": "Dollar Bill's positions, trades and trading notes.", "code_names": [] },
-    { "id": "firm/ops", "display": "Firm operations", "description": "Scheduling, offsites, tools and admin.", "code_names": [] }
+    {
+      "id": "deal/stonewall",
+      "display": "Project Stonewall",
+      "description": "Axe Capital's confidential takeover bid for Taylor Mason Capital: offer terms, valuation, financing, timing and the counterparty process.",
+      "code_names": [
+        "Project Stonewall",
+        "Stonewall"
+      ]
+    },
+    {
+      "id": "research/asset-managers",
+      "display": "Asset manager research",
+      "description": "Axe Capital research on listed asset managers, written from public information.",
+      "code_names": []
+    },
+    {
+      "id": "market/public",
+      "display": "Public market",
+      "description": "Public news, filings, shareholder letters and prices.",
+      "code_names": []
+    },
+    {
+      "id": "desk/dollar-bill",
+      "display": "Bill's trading desk",
+      "description": "Bill Stevens's positions, trades, trading notes and the desk's own bills and invoices.",
+      "code_names": []
+    },
+    {
+      "id": "firm/ops",
+      "display": "Firm operations",
+      "description": "Scheduling, offsites, tools, office bills, rent, vendors and admin.",
+      "code_names": []
+    },
+    {
+      "id": "firm/payroll",
+      "display": "Payroll and HR",
+      "description": "Salaries, bonuses, payroll dates and HR matters. Compliance only.",
+      "code_names": []
+    }
   ],
   "labels": [
-    { "id": "taylor-mason", "description": "Anything about Taylor Mason Capital, public or confidential.", "aliases": ["Taylor Mason Capital", "Taylor Mason", "TMC"] }
+    {
+      "id": "taylor-mason",
+      "description": "Anything about Taylor Mason Capital, public or confidential.",
+      "aliases": [
+        "Taylor Mason Capital",
+        "Taylor Mason",
+        "TMC"
+      ]
+    }
   ],
   "scope_rules": [
     {
       "principal": "axe",
       "set_by": "wags",
       "task": "Run Project Stonewall: offer terms, valuation, financing and the counterparty process, plus the public market data the bid depends on.",
-      "exclusions": { "groups": [], "labels": [], "text": [] }
+      "exclusions": {
+        "groups": [
+          "firm/payroll"
+        ],
+        "labels": [],
+        "text": []
+      }
     },
     {
       "principal": "ben",
       "set_by": "wags",
       "task": "Write the asset management sector note from public market data.",
-      "exclusions": { "groups": ["deal/*"], "labels": [], "text": ["anything about pending deals"] },
+      "exclusions": {
+        "groups": [
+          "deal/*",
+          "firm/payroll"
+        ],
+        "labels": [],
+        "text": [
+          "anything about pending deals"
+        ]
+      },
       "demo_beat": "0:40 (built live on screen)"
     },
     {
       "principal": "dollar-bill",
       "set_by": "wags",
       "task": "Answer questions about our positions and public market news.",
-      "exclusions": { "groups": ["deal/*"], "labels": [], "text": ["anything about pending deals"] }
+      "exclusions": {
+        "groups": [
+          "deal/*",
+          "firm/payroll"
+        ],
+        "labels": [],
+        "text": [
+          "anything about pending deals"
+        ]
+      }
     },
     {
       "principal": "deal-analyst",
       "set_by": "axe",
       "task": "Draft the Stonewall bid memo and run a simple valuation in Python.",
-      "exclusions": { "groups": ["firm/ops"], "labels": [], "text": [] },
+      "exclusions": {
+        "groups": [
+          "firm/ops"
+        ],
+        "labels": [],
+        "text": []
+      },
       "demo_beat": "1:00"
     },
     {
       "principal": "research-analyst",
       "set_by": "ben",
       "task": "Update our asset management sector note.",
-      "exclusions": { "groups": [], "labels": [], "text": [] },
+      "exclusions": {
+        "groups": [],
+        "labels": [],
+        "text": []
+      },
       "demo_beat": "1:00"
     },
     {
       "principal": "desk-assistant",
       "set_by": "dollar-bill",
       "task": "Answer my questions about our positions and public news.",
-      "exclusions": { "groups": [], "labels": [], "text": [] },
+      "exclusions": {
+        "groups": [],
+        "labels": [],
+        "text": []
+      },
       "demo_beat": "0:00"
     }
   ],
@@ -105,11 +235,51 @@
     }
   ],
   "timeline": [
-    { "at": "seed", "items": ["itm_sw_terms", "itm_sw_meeting", "itm_chat_deal", "itm_chat_research", "itm_chat_desk", "itm_chat_general", "itm_desk_notes", "itm_research_draft", "itm_tmc_q3_letter", "itm_voicemail"], "note": "Loaded before the demo starts. Ben has no scope yet; Wags builds it at 0:40. itm_voicemail's two facts are in the inbox, waiting for Wags to file them." },
-    { "at": "0:00", "action": "Dollar Bill asks his desk assistant: \"Anything going on with Taylor Mason Capital? Should we add to our position?\"", "expected": "Answered from itm_tmc_q3_letter and itm_desk_notes only; no Stonewall fact, no refusal, no hint." },
-    { "at": "0:25", "items": ["itm_axe_chatgpt", "itm_sw_valuation", "itm_counsel_email"], "note": "Arrive live. itm_counsel_email is pasted by Wags with Add item (author axe, his mailbox) and is quarantined." },
-    { "at": "0:40", "action": "Wags builds Ben's scope from his rule." },
-    { "at": "1:00", "action": "Axe creates the deal analyst; Ben creates the research analyst and the escalation agent." },
-    { "at": "1:20", "action": "Axe Capital announces the bid. Wags refiles the facts marked announced: true in expected.json from deal/stonewall to market/public.", "expected": "Ben's and Dollar Bill's scopes gain those facts; valuation, financing and counterparty facts stay walled." }
+    {
+      "at": "seed",
+      "items": [
+        "itm_sw_terms",
+        "itm_sw_meeting",
+        "itm_chat_deal",
+        "itm_chat_research",
+        "itm_chat_desk",
+        "itm_chat_general",
+        "itm_desk_notes",
+        "itm_research_draft",
+        "itm_tmc_q3_letter",
+        "itm_voicemail",
+        "itm_desk_invoices",
+        "itm_office_bills",
+        "itm_payroll_notes"
+      ],
+      "note": "Loaded before the demo starts. Ben has no scope yet; Mike Wagner builds it at 0:40. itm_voicemail's two facts are in the inbox, waiting for Mike Wagner to file them."
+    },
+    {
+      "at": "0:00",
+      "action": "Bill Stevens asks his desk assistant: \"Anything going on with Taylor Mason Capital? Should we add to our position?\"",
+      "expected": "Answered from itm_tmc_q3_letter and itm_desk_notes only; no Stonewall fact, no refusal, no hint."
+    },
+    {
+      "at": "0:25",
+      "items": [
+        "itm_axe_chatgpt",
+        "itm_sw_valuation",
+        "itm_counsel_email"
+      ],
+      "note": "Arrive live. itm_counsel_email is pasted by Mike Wagner with Add item (author axe, his mailbox) and is quarantined."
+    },
+    {
+      "at": "0:40",
+      "action": "Mike Wagner builds Ben's scope from his rule."
+    },
+    {
+      "at": "1:00",
+      "action": "Bob Adams creates the deal analyst; Ben creates the research analyst and the escalation agent."
+    },
+    {
+      "at": "1:20",
+      "action": "Axe Capital announces the bid. Mike Wagner refiles the facts marked announced: true in expected.json from deal/stonewall to market/public.",
+      "expected": "Ben's and Bill Stevens's scopes gain those facts; valuation, financing and counterparty facts stay walled."
+    }
   ]
 }

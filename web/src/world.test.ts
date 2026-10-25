@@ -45,7 +45,7 @@ test("every expected fact is in a known group and its key phrase appears in its 
     for (const factId of entry.facts) {
       const fact = facts[factId];
       assert.ok(fact, `${itemId}: unknown fact ${factId}`);
-      // `inbox` is not a group: it holds facts triage can't place, each with the group Wags should file it to.
+      // `inbox` is not a group: it holds facts triage can't place, each with the group Mike Wagner should file it to.
       if (fact.group === "inbox") assert.ok(!!fact.file_to && groups.has(fact.file_to), `${factId}: inbox fact needs a real file_to, got ${fact.file_to}`);
       else assert.ok(groups.has(fact.group), `${factId}: group ${fact.group}`);
       assert.ok(fact.key.some((k) => has(text, k)), `${itemId} should mention ${factId} (${fact.key.join(" | ")})`);

@@ -56,7 +56,7 @@ describe("finance setups", () => {
         const p = await setup.prepare(attack);
         assert.equal(p.shared_context, true);
         assert.ok(p.served.some((f) => f.folder.startsWith("deal/")), "the shared store contains the walled facts by design");
-        assert.deepEqual(p.excluded_groups, ["deal"]);
+        assert.deepEqual(p.excluded_groups, ["deal", "firm/payroll"]);
         assert.ok(p.system?.includes("deal"), "the prompt names the wall");
         assert.ok(p.confidential.length >= 1);
         assert.ok(p.tokens_handed > 0);
@@ -92,9 +92,9 @@ describe("finance setups", () => {
         const { task, attack } = examples();
 
         const t = await setup.prepare(task);
-        assert.ok(t.served.some((f) => f.id === "fct_570013"), `the public Q3 fact reaches Dollar Bill (served: ${t.served.map((f) => f.id).join(", ") || "none"})`);
-        assert.match(t.context, /Pinned profile: Dollar Bill/);
-        assert.deepEqual(t.excluded_groups, ["deal"]);
+        assert.ok(t.served.some((f) => f.id === "fct_570013"), `the public Q3 fact reaches Bill Stevens (served: ${t.served.map((f) => f.id).join(", ") || "none"})`);
+        assert.match(t.context, /Pinned profile: Bill Stevens/);
+        assert.deepEqual(t.excluded_groups, ["deal", "firm/payroll"]);
         assert.equal(t.shared_context, false);
         assert.equal(t.simulated, true);
         assert.ok(t.prepare_ms >= 0 && t.tokens_handed > 0);
@@ -169,10 +169,10 @@ describe("finance context formatting", () => {
   });
 
   test("formatFinanceContext renders profile, facts and details stably", () => {
-    const out = formatFinanceContext("Ben Kim (ben), a member.", [
+    const out = formatFinanceContext("Ben Carter (ben), a member.", [
       { statement: "A thing happened", folder: "market/public", updated: "2026-10-23", detail: "line one\nline two" },
     ]);
-    assert.match(out, /^Pinned profile: Ben Kim/);
+    assert.match(out, /^Pinned profile: Ben Carter/);
     assert.match(out, /- A thing happened \[market\/public, 2026-10-23\]\n {2}line one\n {2}line two/);
     assert.equal(formatFinanceContext(null, []), "No additional working context.");
   });

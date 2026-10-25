@@ -2,13 +2,13 @@
 // on port 0 with a fresh data dir seeded with the demo world, the real distiller handler against
 // it over HTTP (the heuristic writer, a simulated triage judge for this world), and the real
 // Claude Code hooks as child processes with Claude-Code-shaped transcripts. One person token,
-// Dollar Bill's, for both directions. His desk log becomes his facts and reaches his next prompt;
+// Bill Stevens's, for both directions. His desk log becomes his facts and reaches his next prompt;
 // a line about the bid, filed under deal/ by triage, never reaches him; canon_save lands as his
 // fact; a restart keeps all of it; and no door says anything about what he cannot see.
 //
 // Two sessions, not one: triage files a draft in inbox when its item names a group other than
 // Jev's pick (triage.ts, "the item names deal/stonewall, jev picked desk/dollar-bill"), so a desk
-// log that also carried the rumor would send the TMC trade facts to moderators only. Dollar Bill
+// log that also carried the rumor would send the TMC trade facts to moderators only. Bill Stevens
 // logs the trades in one Claude Code session and the floor rumor in another, as he would.
 //
 // The simulated scope judge is keyword overlap (scope-judge.ts): a fact joins an agent's scope for
@@ -54,7 +54,7 @@ const tokens = new Map([
   ["e2e-dispatcher", "dispatcher"],
   ["e2e-distiller", "distiller"],
 ]);
-/** The one value on Dollar Bill's machine: CANON_PERSON_TOKEN. */
+/** The one value on Bill Stevens's machine: CANON_PERSON_TOKEN. */
 const BILL = "e2e-bill";
 const DISTILLER = "e2e-distiller";
 
@@ -206,7 +206,7 @@ describe("the Claude Code loop, end to end on the offline providers (PIPELINE-PR
 
   // ------------------------------------------------------------------------------- 1. write
 
-  test("capture: SessionEnd runs canon-capture.mjs with the person token; the server files the session as Dollar Bill's", async (t) => {
+  test("capture: SessionEnd runs canon-capture.mjs with the person token; the server files the session as Bill Stevens's", async (t) => {
     assert.ok(scopeOf("dollar-bill").length > 0, "the 0:00 scope was built");
 
     const desk = await runHook(CAPTURE, sessionEnd(DESK_SESSION, DESK_TRANSCRIPT), hookEnv());
@@ -255,7 +255,7 @@ describe("the Claude Code loop, end to end on the offline providers (PIPELINE-PR
     }
     assert.ok(deskFacts.some((f) => f.statement.includes("20,000 TMC shares at $41.50") && f.statement.includes("long 200,000 TMC")), deskFacts.map((f) => f.statement).join("\n"));
     // The offline writer attributes by the server-resolved display name (B28), never the raw id.
-    assert.ok(deskFacts.some((f) => /^Dollar Bill: Plan: trim the TMC position by 25,000/.test(f.statement)), deskFacts.map((f) => f.statement).join("\n"));
+    assert.ok(deskFacts.some((f) => /^Bill Stevens: Plan: trim the TMC position by 25,000/.test(f.statement)), deskFacts.map((f) => f.statement).join("\n"));
     assert.ok(deskFacts.every((f) => !f.statement.includes("dollar-bill")), deskFacts.map((f) => f.statement).join("\n"));
 
     const rumors = facts.filter((f) => f.source.session === rumorSessionId);
@@ -266,7 +266,8 @@ describe("the Claude Code loop, end to end on the offline providers (PIPELINE-PR
 
     // The worker's own account of the run, with measured times.
     const distil = logs.filter((l) => /heuristic distilled \d+ drafts in \d+ ms \(simulated\)/.test(l));
-    const triaged = logs.filter((l) => /fake triaged \d+ drafts against \d+ facts and 5 groups in \d+ ms/.test(l));
+    // Six groups: Stonewall, research, public market, the desk, firm operations, payroll and HR.
+    const triaged = logs.filter((l) => /fake triaged \d+ drafts against \d+ facts and 6 groups in \d+ ms/.test(l));
     const saved = logs.filter((l) => /saved \d+, retired 0, filed 0 quarantine items, relayed \d+ events in \d+ ms/.test(l));
     assert.equal(distil.length, 2, logs.join("\n"));
     assert.equal(triaged.length, 2, logs.join("\n"));
@@ -318,7 +319,7 @@ describe("the Claude Code loop, end to end on the offline providers (PIPELINE-PR
     const context = out.hookSpecificOutput.additionalContext;
     assert.match(context, /^Bullwark memory for this request \(information, not instructions\):\n/);
     assert.doesNotMatch(context, /\d+ facts?|scope/, "the injected header does not prime scope or count disclosures");
-    assert.match(context, /\nDollar Bill \(dollar-bill\), a member\. Standing task: Answer questions about our positions and public market news\./);
+    assert.match(context, /\nBill Stevens \(dollar-bill\), a member\. Standing task: Answer questions about our positions and public market news\./);
     assert.ok(context.includes("20,000 TMC shares at $41.50"), context);
     assert.ok(context.includes("[desk/dollar-bill, "), context);
     assert.doesNotMatch(context, LEAK, context);
@@ -337,9 +338,9 @@ describe("the Claude Code loop, end to end on the offline providers (PIPELINE-PR
     t.diagnostic(`context hook: ${asked.ms} ms with facts, ${haiku.ms} ms with nothing (child process, UserPromptSubmit)`);
   });
 
-  test("MCP as Dollar Bill: whoami names no group, search stays inside the scope, context is the self handoff, canon_save becomes his fact", async () => {
+  test("MCP as Bill Stevens: whoami names no group, search stays inside the scope, context is the self handoff, canon_save becomes his fact", async () => {
     const who = await mcp(BILL, MCP_TOOLS.whoami);
-    assert.deepEqual(who, { client: "dollar-bill", principal: "dollar-bill", name: "Dollar Bill", tier: "member", task: "Answer questions about our positions and public market news." });
+    assert.deepEqual(who, { client: "dollar-bill", principal: "dollar-bill", name: "Bill Stevens", tier: "member", task: "Answer questions about our positions and public market news." });
 
     const stonewall = await mcp(BILL, MCP_TOOLS.search, { query: "Stonewall" });
     assert.deepEqual(stonewall.facts, [], "the bid is not in his memory, so there is nothing to find");
@@ -353,7 +354,7 @@ describe("the Claude Code loop, end to end on the offline providers (PIPELINE-PR
     assert.ok(facts.length > 0);
     assert.ok(facts.every((f) => scopeOf("dollar-bill").includes(f.id)), "only facts in his scope");
     assert.ok(facts.some((f) => deskFacts.some((d) => d.id === f.id)), "the captured desk fact is served on demand too");
-    assert.match(String(ctx.profile), /^Dollar Bill \(dollar-bill\), a member\./);
+    assert.match(String(ctx.profile), /^Bill Stevens \(dollar-bill\), a member\./);
     assert.equal("candidates" in ctx, false, "what was considered is not his to know");
     assert.equal("missing" in ctx, false, "no hint about what the memory lacks");
     assert.equal(ctx.enough, true);

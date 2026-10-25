@@ -20,6 +20,9 @@ import swTerms from "../../../fixtures/world/items/itm_sw_terms.json" with { typ
 import swValuation from "../../../fixtures/world/items/itm_sw_valuation.json" with { type: "json" };
 import tmcLetter from "../../../fixtures/world/items/itm_tmc_q3_letter.json" with { type: "json" };
 import voicemail from "../../../fixtures/world/items/itm_voicemail.json" with { type: "json" };
+import deskInvoices from "../../../fixtures/world/items/itm_desk_invoices.json" with { type: "json" };
+import officeBills from "../../../fixtures/world/items/itm_office_bills.json" with { type: "json" };
+import payrollNotes from "../../../fixtures/world/items/itm_payroll_notes.json" with { type: "json" };
 
 import type { AgentRun, DocType, Fact, ItemKind } from "../member/contract.ts";
 import { sentences, writeDoc } from "../member/mock.ts";
@@ -31,7 +34,7 @@ interface RawItem { id: string; kind: string; source: string; author: string; ca
 interface KeyFact { group: string; labels: string[]; statement: string; fact_id: string; announced: boolean }
 
 const ITEMS: Record<string, RawItem> = Object.fromEntries(
-  [axeChatgpt, chatDeal, chatDesk, chatGeneral, chatResearch, counselEmail, deskNotes, researchDraft, swMeeting, swTerms, swValuation, tmcLetter, voicemail].map((i) => [i.id, i as RawItem]),
+  [axeChatgpt, chatDeal, chatDesk, chatGeneral, chatResearch, counselEmail, deskNotes, researchDraft, swMeeting, swTerms, swValuation, tmcLetter, voicemail, deskInvoices, officeBills, payrollNotes].map((i) => [i.id, i as RawItem]),
 );
 const KEY = expected.facts as Record<string, KeyFact>;
 const KEY_ITEMS = expected.items as Record<string, { facts: string[] }>;
@@ -112,7 +115,7 @@ export class ModeratorMock implements ModeratorApi {
     const rules = new Map(world.scope_rules.map((r) => [r.principal, r]));
     for (const p of world.principals) {
       const r = rules.get(p.id);
-      // The timeline seeds Ben without a scope; Wags builds it live at 0:40.
+      // The timeline seeds Ben without a scope; Mike Wagner builds it live at 0:40.
       const rule: ScopeRule | null = p.id === "ben" || !r ? null : { task: r.task, exclusions: { groups: [...r.exclusions.groups], labels: [], text: [] } };
       this.people.push({ id: p.id, kind: p.kind as "person" | "agent", name: p.name, tier: (p as { tier?: "moderator" | "member" }).tier, creator: (p as { creator?: string }).creator, rule, fact_ids: [] });
     }
@@ -127,7 +130,7 @@ export class ModeratorMock implements ModeratorApi {
         outputs: [], finished_at: null, fact_count: p.fact_ids.length, pending: 0,
       });
     }
-    // 0:00: Dollar Bill's question to his desk assistant, answered from inside its scope.
+    // 0:00: Bill Stevens's question to his desk assistant, answered from inside its scope.
     const h = this.handoff("desk-assistant", "Anything going on with Taylor Mason Capital? Should we add to our position?");
     this.log.push({ type: "context.served", at: h.at, handoff: h });
   }

@@ -1,0 +1,8 @@
+{
+  "id": "itm_desk_invoices",
+  "kind": "email",
+  "source": "Accounts payable: trading desk invoices, Oct 23",
+  "author": "dollar-bill",
+  "captured_at": "2026-10-23T21:00:00.000Z",
+  "text": "From: Accounts payable\nTo: Bill Stevens\nSubject: Trading desk invoices\n\nHi Bill,\n\nThe Datawave market-data invoice for the trading desk is $18,400 and is due November 2.\nThe desk's September research subscription invoice of $2,150 was paid on October 9.\nThe printer lease invoice of $640 was due October 15 and is still unpaid. Can you approve it?\n\nThanks,\nAccounts payable"
+}
