@@ -169,3 +169,27 @@ test("documentTitle: the first heading, else a readable file name", () => {
   assert.equal(documentTitle("intro\n## TMC: our position\nbody", "out/x.md"), "TMC: our position");
   assert.equal(documentTitle("no heading here", "out/tmc_brief-v2.md"), "tmc brief v2");
 });
+
+test("a creator's leave-out sentence: theirs to replace or clear, but only ever added to after Compliance", async () => {
+  const { server, done } = await setup();
+  try {
+    const { id } = await create(server, []);
+    const edit = (exclude_text: string) => call(server, `/api/principals/${id}/rule`, "alice", { task: "Draft the asset manager sector note", preserve_exclusions: true, exclude_text }, "PUT");
+    const ruleText = async () => ((await (await call(server, `/api/scope-rules/${id}`, "mod")).json()) as ScopeRule).exclude.text;
+    assert.equal((await edit("firm operations")).status, 200);
+    assert.equal(await ruleText(), "firm operations");
+    assert.equal((await edit("")).status, 200);
+    assert.equal(await ruleText(), undefined, "her own sentence, so she can clear it");
+    let [agent] = await agentsOf(server, "alice");
+    assert.equal(agent.leave_out, "");
+
+    assert.equal((await call(server, `/api/scope-rules/${id}`, "mod", { task: "Draft the asset manager sector note", exclude: { groups: [], labels: [], text: "anything about pending deals" } }, "PUT")).status, 200);
+    [agent] = await agentsOf(server, "alice");
+    assert.equal(agent.leave_out, "", "Compliance's sentence is never read back to her");
+    assert.equal((await edit("")).status, 200);
+    assert.equal(await ruleText(), "anything about pending deals", "an empty edit cannot clear it");
+    assert.equal((await edit("firm operations")).status, 200);
+    assert.equal(await ruleText(), "anything about pending deals; firm operations", "hers is added, never replacing");
+    assert.equal((await call(server, `/api/principals/${id}/rule`, "alice", { task: "x", preserve_exclusions: true, exclude_text: 7 }, "PUT")).status, 400);
+  } finally { await done(); }
+});

@@ -26,7 +26,7 @@
         <div class="bar">
           <div>
             <h2 id="agents-h">Agents</h2>
-            <p class="lede">Agents you create work from your memory.</p>
+            <p class="lede">Agents you create work from the parts of your memory you choose, never more.</p>
           </div>
           <button id="new-agent" class="btn" type="button">+ New agent</button>
         </div>
@@ -37,10 +37,15 @@
             <input id="a-name" type="text" required placeholder="e.g. Sector note drafter">
           </label>
           <label class="fld">Task
-            <textarea id="a-task" rows="2" required placeholder="What should this agent do?"></textarea>
+            <textarea id="a-task" rows="2" required placeholder="What is this agent for? e.g. Brief me on our positions and the public news behind them"></textarea>
           </label>
-          <label class="fld">Leave out (optional)
-            <input id="a-leave" type="text" placeholder="Anything this agent should not use, e.g. firm operations">
+          <fieldset id="a-groups-field" class="docs">
+            <legend>What it can remember</legend>
+            <div id="a-groups" class="docgrid"></div>
+            <div class="hint">Only your own memory is listed. It picks what helps its task from the groups you tick.</div>
+          </fieldset>
+          <label class="fld">Also leave out (optional)
+            <input id="a-leave" type="text" placeholder="Anything else it should not use, e.g. firm operations">
           </label>
           <fieldset class="docs">
             <legend>Documents to make</legend>
@@ -52,9 +57,9 @@
           <div class="row end">
             <button id="delete-agent" class="danger" type="button" hidden>Delete agent</button>
             <button id="cancel-agent" class="ghost" type="button">Cancel</button>
-            <button class="btn" type="submit">Save</button>
+            <button id="save-agent" class="btn" type="submit">Save</button>
           </div>
-          <div class="hint">Saving rebuilds this agent’s memory from yours.</div>
+          <div class="hint">Saving builds this agent’s memory from yours: exclusions first, then a relevance check on what is left.</div>
         </form>
 
         <ul id="agents" class="list agents"></ul>

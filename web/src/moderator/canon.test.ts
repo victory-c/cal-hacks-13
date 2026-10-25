@@ -33,7 +33,8 @@ test("cookie clients omit bearer headers and ask Canon to preserve hidden agent 
     return Response.json({ build_id: "bld_1234" });
   });
   await new CanonClient("https://preview.example", "").updateAgent("research-analyst", { name: "Fixed name", task: "Revised task", exclusions: { groups: [], labels: [], text: ["firm operations"] }, docs: [], schedule: "Only when I press Run" });
-  assert.deepEqual(posted, [{ task: "Revised task", preserve_exclusions: true }]);
+  // The member's own leave-out sentence is sent; Canon only ever adds it to a rule Compliance set.
+  assert.deepEqual(posted, [{ task: "Revised task", preserve_exclusions: true, exclude_text: "firm operations" }]);
 });
 
 test("a canonical save event is displayed from the current authorized snapshot, never its old payload", async (t) => {

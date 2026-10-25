@@ -1,6 +1,6 @@
 {
   "project": "Bullwark",
-  "updated": "2026-10-25T08:59:51.776Z",
+  "updated": "2026-10-25T10:20:20.894Z",
   "team": [
     {
       "id": "A",
@@ -623,6 +623,15 @@
       "state": "done",
       "title": "Demo launcher: open Claude Code as one person; coding sessions stay nobody's memory",
       "note": "npm run demo:claude -- <person> [--url] [--token] checks GET /api/me (refuses worker tokens), prints the person and task (never the token) and starts claude with CANON_PERSON_TOKEN, CANON_URL, CANON_CAPTURE=1 and CANON_CONTEXT=1 for that process only. The capture and context hooks now read their off switches from .env as well as the environment (environment wins), so a checkout sets both to 0 and coding sessions are never captured or given anyone's memory. Doctor reports that setup as ok. Tests: scripts/demo-claude.test.mjs, hooks capture/context switch tests, doctor."
+    },
+    {
+      "id": "A26",
+      "owner": "A",
+      "milestone": "M5",
+      "priority": "must",
+      "state": "done",
+      "title": "Agent profiles: choose its memory, assign a task, watch it think, read what it wrote, see what it saved to memory",
+      "note": "Member view: an agent profile is a name, a task, what it can remember (one box per group of the creator's own memory; nothing else is ever listed) and a leave-out sentence. Run on the standing task or a one-off assignment. While it works the card shows phase, step count, a live clock and its last steps in plain words; when done it shows the documents it wrote (markdown as text nodes) and the notes it saved. Agents write notes to out/memories/; the dispatcher saves each after the step that wrote it as a note session for the fact writer (max 5 a run). Every dispatcher save carries meta.fact_ids and POST /api/sessions refuses it (409 agent scope changed) once one has left the agent's scope, closing the save race the dispatch README listed. Creator edits: exclude_groups / exclude_text; only narrowing after Compliance set the rule. Also fixed: Windows EPERM on atomic renames (OneDrive) and a failed world flush poisoning every later request. Tests: server agent-profiles.test.ts, dispatcher notes tests, web logic/canon/mock tests. Not yet: a click-through in the browser against the live stack."
     },
     {
       "id": "B28",

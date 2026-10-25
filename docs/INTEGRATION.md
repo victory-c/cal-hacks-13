@@ -53,7 +53,7 @@ nothing, because the action itself is public knowledge). `404` = not found or no
 | `GET /api/principals` | moderator | People and agents with tier or creator |
 | `POST /api/principals` | moderator | Add a person `{ name, tier, rule? }`. Without a rule, the member has no scope or readable memory until Compliance sets one |
 | `POST /api/principals/:id/tier` | moderator | Promote or demote `{ tier }` |
-| `PUT /api/principals/:id/rule` | moderator; members for their own agents | Moderators set `{ task, exclusions }`. An agent's creator sends `{ task, preserve_exclusions: true }`; Canon preserves hidden moderator barriers and their setter. Starts a build and returns `{ build_id }` |
+| `PUT /api/principals/:id/rule` | moderator; members for their own agents | Moderators set `{ task, exclusions }`. An agent's creator sends `{ task, preserve_exclusions: true, exclude_groups?, exclude_text? }`: `exclude_groups` is their choice among the groups they can see (others are kept as they are), `exclude_text` their leave-out sentence. After a moderator set the rule last, the creator can only add exclusions. Canon preserves hidden moderator barriers and their setter. Starts a build and returns `{ build_id }` |
 | `GET /api/principals/:id/scope` | moderator; members for themselves and their agents | The scope: rule and fact ids |
 | `GET /api/facts` | anyone | Facts visible to you, filterable by `group`, `label`, `q` |
 | `PATCH /api/facts/:id` · `POST /api/facts/:id/retire` | anyone, inside their scope | Edit the statement, or retire to cold storage |
@@ -61,8 +61,8 @@ nothing, because the action itself is public knowledge). `404` = not found or no
 | `POST /api/items` | anyone | Add an item `{ kind, source, text, author? }` (kind: memo, chat, email, transcript or note). `author` defaults to you; only moderators may name someone else. Returns `{ item_id }`; Canon then archives, triages and writes facts, and the results arrive as `item.captured`, `item.quarantined` and `fact.saved` events |
 | `GET /api/inbox` | moderator | Unplaced facts, filed with `POST /api/facts/:id/file` |
 | `GET /api/quarantine` · `POST /api/quarantine/:id/release` | moderator | Held items; release one |
-| `GET /api/agents` · `POST /api/agents` | anyone (members see only their own) | List, or create `{ name, task, exclusions }` inside your own scope; returns `{ id, build_id }` |
-| `POST /api/agents/:id/run` | the creator or a moderator | Start a run `{ task }` |
+| `GET /api/agents` · `POST /api/agents` | anyone (members see only their own) | List (see `AgentRun` below), or create `{ name, task, exclusions }` inside your own scope; returns `{ id, build_id }`. The member view sends every unticked group of the creator's own as an exclusion |
+| `POST /api/agents/:id/run` | the creator or a moderator | Start a run `{ task }`: the agent's standing task or a one-off assignment. Either way it runs inside the agent's fixed scope |
 | `POST /api/agents/:id/stop` | the creator or a moderator | Persist a cancellation generation and request Stop; returns `{ status: "stop_requested", generation }`. The lane becomes Stopped after worker cancellation telemetry. |
 | `GET /api/agents/:id/control` | internal worker | Read `{ generation }`; dispatcher checks on scope reads and reconnect, so missed Stop events cannot authorize another step or save. |
 | `GET /api/handoffs?principal=` · `GET /api/handoffs/:id` | moderator; members for their own agents | Handoff records |
@@ -79,14 +79,29 @@ ScopeRule  { task: string, exclusions: { groups[], labels[], text[] } }   // tex
 Scope      { principal, rule: ScopeRule, fact_ids[], built_at }
 Handoff    { id, principal, request, candidates[{ fact_id, p, decision: "kept" | "cut_relevance" | "cut_budget" }],
              tokens_est, timings_ms: { search, judge, total }, judge, retriever, simulated }
-AgentRun   { id, creator, name, status: "running" | "restarting" | "done" | "failed",
-             steps[{ id, text, status, at }], files[], inbox[{ text, at }] }
+AgentRun   { id, creator, name, task, status: "ready" | "running" | "restarting" | "done" | "failed" | "stopped",
+             steps[{ id, text, kind, file?, status, at }], files[], inbox[{ text, at }],
+             run_task, started_at, finished_at, fact_count,
+             memory_groups[{ id, name, included, count }],   // only groups the creator can see
+             documents[{ file, title, text, at }],           // what the last run wrote (markdown)
+             memories[{ file, text, at }],                   // notes it saved to the creator's memory
+             refresh }                                       // a fact behind them left its scope
 ```
 
 Moderator-set exclusions are visible only to moderators. A member's own `ScopeRule` comes back with
 `exclusions` omitted. For an agent they created, creator-set exclusions remain visible; after a
 moderator changes the rule, the creator sees the task but not the exclusions and can only edit that
-task through `preserve_exclusions: true`.
+task through `preserve_exclusions: true`, add group exclusions with `exclude_groups` and append a
+leave-out sentence with `exclude_text`.
+
+**Agent outputs.** A run's documents and notes come from `agent.step` events of kind `file` that carry
+`content` and `fact_ids` (the fact files its folder held). `GET /api/agents` withholds any whose
+`fact_ids` are no longer all in the agent's scope and sets `refresh`, naming nothing. An agent writes
+notes for its creator's memory to `out/memories/`; the dispatcher posts each one after the step
+that wrote it as a `note` session (`principal` = creator, at most 5 a run). Every dispatcher save
+carries `meta.agent` and `meta.fact_ids`: `POST /api/sessions` answers 403 when `principal` is not the
+agent's creator, and 409 `{ "error": "agent scope changed" }` when one of the ids has left the agent's
+scope, checked inside the session write lock; the dispatcher then restarts the run in a fresh folder.
 
 ## Events (SSE on `GET /events`)
 

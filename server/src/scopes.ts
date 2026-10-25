@@ -933,11 +933,13 @@ export async function handleScopesRoute(
         const existing = state.rules.get(target);
         if (!existing) throw new HttpError(404, `no scope rule for "${target}"`);
         if (!isRecord(input) || input.preserve_exclusions !== true || input.exclude !== undefined || input.exclusions !== undefined) {
-          throw new HttpError(400, "a creator rule edit must send { task, preserve_exclusions: true, exclude_groups? }");
+          throw new HttpError(400, "a creator rule edit must send { task, preserve_exclusions: true, exclude_groups?, exclude_text? }");
         }
         // The member can edit the task, but moderator-set barriers stay byte-for-byte intact and
         // retain their setter identity. Otherwise a task edit would expose or erase a hidden wall.
-        rule = parseRuleBody({ task: input.task, exclude: { ...existing.exclude, groups: creatorExclusions(deps, callerId, existing, input.exclude_groups) } }, target, existing.set_by);
+        const groups = creatorExclusions(deps, callerId, existing, input.exclude_groups);
+        const text = creatorExclusionText(callerId, existing, input.exclude_text);
+        rule = parseRuleBody({ task: input.task, exclude: { ...existing.exclude, groups, text } }, target, existing.set_by);
       } else {
         rule = parseRuleBody(input, target, callerId);
       }
@@ -1174,6 +1176,21 @@ function creatorExclusions(deps: ScopesDeps, creator: string, existing: ScopeRul
   const notTheirs = existing.exclude.groups.filter((g) => !visible.has(g));
   const kept = existing.set_by === creator ? [] : existing.exclude.groups.filter((g) => visible.has(g));
   return [...new Set([...notTheirs, ...kept, ...(requested as string[]).filter((g) => visible.has(g))])];
+}
+
+/**
+ * A creator's "leave out" sentence for their agent (`exclude_text`; absent = unchanged). On a rule
+ * they set themselves it replaces theirs (empty clears it). On a rule Compliance set last it can
+ * only add: Compliance's sentence is never read back to the creator, so it is kept and theirs is
+ * appended, and an empty one changes nothing.
+ */
+function creatorExclusionText(creator: string, existing: ScopeRule, requested: unknown): string | undefined {
+  if (requested === undefined) return existing.exclude.text;
+  if (typeof requested !== "string") throw new HttpError(400, "exclude_text must be a string");
+  const theirs = requested.trim();
+  if (existing.set_by === creator) return theirs || undefined;
+  if (!theirs) return existing.exclude.text;
+  return existing.exclude.text ? `${existing.exclude.text}; ${theirs}` : theirs;
 }
 
 /** POST /api/agents: a member creates agents only for themselves; the scope comes from the creator's. */

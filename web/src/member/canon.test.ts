@@ -53,8 +53,8 @@ test("commands hit the contract routes with the contract bodies, ids encoded", a
   ]);
   assert.deepEqual(canon.calls[0]!.body, { statement: "Edited" });
   assert.deepEqual(canon.calls[2]!.body, { kind: "note", source: "My notes", text: "Fees fell again" });
-  assert.deepEqual(canon.calls[3]!.body, body);
-  assert.deepEqual(canon.calls[4]!.body, { task: "Track public fees", preserve_exclusions: true });
+  assert.deepEqual(canon.calls[3]!.body, { name: body.name, task: body.task, exclusions: body.exclusions }, "the mock-only docs and schedule are not Canon's");
+  assert.deepEqual(canon.calls[4]!.body, { task: "Track public fees", preserve_exclusions: true, exclude_text: "firm ops" });
   assert.equal(canon.calls[3]!.headers["content-type"], "application/json");
   assert.equal(canon.calls[1]!.headers["content-type"], undefined, "no body, no content type");
 });
@@ -137,4 +137,32 @@ test("the stream reports connecting, then live", async (t) => {
   await canon.settle();
   close(); canon.close();
   assert.deepEqual(statuses, ["connecting", "live"]);
+});
+
+test("an agent profile's memory groups: unticked groups are exclusions on create, the creator's choice on edit", async (t) => {
+  const canon = fakeCanon(t, {
+    "POST /api/agents": { id: "agt_1", build_id: "bld_1" },
+    "PUT /api/principals/agt_1/rule": { build_id: "agt_1" },
+  });
+  const client = new CanonClient(SERVER, "tok");
+  const body = { name: "Desk brief", task: "Brief me on positions", exclusions: { groups: ["firm/ops"], labels: [], text: [] }, exclude_groups: ["research/asset-managers", "firm/ops"], docs: [], schedule: "Only when I press Run" as const };
+  await client.createAgent(body);
+  await client.updateAgent("agt_1", { ...body, exclude_groups: ["market/public"] });
+  await client.updateAgent("agt_1", { ...body, exclude_groups: undefined });
+  assert.deepEqual(canon.calls[0]!.body, { name: "Desk brief", task: "Brief me on positions", exclusions: { groups: ["firm/ops", "research/asset-managers"], labels: [], text: [] } });
+  assert.deepEqual(canon.calls[1]!.body, { task: "Brief me on positions", preserve_exclusions: true, exclude_groups: ["market/public"], exclude_text: "" });
+  assert.deepEqual(canon.calls[2]!.body, { task: "Brief me on positions", preserve_exclusions: true, exclude_text: "" }, "no group choice sent leaves the groups as they are");
+});
+
+test("Run sends a one-off assignment when given, else the agent's standing task", async (t) => {
+  const canon = fakeCanon(t, {
+    "GET /api/agents": { agents: [run()] },
+    "POST /api/agents/research-analyst/run": { id: "dsp_1" },
+  });
+  const client = new CanonClient(SERVER, "tok");
+  await client.runAgent("research-analyst", "  Brief me on TMC's Q3  ");
+  await client.runAgent("research-analyst");
+  await client.runAgent("research-analyst", "   ");
+  const runs = canon.calls.filter((c) => c.method === "POST").map((c) => c.body);
+  assert.deepEqual(runs, [{ task: "Brief me on TMC's Q3" }, { task: "Update the note" }, { task: "Update the note" }]);
 });

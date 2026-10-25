@@ -42,11 +42,12 @@ expose the unauthenticated static development port as a public deployment.
 | Memory | Grouped facts with provenance/date; keyword, group, source and date filters; edit and retire; moderator filing of one or many facts and group creation. Filing preserves existing labels. Creating a group while editing a fact keeps the unsaved statement. |
 | Capture | Add a memo, chat excerpt, email, transcript or note. Members capture as themselves; Compliance can attribute an item. Canon's real archive/triage/writer handles it. |
 | Quarantine and inbox | Compliance sees held items, releases them, and files unplaced facts. Members see neither queue. |
-| Agents | Create an agent from the member's scope, edit its task and own exclusions, delete it, run on demand, or Stop an active run. Stop requests cancellation; Stopped appears after the dispatcher reports it. Live steps, returned result text and file names come from the dispatcher. Revoked scopes withdraw old run traces and the dispatcher restarts when required. |
+| Agents | An agent profile is a name, a task, **what it can remember** (one box per group of the member's own memory; only their groups are listed) and an optional leave-out sentence. Create, edit, delete; **Run** on its task or on a one-off assignment typed on its card. While it works the card shows a live panel: the phase (getting ready, planning, working, writing, saving), a step count, a ticking clock and its last five steps in plain words ("Reading “TMC's assets under management…”", from the member's own memory). Stop requests cancellation; Stopped appears after the dispatcher reports it. When it finishes the card shows **What it wrote** (the documents, rendered from markdown as text nodes only) and **Saved to your memory** (the notes it wrote to `out/memories/`, which also arrive in My memory through the fact writer). Revoked scopes withdraw old run traces, withheld documents ask for a new run, and the dispatcher restarts when required. |
 | Handoffs and audit | Compliance sees actual candidates, relevance decisions, estimated tokens and measured timings from Canon, plus the audit filtered by person/group. |
 
 **Live limits:** renaming existing agents, document-type selection and schedules are not
-implemented by the dispatcher. Those controls are hidden/disabled in live mode. The mock exposes
+implemented by the dispatcher. Those controls are hidden/disabled in live mode. A creator's group
+edit can only narrow an agent whose rule Compliance set last. The mock exposes
 and labels its simulated versions. File names are reported from real runtime steps; the UI does
 not pretend to download arbitrary sandbox files.
 

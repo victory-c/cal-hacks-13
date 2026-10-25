@@ -3,12 +3,13 @@
 // dashboard). Canon decides what exists; this page only lays it out (integration contract rule 1).
 
 import { DOC_TYPES, SCHEDULES } from "./member/contract.ts";
-import type { AgentBody, AgentRun, DocType, Fact, Me, MemberApi, MemberEvent, Schedule } from "./member/contract.ts";
+import type { AgentBody, AgentDocument, AgentRun, DocType, Fact, Me, MemberApi, MemberEvent, Schedule } from "./member/contract.ts";
 import { CanonClient } from "./member/canon.ts";
 import { MockCanon } from "./member/mock.ts";
 import {
-  ALL_GROUPS, ALL_SOURCES, NO_FILTERS, SORTS, STATUS_LABELS, agentPlanLine, agentStatusLine, countShown, feedText,
-  filtersActive, fmtDay, groupLabel, groupOrder, isBusy, kindLabel, plural, sourceTitle, viewMemory,
+  ALL_GROUPS, ALL_SOURCES, NO_FILTERS, SORTS, STATUS_LABELS, agentPhase, agentPlanLine, agentStatusLine, boldRuns, countShown,
+  docBlocks, elapsed, feedText, filtersActive, fmtDay, friendlyStep, groupLabel, groupOrder, isBusy, kindLabel, plural,
+  sourceTitle, viewMemory,
 } from "./member/logic.ts";
 import type { Filters, Sort } from "./member/logic.ts";
 import { relativeTime } from "./format.ts";
@@ -47,6 +48,8 @@ const state = {
   editing: null as string | null,
   openDocs: new Set<string>(),
   agentForm: null as null | "new" | string,
+  /** What the member has typed into each agent's "give it something to do" box. */
+  assign: new Map<string, string>(),
   replaying: true,
 };
 
@@ -56,6 +59,7 @@ const el = {
   agentForm: byId<HTMLFormElement>("agent-form"), agentFormTitle: byId("agent-form-title"),
   aName: byId<HTMLInputElement>("a-name"), aTask: byId<HTMLTextAreaElement>("a-task"), aLeave: byId<HTMLInputElement>("a-leave"),
   docChoices: byId("doc-choices"), aSchedule: byId<HTMLSelectElement>("a-schedule"),
+  aGroups: byId("a-groups"), aGroupsField: byId("a-groups-field"), saveAgent: byId<HTMLButtonElement>("save-agent"),
   deleteAgent: byId<HTMLButtonElement>("delete-agent"), cancelAgent: byId<HTMLButtonElement>("cancel-agent"),
   toggleFilters: byId<HTMLButtonElement>("toggle-filters"), filters: byId("filters"),
   fKeyword: byId<HTMLInputElement>("f-keyword"), fGroup: byId<HTMLSelectElement>("f-group"),
@@ -158,48 +162,128 @@ function onEvent(ev: MemberEvent): void {
 
 // ---------- agents
 
+/** What a fact id says, from this member's own memory (an agent reads only facts its creator holds). */
+function statementOf(id: string): string | undefined {
+  return state.facts.find((f) => f.id === id)?.statement;
+}
+
+/** The documents to show: what the agent wrote, or (an older run) its result lines as one. */
+function documentsOf(run: AgentRun): AgentDocument[] {
+  if (run.documents?.length) return run.documents;
+  return run.outputs.map((o) => ({ file: o.type, title: o.title, text: o.lines.map((l) => `- ${l.text}`).join("\n"), at: run.finished_at ?? "" }));
+}
+
+/** A markdown document as text nodes only: whatever a model wrote can never become markup. */
+function renderDoc(text: string): HTMLElement {
+  const inline = (line: string) => boldRuns(line).map((part, i) => (i % 2 ? h("b", null, part) : part));
+  const out = h("div", { class: "doc-body" });
+  let list: HTMLUListElement | null = null;
+  for (const block of docBlocks(text)) {
+    if (block.type === "item") {
+      if (!list) out.append((list = h("ul", null)));
+      list.append(h("li", null, inline(block.text)));
+      continue;
+    }
+    list = null;
+    out.append(block.type === "heading" ? h(block.level === 1 ? "h4" : "h5", null, inline(block.text)) : h("p", null, inline(block.text)));
+  }
+  return out;
+}
+
+/** The live "thinking" panel while an agent works: what it is on, its latest steps, the clock. */
+function thinking(run: AgentRun): HTMLElement {
+  const recent = run.steps.slice(-5);
+  const assignment = run.run_task && run.run_task !== run.task ? run.run_task : "";
+  return h("div", { class: "thinking", "aria-live": "polite" },
+    h("div", { class: "think-head" },
+      h("span", { class: "dots", "aria-hidden": "true" }, h("i", null), h("i", null), h("i", null)),
+      h("b", null, agentPhase(run)),
+      run.steps.length > 0 && h("span", { class: "hint" }, plural(run.steps.length, "step")),
+      h("span", { class: "hint clock" }, elapsed(run.started_at, Date.now()))),
+    assignment && h("div", { class: "hint" }, "On: ", h("span", { class: "assignment" }, assignment)),
+    recent.length > 0 && h("ol", { class: "activity" }, recent.map((step, i) => {
+      const live = i === recent.length - 1 && step.status === "running";
+      return h("li", { class: live ? "now" : "done" }, friendlyStep(step, statementOf), live && h("span", { class: "ellipsis", "aria-hidden": "true" }));
+    })));
+}
+
 function agentCard(run: AgentRun): HTMLElement {
   const busy = isBusy(run);
-  const dotClass = busy ? "dot on" : run.status === "done" ? "dot ok" : "dot";
+  const groups = run.memory_groups?.filter((g) => g.included) ?? [];
+  const docs = documentsOf(run);
+  const notes = run.memories ?? [];
+  const assignBox = h("input", {
+    type: "text", class: "assign-input", disabled: busy,
+    placeholder: `Give it something to do now, or leave empty for: ${run.task}`,
+    "aria-label": `What should ${run.name} do now?`,
+    oninput: (e: Event) => state.assign.set(run.id, (e.target as HTMLInputElement).value),
+    onkeydown: (e: Event) => { if ((e as KeyboardEvent).key === "Enter") { e.preventDefault(); void startRun(run); } },
+  }) as HTMLInputElement;
+  assignBox.value = state.assign.get(run.id) ?? "";
   return h("li", { class: "agent" },
     h("div", { class: "ahead" },
       h("div", { style: "flex: 1; min-width: 220px" },
         h("div", { class: "aname" }, run.name),
-        h("div", { class: "atask" }, run.task)),
-      h("span", { class: run.status === "failed" ? "pill failed" : "pill" }, STATUS_LABELS[run.status]),
-      run.status === "running"
-        ? h("button", { class: "ghost", type: "button", onclick: () => void attempt("stop the agent", () => api.stopAgent(run.id)) }, "Stop")
-        : h("button", { class: "btn", type: "button", disabled: busy, onclick: () => void attempt("start the agent", () => api.runAgent(run.id)) }, "Run"),
+        h("div", { class: "atask" }, run.task),
+        h("div", { class: "remembers" },
+          groups.length
+            ? [h("span", { class: "hint" }, "Remembers"), groups.map((g) => h("span", { class: "chip" }, g.name))]
+            : null,
+          h("span", { class: "hint" }, plural(run.fact_count, "memory", "memories")))),
+      h("span", { class: run.status === "failed" ? "pill failed" : busy ? "pill live" : "pill" }, STATUS_LABELS[run.status]),
+      run.status === "running" && h("button", { class: "ghost", type: "button", onclick: () => void attempt("stop the agent", () => api.stopAgent(run.id)) }, "Stop"),
       h("button", { class: "mini", type: "button", "aria-label": `Edit ${run.name}`, onclick: () => openAgentForm(run.id) }, "Edit")),
-    h("div", { class: "live", "aria-live": "polite" }, h("span", { class: dotClass, "aria-hidden": "true" }), agentStatusLine(run, Date.now())),
-    h("div", { class: "hint plan" }, api.mode === "mock" ? agentPlanLine(run) : "Run on demand from this agent’s memory", ` · ${plural(run.fact_count, "memory", "memories")}`),
-    api.mode === "canon" && run.files.length > 0 && h("div", { class: "hint" }, `Written files: ${run.files.join(" · ")}`),
-    run.outputs.length > 0 && h("div", { class: "output" },
+    busy
+      ? thinking(run)
+      : [
+        h("div", { class: "assign" }, assignBox, h("button", { class: "btn", type: "button", onclick: () => void startRun(run) }, "Run")),
+        h("div", { class: "live" }, h("span", { class: run.status === "done" ? "dot ok" : "dot", "aria-hidden": "true" }), agentStatusLine(run, Date.now()),
+          run.status === "done" && run.started_at && run.finished_at && h("span", { class: "hint" }, ` · took ${elapsed(run.started_at, Date.parse(run.finished_at))}`)),
+        run.run_task && run.run_task !== run.task && (run.status === "done" || run.status === "failed") && h("div", { class: "hint" }, "Last asked: ", h("span", { class: "assignment" }, run.run_task)),
+      ],
+    api.mode === "mock" && h("div", { class: "hint plan" }, agentPlanLine(run)),
+    run.refresh && h("div", { class: "hint refresh" }, "Its memory has changed since this run. Run it again for an up-to-date document."),
+    notes.length > 0 && h("div", { class: "notes" },
+      h("h3", { class: "sub" }, "Saved to your memory"),
+      h("ul", { class: "list" }, notes.map((n) => h("li", { class: "note" }, n.text.replace(/^#+\s*/gm, ""))))),
+    docs.length > 0 && h("div", { class: "output" },
       h("div", { class: "bar", style: "align-items: center" },
-        h("h3", { class: "sub" }, "Output"),
+        h("h3", { class: "sub" }, "What it wrote"),
         h("span", { class: "hint" }, run.finished_at ? `Finished ${relativeTime(run.finished_at)}` : "")),
-      h("ul", { class: "list" }, run.outputs.map((o) => {
-        const key = `${run.id}:${o.type}`;
+      h("ul", { class: "list" }, docs.map((d) => {
+        const key = `${run.id}:${d.file}`;
         const open = state.openDocs.has(key);
         return h("li", { class: "docrow" },
           h("div", { class: "ahead" },
-            h("span", { class: "doctitle" }, o.title),
-            h("span", { class: "hint" }, plural(o.lines.length, "line")),
+            h("span", { class: "doctitle" }, d.title),
             h("button", {
               class: "mini", type: "button", "aria-expanded": String(open),
               onclick: () => { if (open) state.openDocs.delete(key); else state.openDocs.add(key); renderAgents(); },
             }, open ? "Close" : "Open")),
           open && h("div", { class: "preview" },
-            h("ul", null, o.lines.map((l) => h("li", null, l.text, l.source && h("span", { class: "from" }, `from ${l.source}`)))),
-            h("div", { class: "hint", style: "margin-top: 8px" }, api.mode === "mock" ? "Simulated draft built from this agent’s memory" : "Written from this agent’s memory")));
+            renderDoc(d.text),
+            h("div", { class: "hint", style: "margin-top: 8px" }, api.mode === "mock" ? "Simulated draft built from this agent’s memory" : "Written from this agent’s memory, which is part of yours")));
       }))));
 }
 
+async function startRun(run: AgentRun): Promise<void> {
+  const task = (state.assign.get(run.id) ?? "").trim();
+  if (!(await attempt("start the agent", () => api.runAgent(run.id, task || undefined))).ok) return;
+  state.assign.delete(run.id);
+  local(task ? `You asked ${run.name} to: ${task}` : `You started ${run.name}`);
+  await refreshAgents();
+}
+
 function renderAgents(): void {
+  const now = Date.now();
   syncList(el.agents, state.agents.map((run) => {
-    const open = run.outputs.map((o) => state.openDocs.has(`${run.id}:${o.type}`) ? "1" : "0").join("");
-    return { key: run.id, version: `${JSON.stringify(run)}|${open}|${agentStatusLine(run, Date.now())}`, build: () => agentCard(run) };
-  }), () => h("li", { class: "empty" }, "No agents yet. Create one to turn your memory into summaries, plans and drafts."));
+    const open = documentsOf(run).map((d) => (state.openDocs.has(`${run.id}:${d.file}`) ? "1" : "0")).join("");
+    let version = `${JSON.stringify(run)}|${open}|${agentStatusLine(run, now)}|${isBusy(run) ? elapsed(run.started_at, now) : ""}`;
+    // Someone typing an assignment keeps their card (and their caret) until they are done.
+    const card = el.agents.querySelector<HTMLElement>(`[data-key="${CSS.escape(run.id)}"]`);
+    if (card?.contains(document.activeElement) && document.activeElement instanceof HTMLInputElement) version = card.dataset.version ?? version;
+    return { key: run.id, version, build: () => agentCard(run) };
+  }), () => h("li", { class: "empty" }, "No agents yet. Create one, give it a task and choose which of your memory it may use."));
 }
 
 function buildDocChoices(): void {
@@ -210,6 +294,23 @@ function buildDocChoices(): void {
   el.aSchedule.replaceChildren(...SCHEDULES.map((s) => h("option", { value: s }, s)));
 }
 
+/**
+ * "What it can remember": one box per group of the member's own memory. Only their groups are
+ * listed (Canon's GET /api/groups for a member), so nothing they cannot see is ever offered.
+ */
+function buildGroupChoices(run: AgentRun | null | undefined): void {
+  const fromRun = new Map((run?.memory_groups ?? []).map((g) => [g.id, g]));
+  const ids = run?.memory_groups?.length ? run.memory_groups.map((g) => g.id) : Object.keys(state.names).filter((id) => id !== "inbox");
+  el.aGroups.replaceChildren(...ids.map((id) => {
+    const g = fromRun.get(id);
+    const mine = state.facts.filter((f) => f.group === id && f.status === "hot").length;
+    return h("label", { class: "doc" },
+      h("input", { type: "checkbox", name: "groups", value: id, checked: g ? g.included : true }),
+      h("span", null, h("b", null, g?.name ?? groupLabel(id, state.names)), h("span", { class: "hint" }, plural(mine, "memory", "memories"), " of yours")));
+  }));
+  el.aGroupsField.hidden = ids.length === 0;
+}
+
 function openAgentForm(target: "new" | string): void {
   const run = target === "new" ? null : state.agents.find((a) => a.id === target);
   state.agentForm = target;
@@ -218,12 +319,13 @@ function openAgentForm(target: "new" | string): void {
   el.aName.disabled = api.mode === "canon" && !!run;
   el.aTask.value = run?.task ?? "";
   el.aLeave.value = run?.leave_out ?? "";
+  buildGroupChoices(run);
   const docs = new Set<string>(run?.docs ?? ["summary"]);
   for (const box of el.docChoices.querySelectorAll<HTMLInputElement>("input[name=docs]")) box.checked = docs.has(box.value);
   el.aSchedule.value = run?.schedule ?? SCHEDULES[0];
   el.deleteAgent.hidden = !run;
   el.agentForm.hidden = false;
-  el.aName.focus();
+  (run ? el.aTask : el.aName).focus();
 }
 
 function closeAgentForm(): void {
@@ -237,12 +339,27 @@ async function saveAgent(e: Event): Promise<void> {
   if (!name || !task) return;
   const leave = el.aLeave.value.trim();
   const docs = [...el.docChoices.querySelectorAll<HTMLInputElement>("input[name=docs]:checked")].map((b) => b.value as DocType);
-  const body: AgentBody = { name, task, exclusions: { groups: [], labels: [], text: leave ? [leave] : [] }, docs: api.mode === "mock" ? docs : [], schedule: api.mode === "mock" ? el.aSchedule.value as Schedule : "Only when I press Run" };
+  const boxes = [...el.aGroups.querySelectorAll<HTMLInputElement>("input[name=groups]")];
+  if (boxes.length && boxes.every((b) => !b.checked)) { notify("Tick at least one group, or the agent has nothing to work from."); return; }
+  const body: AgentBody = {
+    name, task,
+    exclusions: { groups: [], labels: [], text: leave ? [leave] : [] },
+    exclude_groups: boxes.filter((b) => !b.checked).map((b) => b.value),
+    docs: api.mode === "mock" ? docs : [],
+    schedule: api.mode === "mock" ? el.aSchedule.value as Schedule : "Only when I press Run",
+  };
   const target = state.agentForm;
-  if (target === "new") {
-    if ((await attempt("create the agent", () => api.createAgent(body))).ok) local(`You created an agent: ${name}`);
-  } else if (target) {
-    if ((await attempt("save the agent", () => api.updateAgent(target, body))).ok) local(`You updated an agent: ${name}`);
+  el.saveAgent.disabled = true;
+  el.saveAgent.textContent = "Building its memory…";
+  try {
+    if (target === "new") {
+      if ((await attempt("create the agent", () => api.createAgent(body))).ok) local(`You created an agent: ${name}`);
+    } else if (target) {
+      if ((await attempt("save the agent", () => api.updateAgent(target, body))).ok) local(`You updated an agent: ${name}`);
+    }
+  } finally {
+    el.saveAgent.disabled = false;
+    el.saveAgent.textContent = "Save";
   }
   closeAgentForm();
   await refreshAgents();
@@ -411,6 +528,8 @@ function wire(): void {
 
   // Relative times ("2 min ago") and idle agent lines age without events.
   setInterval(() => { renderFeed(); renderAgents(); }, 30_000);
+  // A working agent's clock ticks every second; idle cards are left alone.
+  setInterval(() => { if (state.agents.some(isBusy)) renderAgents(); }, 1_000);
 }
 
 async function start(): Promise<void> {
