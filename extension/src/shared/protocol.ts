@@ -2,7 +2,7 @@
 // on the page right now. Content scripts always re-send the whole list; the server replaces the
 // session's messages wholesale (CapturedSession.messages), so there is no diffing to get wrong.
 
-export const SITES = ["chatgpt", "claude", "gemini"] as const;
+export const SITES = ["chatgpt"] as const;
 export type Site = (typeof SITES)[number];
 
 export interface Turn {

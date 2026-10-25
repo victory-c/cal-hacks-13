@@ -113,8 +113,6 @@ function wireHeader(): void {
     // Reload through the query so resolveServerUrl() validates and remembers it.
     location.href = `${location.pathname}?server=${encodeURIComponent(next)}`;
   });
-  const resume = byId<HTMLAnchorElement>("resume-link");
-  resume.href = `./resume.html?server=${encodeURIComponent(ctx.server)}`;
 }
 
 wireHeader();

@@ -26,16 +26,12 @@ test("sessionIdFor: ses_ + 8 hex, stable, and different per site and per convers
   assert.match(id, /^ses_[0-9a-f]{8}$/);
   assert.match(id, SESSION_ID_RE);
   assert.equal(sessionIdFor("chatgpt", "68fa-conv"), id);
-  assert.notEqual(sessionIdFor("claude", "68fa-conv"), id);
-  assert.notEqual(sessionIdFor("gemini", "68fa-conv"), id);
   assert.notEqual(sessionIdFor("chatgpt", "68fa-conv2"), id);
 });
 
 test("clientFor maps every site to a client the grants table knows", () => {
   assert.equal(clientFor("chatgpt"), "chatgpt");
-  assert.equal(clientFor("claude"), "claude-web");
-  assert.equal(clientFor("gemini"), "gemini-web");
-  for (const site of ["chatgpt", "claude", "gemini"] as const) {
+  for (const site of ["chatgpt"] as const) {
     assert.ok((KNOWN_CLIENTS as readonly string[]).includes(clientFor(site)), `${site} → known client`);
   }
 });

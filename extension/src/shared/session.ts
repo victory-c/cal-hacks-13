@@ -26,7 +26,7 @@ export function sessionIdFor(site: Site, conversationId: string): string {
 }
 
 // These must match the client names in CANON_CLIENT_TOKENS / the grants table (KNOWN_CLIENTS).
-const CLIENTS: Record<Site, ClientId> = { chatgpt: "chatgpt", claude: "claude-web", gemini: "gemini-web" };
+const CLIENTS: Record<Site, ClientId> = { chatgpt: "chatgpt" };
 
 export function clientFor(site: Site): ClientId {
   return CLIENTS[site];

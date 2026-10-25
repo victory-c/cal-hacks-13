@@ -1,6 +1,6 @@
 {
   "project": "Bullwark",
-  "updated": "2026-10-24T19:26:53.515309+00:00",
+  "updated": "2026-10-25T01:21:53.699179+00:00",
   "team": [
     {
       "id": "A",
@@ -485,18 +485,18 @@
       "owner": "C",
       "milestone": "M3",
       "priority": "must",
-      "state": "todo",
+      "state": "doing",
       "title": "Memory browser: view, edit and retire facts",
-      "note": "PRD must-ship #6. Members browse only their scope. Retire moves a fact to cold with history kept; needs fact edit and retire REST endpoints from A."
+      "note": "Member side done in web/src/member.html (view, filter, edit, retire, add item) on mock data; moderator side comes with C13."
     },
     {
       "id": "C19",
       "owner": "C",
       "milestone": "M3",
       "priority": "must",
-      "state": "todo",
+      "state": "doing",
       "title": "Member view: my agents, create an agent, my memory",
-      "note": "Members see only their own agents and scope; no people list, scope inspector or audit log."
+      "note": "web/src/member.html runs on the in-browser mock (?data=canon for Canon). Agents with run/stop, live status, outputs, schedules and document types; memory with filters, edit and retire. Waiting on lane A contract routes; proposed additions listed in web/README.md."
     },
     {
       "id": "C20",

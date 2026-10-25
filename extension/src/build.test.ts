@@ -18,7 +18,7 @@ test("build.mjs bundles every entry, copies the static files and keeps Node out 
   try {
     execFileSync(process.execPath, [script, "--out", out], { stdio: "pipe" });
 
-    for (const f of ["manifest.json", "options.html", "background.js", "options.js", "content/chatgpt.js", "content/claude.js", "content/gemini.js"]) {
+    for (const f of ["manifest.json", "options.html", "background.js", "options.js", "content/chatgpt.js"]) {
       assert.ok(existsSync(join(out, f)), `${f} is in the bundle`);
     }
 
@@ -34,7 +34,7 @@ test("build.mjs bundles every entry, copies the static files and keeps Node out 
     assert.equal(manifest.manifest_version, 3);
     assert.deepEqual(
       manifest.content_scripts.flatMap((c) => c.js),
-      ["content/chatgpt.js", "content/claude.js", "content/gemini.js"],
+      ["content/chatgpt.js"],
     );
   } finally {
     rmSync(out, { recursive: true, force: true });

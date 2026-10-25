@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 // Bundles the dashboard with esbuild (a root devDependency; the page itself has no dependencies):
-// src/main.ts + src/resume.ts → dist/*.js (esm, es2022, sourcemaps), plus a copy of src/*.html
+// src/main.ts + src/member.ts → dist/*.js (esm, es2022, sourcemaps), plus a copy of src/*.html
 // and src/styles.css.
 //   node scripts/build.mjs                  build once
 //   node scripts/build.mjs --watch          rebuild and recopy on change
@@ -54,7 +54,7 @@ function importedNames(source, specifier) {
 }
 
 const options = {
-  entryPoints: [join(srcDir, "main.ts"), join(srcDir, "resume.ts")],
+  entryPoints: [join(srcDir, "main.ts"), join(srcDir, "member.ts")],
   outdir: distDir,
   bundle: true,
   format: "esm",

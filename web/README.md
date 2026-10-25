@@ -74,6 +74,56 @@ the browser's EventSource retries on its own and `main.ts` reopens it when the b
 (`env.ts`, `ids.ts`), so `node:*` imports are replaced by no-op stubs in the browser bundle.
 The dashboard never calls them; esbuild tree-shakes the rest.
 
+## Member view (`member.html`)
+
+`http://localhost:4200/member.html` is the employee's page (task C19, with the member side of C18):
+agents on top, then memory and the feed. It runs on **demo data by default**: an in-browser
+stand-in for Canon (`src/member/mock.ts`) holding Ben Kim's view of the synthetic world. Add
+`?data=canon&token=<member token>` (and `?server=` as above) to talk to Canon instead; the token
+is remembered and removed from the address bar.
+
+| Area | What works |
+|---|---|
+| Agents | Create, edit, delete; Run and Stop; a live status line (current step, or last result plus new memories waiting); the output card with each document openable; schedule; document types to make |
+| Memory | Grouped list with a type tag, source line and date per memory; collapsible filters (keyword, group, source, sort by date); edit and retire; add an item |
+| Feed | The member's own events: items added, new memories, agent starts, finishes and pickups, plus the member's own edits |
+
+What the mock simulates, and says so on the page: triage (sentence splitting and a keyword group
+guess), relevance (keyword overlap in place of Moss and Jev), agent runs (timed steps) and the
+documents (built line by line from the agent's own facts). A pasted item containing an instruction
+aimed at an AI produces no facts and no member-visible event, as quarantine should.
+
+`src/member/fixture.ts` is a copy of only what Ben's scope holds, not an import of
+`fixtures/world/expected.json`: importing the answer key would ship the Stonewall facts inside
+the member bundle. `fixture.test.ts` checks the copy against `fixtures/world` and fails if any
+deal or desk fact, code name or leak marker gets into it.
+
+| File | What | Tested |
+|---|---|---|
+| `src/member/contract.ts` | Member-side contract types and the `MemberApi` interface | — |
+| `src/member/logic.ts` | Filtering, grouping, labels, status and feed lines | yes |
+| `src/member/mock.ts` | The in-browser Canon stand-in | yes |
+| `src/member/canon.ts` | HTTP + SSE client for Canon | browser only |
+| `src/member/fixture.ts` | Ben's view of the demo world | yes, against `fixtures/world` |
+| `src/member.ts`, `member.html`, `member.css` | The page | browser only |
+
+**Contract additions the member view needs** (proposals for Henry and Victor; the client
+already calls them):
+
+- `AgentRun` gains `task`, `leave_out`, `docs`, `schedule`, `outputs` (document content, not just
+  file names), `finished_at`, `fact_count` and `pending`; statuses gain `building`, `ready` and
+  `stopped`.
+- `POST /api/agents` and agent edits carry `docs` and `schedule`; new `PATCH /api/agents/:id`,
+  `DELETE /api/agents/:id` and `POST /api/agents/:id/stop`.
+- `Fact` gains `source_kind` and `source_title` for the provenance line; `GET /api/me` gains
+  `firm`; new `GET /api/groups` for display names (until then group ids are shown humanized).
+- `agent.*` events carry the whole `AgentRun`.
+- **Open:** how `/events` authenticates. `EventSource` cannot send an `Authorization` header, so
+  the client passes the token as `?token=` for now.
+
+The page never shows the member's own task or exclusions set by a moderator, and nothing on it
+names or counts anything outside the member's memory.
+
 ## Sponsor integrations
 
 None run here. The dashboard is where they become visible: the Distiller panel shows Factory

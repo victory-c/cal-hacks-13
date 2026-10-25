@@ -81,5 +81,5 @@ server.on("error", (err) => {
 });
 
 server.listen(port, () => {
-  console.log(`web → http://localhost:${port}   resume → http://localhost:${port}/resume.html`);
+  console.log(`web → http://localhost:${port}`);
 });

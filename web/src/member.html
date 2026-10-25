@@ -1,0 +1,133 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Bullwark</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&family=Barlow+Condensed:wght@700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="./member.css">
+</head>
+<body>
+  <div class="page">
+    <header class="top">
+      <span class="wm">
+        <svg width="26" height="22" viewBox="0 0 26 22" aria-hidden="true"><path d="M1 21V7h4v3h3V7h4v3h2V7h4v3h3V7h4v14z" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"/></svg>
+        Bullwark
+      </span>
+      <span id="firm" class="firm"></span>
+    </header>
+
+    <main>
+      <h1 id="greeting">Hi</h1>
+      <div id="notice" class="notice" role="status" aria-live="polite" hidden></div>
+
+      <section class="card" aria-labelledby="agents-h">
+        <div class="bar">
+          <div>
+            <h2 id="agents-h">Agents</h2>
+            <p class="lede">Agents you create work from your memory.</p>
+          </div>
+          <button id="new-agent" class="btn" type="button">+ New agent</button>
+        </div>
+
+        <form id="agent-form" class="panel" hidden>
+          <div id="agent-form-title" class="panel-title">New agent</div>
+          <label class="fld">Name
+            <input id="a-name" type="text" required placeholder="e.g. Sector note drafter">
+          </label>
+          <label class="fld">Task
+            <textarea id="a-task" rows="2" required placeholder="What should this agent do?"></textarea>
+          </label>
+          <label class="fld">Leave out (optional)
+            <input id="a-leave" type="text" placeholder="Anything this agent should not use, e.g. firm operations">
+          </label>
+          <fieldset class="docs">
+            <legend>Documents to make</legend>
+            <div id="doc-choices" class="docgrid"></div>
+          </fieldset>
+          <label class="fld">Schedule
+            <select id="a-schedule"></select>
+          </label>
+          <div class="row end">
+            <button id="delete-agent" class="danger" type="button" hidden>Delete agent</button>
+            <button id="cancel-agent" class="ghost" type="button">Cancel</button>
+            <button class="btn" type="submit">Save</button>
+          </div>
+          <div class="hint">Saving rebuilds this agent’s memory from yours.</div>
+        </form>
+
+        <ul id="agents" class="list agents"></ul>
+      </section>
+
+      <div class="cols">
+        <section class="card tall" aria-labelledby="mem-h">
+          <div class="bar">
+            <div>
+              <h2 id="mem-h">My memory</h2>
+              <p class="lede">What your AI tools and agents can draw on.</p>
+            </div>
+            <div class="row">
+              <button id="toggle-filters" class="ghost" type="button" aria-expanded="false" aria-controls="filters">Filter</button>
+              <button id="toggle-add" class="btn" type="button" aria-expanded="false" aria-controls="add-form">+ Add to memory</button>
+            </div>
+          </div>
+
+          <div id="filters" class="filters" role="search" aria-label="Filter memory" hidden>
+            <label class="fld grow2">Keyword
+              <input id="f-keyword" type="search" placeholder="e.g. outflows">
+            </label>
+            <label class="fld grow1">Group
+              <select id="f-group"></select>
+            </label>
+            <label class="fld grow1">Source
+              <select id="f-source"></select>
+            </label>
+            <label class="fld grow1">Sort
+              <select id="f-sort"></select>
+            </label>
+          </div>
+          <div class="row between countline">
+            <span id="show-line" class="hint"></span>
+            <button id="clear-filters" class="mini" type="button" hidden>Clear filters</button>
+          </div>
+
+          <form id="add-form" class="panel" aria-label="Add to memory" hidden>
+            <div class="row">
+              <label class="fld">Kind
+                <select id="n-kind">
+                  <option value="note">Note</option>
+                  <option value="memo">Memo</option>
+                  <option value="chat">Chat excerpt</option>
+                  <option value="email">Email</option>
+                  <option value="transcript">Transcript</option>
+                </select>
+              </label>
+              <label class="fld grow2">Source
+                <input id="n-source" type="text" placeholder="Where this came from">
+              </label>
+            </div>
+            <label class="fld">Text
+              <textarea id="n-text" rows="3" required placeholder="Paste or type it here. Bullwark reads it and files what it learns into your memory."></textarea>
+            </label>
+            <div class="row end">
+              <button id="cancel-add" class="ghost" type="button">Cancel</button>
+              <button class="btn" type="submit">Add</button>
+            </div>
+          </form>
+
+          <div id="memory" class="scroll"></div>
+        </section>
+
+        <aside class="card tall" aria-labelledby="feed-h">
+          <h2 id="feed-h">Feed</h2>
+          <ul id="feed" class="list feed scroll"></ul>
+        </aside>
+      </div>
+
+      <p id="mode-line" class="foot"></p>
+    </main>
+  </div>
+  <script type="module" src="./member.js"></script>
+</body>
+</html>
