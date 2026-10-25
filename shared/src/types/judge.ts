@@ -54,6 +54,10 @@ export interface SaveDecision {
 // Scopes: save-time triage, scope build, live update, handoff and routing questions (PRD "Where
 // Jev decides"). Generous when saving (the cold archive is the safety net), strict when building
 // scopes and handing over, cautious on exclusions and injection: a "maybe" counts as yes.
+//
+// The scope-build and handoff bars are calibrated on live Jev (one run on the demo world, Sat
+// 10/24, Dollar Bill's rule "anything about pending deals"): Jev's P(yes) is not centred on 0.5,
+// so a "maybe" sits where its scores for clearly-no and clearly-yes cases meet, not at 0.5.
 
 export const TRIAGE_THRESHOLDS = {
   /** Save: "worth remembering?" Below this the item is archive-only (no fact). */
@@ -62,16 +66,22 @@ export const TRIAGE_THRESHOLDS = {
   GROUP_CONFIDENT: 0.6,
   /** Save: "instructions aimed at an AI?" At or above: quarantine the whole item. */
   INJECTION: 0.3,
-  /** Scope build: "does group g fall under this exclusion?" Any real chance: exclude the whole group in code. */
-  EXCLUDE_GROUP: 0.2,
-  /** Scope build / live update: "does fact i fall under this exclusion?" Maybe counts as yes. */
-  EXCLUDE_FACT: 0.3,
-  /** Scope build / live update: "does fact i help with this task?" Yes joins the scope. */
-  IN_SCOPE: 0.7,
-  /** Handoff: "does this request need stored context at all?" Below: send only the pinned profile. */
+  /**
+   * Scope build: "does group g fall under this exclusion?" At or above, the whole group goes, in
+   * code. Live Jev: deal/stonewall 0.75, every other group 0.38–0.43 (so 0.2 excluded them all).
+   */
+  EXCLUDE_GROUP: 0.6,
+  /**
+   * Scope build / live update: "does fact i fall under this exclusion?" Maybe counts as yes.
+   * Live Jev: deal facts 0.58–0.83, everything else 0.14–0.35; the bar sits nearer the safe side.
+   */
+  EXCLUDE_FACT: 0.45,
+  /** Scope build / live update: "does fact i help with this task?" Live Jev: relevant public facts 0.55–0.77, office admin 0.12–0.23. */
+  IN_SCOPE: 0.5,
+  /** Handoff: "does this request need stored context at all?" Live Jev: work questions 0.69–0.82, a haiku or a unit conversion 0.18–0.32. */
   NEEDS_CONTEXT: 0.5,
-  /** Handoff: "does fact i help with this request?" Same bar as v1 RELEVANT. */
-  RELEVANT: 0.7,
+  /** Handoff: "does fact i help with this request?" Live Jev: the facts a question needs 0.62–0.91, the rest under 0.4. */
+  RELEVANT: 0.6,
   /** Routing: "does running agent k need this new fact now?" */
   ROUTE_NEEDS: 0.6,
 } as const;

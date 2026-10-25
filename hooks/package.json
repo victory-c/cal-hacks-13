@@ -6,7 +6,7 @@
   "type": "module",
   "scripts": {
     "test": "node --test \"test/**/*.test.mjs\"",
-    "typecheck": "node --check claude-code/lib.mjs && node --check claude-code/canon-capture.mjs && node --check claude-code/install.mjs && node --check ingest/lib.mjs && node --check ingest/canon-ingest.mjs",
+    "typecheck": "node --check claude-code/lib.mjs && node --check claude-code/canon-capture.mjs && node --check claude-code/canon-context.mjs && node --check claude-code/install.mjs && node --check ingest/lib.mjs && node --check ingest/canon-ingest.mjs",
     "smoke": "CANON_DEBUG=1 node claude-code/canon-capture.mjs < fixtures/stop-payload.json",
     "snippet": "node claude-code/install.mjs",
     "install-hook": "node claude-code/install.mjs --write",
