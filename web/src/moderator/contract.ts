@@ -45,7 +45,7 @@ export interface HandoffCandidate {
   fact_id: string;
   statement: string;
   p: number;
-  decision: "kept" | "cut_relevance" | "cut_budget";
+  decision: "kept" | "cut_relevance" | "cut_background" | "cut_budget";
   tokens_est: number;
 }
 

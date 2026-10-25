@@ -47,6 +47,11 @@ const EXCLUDE_RE = /^Exclusion: «([\s\S]*)»\. Does this (?:group|fact) fall un
 const HELP_RE = /^Task: «([\s\S]*)»\. Does this fact help with it\? Fact ([\s\S]*)$/;
 const NEEDS_RE = /^Request: «([\s\S]*)»\. Does answering it need any stored context at all\?$/;
 const HELPS_REQUEST_RE = /^Request: «([\s\S]*)»\. Does this fact help answer it\? Fact ([\s\S]*)$/;
+// Memory layers (memory-layers.ts): currency, and "does the request ask about this specifically?".
+const CURRENT_RE = /^Today is «(\d{4}-\d{2}-\d{2})»\. Is this fact still current[\s\S]*? Fact \S+ \(([^)]*)\): ([\s\S]*)$/;
+const SPECIFIC_RE = /^Request: «([\s\S]*)»\. Does the request specifically ask about what this fact covers\? Fact ([\s\S]*)$/;
+// A dated obligation or event: once its date has passed it is history, not something to act on.
+const DATED_RE = /\b(due|deadline|expires?|expired|closed|closes|offsite|meeting|call)\b/i;
 
 /**
  * Share of the query's word tokens found in the subject. Pure-digit tokens are ignored: every
@@ -83,6 +88,16 @@ export function simulatedScopeAnswers(q: Question, state: string): Answer | unde
   const needs = NEEDS_RE.exec(q.text);
   if (needs) {
     return { id: q.id, type: "noul", p: overlap(needs[1], state) > 0 ? 0.9 : 0.1 };
+  }
+  const current = CURRENT_RE.exec(q.text);
+  if (current) {
+    const happened = /happened (\d{4}-\d{2}-\d{2})/.exec(current[2])?.[1];
+    const past = happened !== undefined && happened < current[1] && DATED_RE.test(current[3]);
+    return { id: q.id, type: "noul", p: past ? 0.15 : 0.85 };
+  }
+  const specific = SPECIFIC_RE.exec(q.text);
+  if (specific) {
+    return { id: q.id, type: "noul", p: overlap(specific[1], specific[2]) >= 0.5 ? 0.85 : 0.1 };
   }
   return undefined;
 }

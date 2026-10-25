@@ -335,7 +335,8 @@ describe("scopes REST surface, scope builder and handoff (A2, A4+A6, A7+A16)", (
     assert.ok(!/exclu|deal/i.test(out.profile), "never the exclusions");
 
     assert.ok(out.candidates.length >= out.facts.length, "every in-scope fact considered is listed");
-    assert.ok(out.candidates.every((c) => c.cut === null || c.cut === "relevance" || c.cut === "budget"));
+    assert.ok(out.candidates.every((c) => c.cut === null || c.cut === "relevance" || c.cut === "background" || c.cut === "budget"));
+    assert.ok(out.candidates.every((c) => c.layer === "top" || c.layer === "background"), "every candidate carries its memory layer");
     assert.ok(out.candidates.every((c) => c.group === "market/public" || c.group === "desk/trading"), "candidates only ever come from inside the scope");
     assert.equal(typeof out.tokens, "number");
     assert.equal(typeof out.latency_ms, "number");
@@ -389,8 +390,10 @@ describe("scopes REST surface, scope builder and handoff (A2, A4+A6, A7+A16)", (
     assert.equal(asked.length, 2, "two decisions, one ask() each: needs-context, then relevance");
     assert.equal(asked[0].length, 1, "the inject-nothing check is its own single-question decision");
     assert.match(asked[0][0].text, /need any stored context/);
-    assert.equal(asked[1].length, out.candidates.length, "relevance is one batch with one question per candidate");
-    assert.ok(asked[1].every((q) => q.id.startsWith("hf:")));
+    const relevance = asked[1].filter((q) => q.id.startsWith("hf:"));
+    assert.equal(relevance.length, out.candidates.length, "relevance is one batch with one question per candidate");
+    // The same batch carries the memory-layer questions (memory-layers.ts), never a second ask.
+    assert.ok(asked[1].every((q) => /^(hf|cur|sp):fct_/.test(q.id)), asked[1].map((q) => q.id).join(", "));
 
     assert.ok(!out.facts.some((f) => f.id === "fct_ab110002"), "the judged-out fact was not handed over");
     const cutOne = out.candidates.find((c) => c.fact_id === "fct_ab110002");

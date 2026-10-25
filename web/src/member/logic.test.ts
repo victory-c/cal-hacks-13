@@ -6,6 +6,7 @@ import { GROUP_NAMES, seedAgents, seedFacts } from "./fixture.ts";
 import {
   ALL_GROUPS, NO_FILTERS, agentPlanLine, agentStatusLine, countShown, feedText, filtersActive, fmtDay, groupLabel,
   groupOrder, kindLabel, viewMemory, agentPhase, boldRuns, docBlocks, elapsed, fileLabel, friendlyStep, stripFactRefs,
+  layerOfFact, layerReasonLabel, usageLine,
 } from "./logic.ts";
 
 const facts = seedFacts();
@@ -141,4 +142,17 @@ test("stripFactRefs drops fact-id citations and nothing else", () => {
   assert.equal(stripFactRefs("AUM was **$38.4 billion** (fct_570013)."), "AUM was **$38.4 billion**.");
   assert.equal(stripFactRefs("about $459,000 on paper (fct_57001e, fct_57001f)"), "about $459,000 on paper");
   assert.equal(stripFactRefs("Q3 (the third quarter) results"), "Q3 (the third quarter) results");
+});
+
+test("memory layers in plain words", () => {
+  assert.equal(layerReasonLabel("past_date"), "Out of date");
+  assert.equal(layerReasonLabel("idle"), "Not used lately");
+  assert.equal(layerReasonLabel("moved"), "You moved it here");
+  assert.equal(layerReasonLabel("pinned"), "Kept top of mind");
+  assert.equal(layerReasonLabel("current"), "");
+  const now = Date.parse("2026-10-25T12:00:00Z");
+  assert.equal(usageLine({ uses: 0, last_used: null }, now), "");
+  assert.match(usageLine({ uses: 3, last_used: "2026-10-25T10:00:00Z" }, now), /^Used 3× · last 2 h/);
+  assert.equal(layerOfFact({}), "top");
+  assert.equal(layerOfFact({ layer: "background" }), "background");
 });

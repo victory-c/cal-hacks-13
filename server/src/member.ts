@@ -4,6 +4,7 @@ import type { AgentRun, AgentStep, Fact, Principal, SaveDecision, SourceKind } f
 import type { IncomingMessage, ServerResponse } from "node:http";
 import { postSession } from "./api.ts";
 import { HttpError, isRecord, readJsonBody, sendJson } from "./http.ts";
+import { layerOf, setPin } from "./memory-layers.ts";
 import { callerRoles, scopeFacts, visibleGroups } from "./scopes.ts";
 import type { ScopesDeps } from "./scopes.ts";
 
@@ -13,13 +14,16 @@ export function principalFor(deps: ScopesDeps, client: string): Principal | unde
 }
 export async function memberFacts(deps: ScopesDeps, principal: Principal, query: URLSearchParams) {
   const visible = scopeFacts(deps, principal.id).filter((fact) => (!query.get("group") || fact.folder === query.get("group")) && (!query.get("label") || fact.labels?.includes(query.get("label")!)) && (!query.get("q") || fact.statement.toLowerCase().includes(query.get("q")!.toLowerCase())));
+  const now = Date.now();
   const facts = await Promise.all(visible.map(async (fact) => {
     const session = await deps.store.getSession(fact.source.session);
     // A single source can contain facts filed on both sides of the wall. Its raw headline was
     // never scope-judged, so only its author and Compliance may see it.
     const ownsSource = principal.tier === "moderator" || session?.principal === principal.id;
     const kind = session?.kind === "ai_session" ? "session" : session?.kind;
-    return { id: fact.id, statement: fact.statement, group: fact.folder, labels: fact.labels ?? [], source: ownsSource && session?.title ? session.title : kind ? `${kind} · ${fact.source.client}` : fact.source.client, author: fact.author ?? session?.principal ?? "", happened_at: fact.happened ?? session?.started_at ?? `${fact.updated}T00:00:00.000Z`, learned_at: fact.updated, status: fact.tier, ...(kind ? { source_kind: kind } : {}), ...(ownsSource && session?.title ? { source_title: session.title } : {}) };
+    // Their own memory layers: top of mind or background, why, and how much they have used it.
+    const layer = layerOf(deps.world.layers, principal, fact, now);
+    return { id: fact.id, statement: fact.statement, group: fact.folder, labels: fact.labels ?? [], source: ownsSource && session?.title ? session.title : kind ? `${kind} · ${fact.source.client}` : fact.source.client, author: fact.author ?? session?.principal ?? "", happened_at: fact.happened ?? session?.started_at ?? `${fact.updated}T00:00:00.000Z`, learned_at: fact.updated, status: fact.tier, layer: layer.layer, layer_reason: layer.reason, uses: layer.uses, last_used: layer.last_used, ...(kind ? { source_kind: kind } : {}), ...(ownsSource && session?.title ? { source_title: session.title } : {}) };
   }));
   return { facts };
 }
@@ -101,6 +105,20 @@ export async function handleMemberRoute(deps: ScopesDeps, client: string, method
     deps.bus.emit({ type: "item.captured", item_id: id, kind: body.kind, source: body.source, author });
     return reply(200, { item_id: id });
   }
+  // POST /api/facts/:id/layer { layer: "top" | "background" | "auto" }: the caller's own override
+  // for a memory in their scope. "top" keeps it top of mind, "background" leaves it out unless a
+  // request asks about it, "auto" hands it back to Bullwark. Changes nobody else's view.
+  const layered = /^\/api\/facts\/([^/]+)\/layer$/.exec(path);
+  if (layered && method === "POST") {
+    if (!who || who.kind !== "person") throw new HttpError(403, "person token required");
+    const id = decodeURIComponent(layered[1]);
+    if (!scopeFacts(deps, who.id).some((fact) => fact.id === id)) throw new HttpError(404, "no such fact");
+    const body = await readJsonBody(req);
+    const layer = isRecord(body) ? body.layer : undefined;
+    if (layer !== "top" && layer !== "background" && layer !== "auto") throw new HttpError(400, 'body must be { layer: "top" | "background" | "auto" }');
+    setPin(deps.world.layers, who.id, id, layer);
+    return reply(200, (await memberFacts(deps, who, new URLSearchParams())).facts.find((fact) => fact.id === id));
+  }
   const mutation = /^\/api\/facts\/([^/]+)(\/retire)?$/.exec(path);
   if (mutation && (method === "PATCH" || method === "POST" && mutation[2])) {
     if (!who) throw new HttpError(403, "person token required");
@@ -125,7 +143,7 @@ export async function handleMemberRoute(deps: ScopesDeps, client: string, method
   }
   if (method === "GET" && path === "/api/handoffs") {
     if (!isModerator) throw new HttpError(403, "moderators only");
-    return reply(200, { handoffs: deps.world.handoffs.map((handoff) => ({ id: handoff.id, at: handoff.at, principal: handoff.principal, request: handoff.task, candidates: (handoff.candidates as Array<{ fact_id: string; p?: number; cut: string | null; tokens?: number }>).map((candidate) => ({ fact_id: candidate.fact_id, statement: deps.store.getFact(candidate.fact_id)?.statement ?? "", p: candidate.p ?? 0, decision: candidate.cut === null ? "kept" : candidate.cut === "budget" ? "cut_budget" : "cut_relevance", tokens_est: candidate.tokens ?? 0 })), tokens_est: handoff.tokens, budget_est: handoff.budget_tokens, timings_ms: { search: handoff.retrieval_ms ?? null, judge: handoff.judge_ms ?? null, total: handoff.latency_ms ?? null }, simulated: deps.judge.name === "fake" || deps.retriever.name !== "moss" })) });
+    return reply(200, { handoffs: deps.world.handoffs.map((handoff) => ({ id: handoff.id, at: handoff.at, principal: handoff.principal, request: handoff.task, candidates: (handoff.candidates as Array<{ fact_id: string; p?: number; cut: string | null; tokens?: number }>).map((candidate) => ({ fact_id: candidate.fact_id, statement: deps.store.getFact(candidate.fact_id)?.statement ?? "", p: candidate.p ?? 0, decision: candidate.cut === null ? "kept" : candidate.cut === "budget" ? "cut_budget" : candidate.cut === "background" ? "cut_background" : "cut_relevance", tokens_est: candidate.tokens ?? 0 })), tokens_est: handoff.tokens, budget_est: handoff.budget_tokens, timings_ms: { search: handoff.retrieval_ms ?? null, judge: handoff.judge_ms ?? null, total: handoff.latency_ms ?? null }, simulated: deps.judge.name === "fake" || deps.retriever.name !== "moss" })) });
   }
   if (method === "GET" && path === "/api/agents") {
     if (!who && !isInternal) throw new HttpError(403, "person token required");

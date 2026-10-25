@@ -256,3 +256,27 @@ export function boldRuns(text: string): string[] {
 export function stripFactRefs(text: string): string {
   return text.replace(/\s*\((?:fct_[0-9a-f]+(?:\s*(?:,|and|;)\s*)?)+\)/g, "");
 }
+
+// ---------- memory layers
+
+/** Why a memory is in the background (or pinned), in plain words; nothing for an ordinary current one. */
+export function layerReasonLabel(reason: Fact["layer_reason"]): string {
+  switch (reason) {
+    case "past_date": return "Out of date";
+    case "idle": return "Not used lately";
+    case "moved": return "You moved it here";
+    case "pinned": return "Kept top of mind";
+    default: return "";
+  }
+}
+
+/** "Used 3× · last 2 h ago", or "" for a memory nothing has used yet. */
+export function usageLine(f: Pick<Fact, "uses" | "last_used">, now: number): string {
+  if (!f.uses) return "";
+  return `Used ${f.uses}×${f.last_used ? ` · last ${relativeTime(f.last_used, now)}` : ""}`;
+}
+
+/** The layer a memory is in, top of mind when Canon has not said. */
+export function layerOfFact(f: Pick<Fact, "layer">): "top" | "background" {
+  return f.layer === "background" ? "background" : "top";
+}

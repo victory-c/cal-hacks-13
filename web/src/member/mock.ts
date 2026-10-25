@@ -3,7 +3,7 @@
 // for Moss and Jev, sentence splitting for the fact writer, and timed steps for Droid. Everything
 // it returns follows docs/INTEGRATION.md, so switching to Canon is `?data=canon`.
 
-import type { AddItemBody, AgentBody, AgentOutput, AgentRun, DocType, Fact, Me, MemberApi, MemberEvent, ScopeExclusions } from "./contract.ts";
+import type { AddItemBody, AgentBody, AgentOutput, AgentRun, DocType, Fact, Me, MemberApi, MemberEvent, MemoryLayer, ScopeExclusions } from "./contract.ts";
 import { GROUP_NAMES, ITEMS, ME, seedAgents, seedFacts } from "./fixture.ts";
 import { docLabel } from "./logic.ts";
 
@@ -195,7 +195,24 @@ export class MockCanon implements MemberApi {
   }
 
   async facts(): Promise<Fact[]> {
-    return structuredClone(this.store.filter((f) => f.status === "hot"));
+    return structuredClone(this.store.filter((f) => f.status === "hot").map((f) => this.layered(f)));
+  }
+
+  /** Ben's pins, else a past deadline sits in the background (Canon asks Jev; the mock reads the wording). */
+  private pins = new Map<string, MemoryLayer>();
+  private layered(f: Fact): Fact {
+    const pin = this.pins.get(f.id);
+    if (pin) return { ...f, layer: pin, layer_reason: pin === "top" ? "pinned" : "moved" };
+    if (/(was|were) due/i.test(f.statement)) return { ...f, layer: "background", layer_reason: "past_date" };
+    return { ...f, layer: "top", layer_reason: "current" };
+  }
+
+  async setLayer(id: string, layer: MemoryLayer | "auto"): Promise<Fact> {
+    const f = this.store.find((x) => x.id === id && x.status === "hot");
+    if (!f) throw err(404, "not found");
+    if (layer === "auto") this.pins.delete(id);
+    else this.pins.set(id, layer);
+    return structuredClone(this.layered(f));
   }
 
   async groupNames(): Promise<Record<string, string>> {

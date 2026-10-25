@@ -3,7 +3,7 @@
 // in the contract yet; they are listed in web/README.md.
 
 import { MEMBER_EVENT_TYPES } from "./contract.ts";
-import type { AddItemBody, AgentBody, AgentRun, Fact, Me, MemberApi, MemberEvent } from "./contract.ts";
+import type { AddItemBody, AgentBody, AgentRun, Fact, Me, MemberApi, MemberEvent, MemoryLayer } from "./contract.ts";
 import { subscribeEvents } from "../stream.ts";
 
 export class HttpError extends Error {
@@ -56,6 +56,10 @@ export class CanonClient implements MemberApi {
 
   async retireFact(id: string): Promise<void> {
     await this.call("POST", `/api/facts/${encodeURIComponent(id)}/retire`);
+  }
+
+  setLayer(id: string, layer: MemoryLayer | "auto"): Promise<Fact> {
+    return this.call("POST", `/api/facts/${encodeURIComponent(id)}/layer`, { layer });
   }
 
   addItem(body: AddItemBody): Promise<{ item_id: string }> {

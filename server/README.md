@@ -101,8 +101,35 @@ facts/<folder>/<id>.md     one fact per markdown file (shared serializeFactFile 
 sessions/<id>.json         raw CapturedSession, the cold archive
 world/*.json              principals, groups, rules, scopes and quarantine snapshots
 world/audit.jsonl         append-only scope and handoff audit
+world/memory.json         memory layers: per-person uses, per-person overrides, today's currency answers
 receipts/<session>.json   durable distillation content fingerprint
 ```
+
+## Memory layers (`src/memory-layers.ts`)
+
+Inside a scope, every hot fact is **top of mind** (a candidate for every request) or in the
+**background** (served only when a request specifically asks about it); retired facts stay the
+archive. A fact drops to the background when it is out of date, idle, or moved there by the person:
+
+- **Out of date** (bi-temporal validity, as in Zep / Graphiti): once a day per fact, Jev answers
+  "is this still current as of today?" with the fact's group shown newest first, so a past deadline,
+  a finished event or a figure a newer fact replaced ("long 180,000" vs "now long 220,000") is judged
+  in context. Asked in one batch at start-up, again for a whole group when one of its facts is saved,
+  and inline in the handoff batch for any candidate not yet checked today. Below `STALE_BELOW` (0.4):
+  background. A judge failure records nothing.
+- **Idle** (access-based decay, as in Mem0 and Generative Agents): salience = Jev's keep score ×
+  (0.3 + 0.7 × 0.5^(days since last used or learned / 14)). Below 0.3: background. Every fact a
+  handoff serves is a use for that principal, so what people keep asking about stays top of mind;
+  the 0.3 floor means decay ranks and never forgets.
+- **Moved / kept** (ChatGPT-style manual control): `POST /api/facts/:id/layer` with `top`,
+  `background` or `auto`, per person; an agent follows its creator's overrides.
+
+In the handoff, the same single relevance batch carries "does the request specifically ask about
+this?" for background candidates; one is served only at `SPECIFIC` (0.7) and above, and otherwise
+recorded with `cut: "background"` (the inspector shows "In the background: not asked about").
+Relevant top-of-mind facts compete for the budget by relevance, then salience. Layers only narrow
+what a request gets inside a scope; they never widen it, and `canon_search` (an explicit search) is
+unaffected. `GET /api/facts` carries each fact's `layer`, `layer_reason`, `uses` and `last_used`.
 
 Writes are tmp + rename. `FileStore.loadAll()` skips unparsable files with a warning. Only `hot`
 facts are indexed for retrieval; the index refreshes on every `fact.saved` / `fact.retired`.

@@ -8,7 +8,8 @@ import { CanonClient } from "./member/canon.ts";
 import { MockCanon } from "./member/mock.ts";
 import {
   ALL_GROUPS, ALL_SOURCES, NO_FILTERS, SORTS, STATUS_LABELS, agentPhase, agentPlanLine, agentStatusLine, boldRuns, countShown,
-  docBlocks, elapsed, feedText, filtersActive, fmtDay, friendlyStep, groupLabel, groupOrder, isBusy, kindLabel, plural, stripFactRefs,
+  docBlocks, elapsed, feedText, filtersActive, fmtDay, friendlyStep, groupLabel, groupOrder, isBusy, kindLabel, layerOfFact,
+  layerReasonLabel, plural, stripFactRefs, usageLine,
   sourceTitle, viewMemory,
 } from "./member/logic.ts";
 import type { Filters, Sort } from "./member/logic.ts";
@@ -50,6 +51,8 @@ const state = {
   agentForm: null as null | "new" | string,
   /** What the member has typed into each agent's "give it something to do" box. */
   assign: new Map<string, string>(),
+  /** Which memory layer the list shows. Top of mind first, like a memory manager. */
+  layerView: "top" as "top" | "background" | "all",
   /** When the member last pressed Run: the page checks on the agent until it reports in. */
   kicked: 0,
   replaying: true,
@@ -70,6 +73,7 @@ const el = {
   toggleAdd: byId<HTMLButtonElement>("toggle-add"), addForm: byId<HTMLFormElement>("add-form"),
   nKind: byId<HTMLSelectElement>("n-kind"), nSource: byId<HTMLInputElement>("n-source"), nText: byId<HTMLTextAreaElement>("n-text"),
   cancelAdd: byId<HTMLButtonElement>("cancel-add"), memory: byId("memory"), feed: byId<HTMLUListElement>("feed"),
+  layerTabs: byId("layer-tabs"),
 };
 
 // ---------- small helpers
@@ -435,14 +439,53 @@ function memoryRow(f: Fact, index: number): HTMLElement {
           h("button", { class: "btn", type: "submit" }, "Save")),
         h("div", { class: "hint" }, "Retiring takes it out of your memory and your agents’ memory. It stays in the archive.")));
   }
-  return h("li", { class: cls },
+  const layer = layerOfFact(f);
+  const reason = layerReasonLabel(f.layer_reason);
+  const usage = usageLine(f, Date.now());
+  const overridden = f.layer_reason === "pinned" || f.layer_reason === "moved";
+  return h("li", { class: `${cls}${layer === "background" ? " bg" : ""}` },
     h("div", { class: "fact" },
       h("span", { class: "st" },
         h("span", { class: "kind" }, kindLabel(f.source_kind)),
         f.statement,
-        h("span", { class: "trail" }, sourceTitle(f))),
+        h("span", { class: "trail" },
+          sourceTitle(f),
+          usage && h("span", { class: "usage" }, ` · ${usage}`),
+          reason && h("span", { class: `why ${layer}` }, reason))),
       h("span", { class: "date" }, fmtDay(f.learned_at)),
-      h("button", { class: "mini", type: "button", "aria-label": "Edit memory", onclick: () => { state.editing = f.id; renderMemory(); } }, "Edit")));
+      h("span", { class: "actions" },
+        h("button", {
+          class: "mini", type: "button",
+          title: layer === "top" ? "Used only when you ask about it" : "Used in everyday answers again",
+          onclick: () => void moveMemory(f, layer === "top" ? "background" : "top"),
+        }, layer === "top" ? "Move to background" : "Bring back"),
+        overridden && h("button", { class: "mini link", type: "button", title: "Bullwark decides from its date and how often it is used", onclick: () => void moveMemory(f, "auto") }, "Let Bullwark decide"),
+        h("button", { class: "mini", type: "button", "aria-label": "Edit memory", onclick: () => { state.editing = f.id; renderMemory(); } }, "Edit"))));
+}
+
+/** A person's own layer override for one memory; the list redraws from Canon's answer. */
+async function moveMemory(f: Fact, layer: "top" | "background" | "auto"): Promise<void> {
+  const res = await attempt("move the memory", () => api.setLayer(f.id, layer));
+  if (!res.ok) return;
+  state.facts = state.facts.map((x) => (x.id === f.id ? { ...x, ...res.value } : x));
+  local(layer === "background" ? `Moved to the background: ${f.statement}` : layer === "top" ? `Kept top of mind: ${f.statement}` : `Bullwark decides again for: ${f.statement}`);
+  renderMemory();
+}
+
+/** Top of mind · Background · All, with counts, like a memory manager's tabs. */
+function renderLayerTabs(): void {
+  const hot = state.facts.filter((f) => f.status === "hot");
+  const counts = { top: hot.filter((f) => layerOfFact(f) === "top").length, background: hot.filter((f) => layerOfFact(f) === "background").length, all: hot.length };
+  const tabs: Array<[typeof state.layerView, string, string]> = [
+    ["top", "Top of mind", "Used in everyday answers"],
+    ["background", "Background", "Used only when you ask about it"],
+    ["all", "All", "Everything in your memory"],
+  ];
+  el.layerTabs.replaceChildren(...tabs.map(([id, label, hint]) =>
+    h("button", {
+      type: "button", role: "tab", class: state.layerView === id ? "seg-btn on" : "seg-btn", "aria-selected": String(state.layerView === id), title: hint,
+      onclick: () => { state.layerView = id; renderMemory(); },
+    }, label, h("span", { class: "count" }, String(counts[id])))));
 }
 
 function renderMemory(): void {
@@ -455,9 +498,12 @@ function renderMemory(): void {
   state.filters.group = el.fGroup.value;
   state.filters.source = el.fSource.value;
 
-  const groups = viewMemory(state.facts, state.filters, state.names, order);
-  const shown = countShown(groups), total = state.facts.filter((f) => f.status === "hot").length;
-  el.showLine.textContent = shown === total ? `All ${plural(total, "memory", "memories")}` : `Showing ${shown} of ${plural(total, "memory", "memories")}`;
+  renderLayerTabs();
+  const inView = state.layerView === "all" ? state.facts : state.facts.filter((f) => layerOfFact(f) === state.layerView);
+  const groups = viewMemory(inView, state.filters, state.names, order);
+  const shown = countShown(groups), total = inView.filter((f) => f.status === "hot").length;
+  const noun = state.layerView === "top" ? "top of mind" : state.layerView === "background" ? "in the background" : "";
+  el.showLine.textContent = `${shown === total ? plural(total, "memory", "memories") : `Showing ${shown} of ${plural(total, "memory", "memories")}`}${noun ? ` ${noun}` : ""}`;
   const active = filtersActive(state.filters);
   el.clearFilters.hidden = !active;
   const open = !el.filters.hidden;
@@ -469,13 +515,15 @@ function renderMemory(): void {
     key: `grp:${g.label}`,
     version: `grp:${g.label}`,
     build: () => h("section", null, g.label && h("h3", { class: "grp" }, g.label), h("ul", { class: "list" })),
-  })), () => h("p", { class: "empty" }, total ? "Nothing in your memory matches these filters." : "Your memory is empty. Add something to get started."));
+  })), () => h("p", { class: "empty" }, total ? "Nothing here matches these filters." : state.layerView === "background"
+    ? "Nothing in the background. Memories land here when their date passes, when they go unused for a while, or when you move them."
+    : "Your memory is empty. Add something to get started."));
   groups.forEach((g, i) => {
     const ul = el.memory.children[i]?.querySelector("ul");
     if (!ul) return;
     syncList(ul as HTMLElement, g.facts.map((f) => ({
       key: f.id,
-      version: `${f.statement}|${f.learned_at}|${g.index}|${state.editing === f.id}`,
+      version: `${f.statement}|${f.learned_at}|${g.index}|${state.editing === f.id}|${f.layer}|${f.layer_reason}|${f.uses ?? 0}|${f.last_used ?? ""}`,
       build: () => memoryRow(f, g.index),
       fresh: Date.now() - Date.parse(f.learned_at) < 10_000,
     })));

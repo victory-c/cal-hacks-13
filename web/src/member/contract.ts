@@ -5,6 +5,8 @@
 
 export type Tier = "moderator" | "member";
 
+export type MemoryLayer = "top" | "background";
+
 export interface Principal {
   id: string;
   kind: "person" | "agent";
@@ -43,6 +45,13 @@ export interface Fact {
   /** PROPOSED: the kind and title of the item the fact came from, for the provenance line. */
   source_kind?: ItemKind;
   source_title?: string;
+  /** Memory layer for this person: top of mind (everyday answers) or background (only when asked about). */
+  layer?: MemoryLayer;
+  /** Why it is in that layer: current, pinned (kept top of mind), moved (by them), past_date, idle. */
+  layer_reason?: "current" | "pinned" | "moved" | "past_date" | "idle";
+  /** How often, and when last, their AI tools and agents used it. */
+  uses?: number;
+  last_used?: string | null;
 }
 
 export interface ScopeExclusions {
@@ -196,6 +205,8 @@ export interface MemberApi {
   groupNames(): Promise<Record<string, string>>;
   editFact(id: string, statement: string): Promise<Fact>;
   retireFact(id: string): Promise<void>;
+  /** Their own override: keep it top of mind, move it to the background, or let Bullwark decide. */
+  setLayer(id: string, layer: MemoryLayer | "auto"): Promise<Fact>;
   addItem(body: AddItemBody): Promise<{ item_id: string }>;
   agents(): Promise<AgentRun[]>;
   createAgent(body: AgentBody): Promise<{ id: string; build_id: string }>;

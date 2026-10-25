@@ -145,7 +145,10 @@ export interface HandoffBody {
 export interface HandoffCandidate {
   fact_id: string;
   group: GroupId;
-  cut: "relevance" | "budget" | null;
+  /** Which stage left it out: not relevant, in the background and not asked about, or over budget. */
+  cut: "relevance" | "background" | "budget" | null;
+  /** Its memory layer for this principal at handoff time (server/src/memory-layers.ts). */
+  layer?: "top" | "background";
   /** Jev's P(helps with this request). */
   p?: number;
   tokens?: number;

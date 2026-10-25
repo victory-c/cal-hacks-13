@@ -63,6 +63,8 @@ import { HttpError, isRecord, readJsonBody, sendJson } from "./http.ts";
 import type { Retriever } from "./retrieval/index.ts";
 import { excludeFactQ, excludeGroupQ, helpsRequestQ, inScopeQ, needsContextQ } from "./scope-judge.ts";
 import { writeAtomic } from "./store.ts";
+import { LAYERS, currentQ, dayOf, emptyLayerState, layerOf, needsCurrency, recordUse, restoreLayers, serializeLayers, specificQ } from "./memory-layers.ts";
+import type { LayerState } from "./memory-layers.ts";
 import type { FileStore } from "./store.ts";
 
 // ---------------------------------------------------------------------------------- fixtures
@@ -132,6 +134,8 @@ export class ScopeState {
   readonly agentSteps = new Map<string, Array<Record<string, unknown>>>();
   readonly agentInbox = new Map<string, Array<Record<string, unknown>>>();
   readonly agentStops = new Map<string, number>();
+  /** Memory layers: who used which fact when, people's overrides, and today's currency answers. */
+  layers: LayerState = emptyLayerState();
   readonly firm = "Axe Capital";
 
   constructor(world: WorldFixtures = loadWorldFixtures(), private readonly dir?: string) {
@@ -165,6 +169,8 @@ export class ScopeState {
       for (const [runId, version] of telemetry.invalid_versions) this.invalidRunVersions.set(runId, version);
       for (const [agent, generation] of telemetry.stops ?? []) this.agentStops.set(agent, generation);
     }
+    const memoryFile = dir ? join(dir, "world", "memory.json") : undefined;
+    if (memoryFile && existsSync(memoryFile)) this.layers = restoreLayers(JSON.parse(readFileSync(memoryFile, "utf8")));
   }
 
   /**
@@ -175,12 +181,13 @@ export class ScopeState {
    */
   flush(): Promise<void> {
     if (!this.dir) return Promise.resolve();
-    const snapshot = structuredClone({ principals: [...this.principals.values()], rules: [...this.rules.values()], scopes: [...this.scopes.values()], groups: this.groups, items: [...this.quarantine.values()], audit: this.audit, agents: { runs: [...this.agentRuns], steps: [...this.agentSteps], inbox: [...this.agentInbox], invalid_versions: [...this.invalidRunVersions], stops: [...this.agentStops] } });
+    const snapshot = structuredClone({ principals: [...this.principals.values()], rules: [...this.rules.values()], scopes: [...this.scopes.values()], groups: this.groups, items: [...this.quarantine.values()], audit: this.audit, agents: { runs: [...this.agentRuns], steps: [...this.agentSteps], inbox: [...this.agentInbox], invalid_versions: [...this.invalidRunVersions], stops: [...this.agentStops] }, memory: serializeLayers(this.layers) });
     const dir = join(this.dir, "world");
     this.writes = this.writes.catch(() => {}).then(async () => {
       await mkdir(dir, { recursive: true });
       for (const [name, key] of [["groups", "groups"], ["rules", "rules"], ["scopes", "scopes"], ["quarantine", "items"], ["principals", "principals"]] as const) await writeAtomic(join(dir, `${name}.json`), JSON.stringify({ [key]: snapshot[key] }) + "\n");
       await writeAtomic(join(dir, "agents.json"), JSON.stringify(snapshot.agents) + "\n");
+      await writeAtomic(join(dir, "memory.json"), JSON.stringify(snapshot.memory) + "\n");
       const rows = snapshot.audit.slice(this.persistedAudit);
       if (rows.length) { await appendFile(join(dir, "audit.jsonl"), rows.map((row) => JSON.stringify(row)).join("\n") + "\n"); this.persistedAudit = snapshot.audit.length; }
     });
@@ -510,6 +517,66 @@ export async function refileFact(deps: ScopesDeps, callerId: string, factId: str
   return saved;
 }
 
+// ---------------------------------------------------------------------------- memory layers
+
+/**
+ * Asks Jev, in one batch, whether each hot fact not yet asked about today is still current, and
+ * records the answers (server/src/memory-layers.ts). A fact no longer current moves to the
+ * background for everyone who holds it, and comes back only when a request asks about it. A judge
+ * failure records nothing: an unchecked fact stays where it was. Returns how many were asked.
+ */
+export async function refreshCurrency(deps: Pick<ScopesDeps, "world" | "store" | "judge">, facts?: readonly Fact[], now = Date.now()): Promise<number> {
+  const today = dayOf(now);
+  const hot = deps.store.listFacts({ tier: "hot" });
+  const due = needsCurrency(deps.world.layers, (facts ?? hot).filter((f) => f.tier === "hot" && f.folder !== INBOX), today);
+  if (due.length === 0) return 0;
+  // The judge sees each group's facts side by side with their dates, newest first, so a newer fact
+  // can show an older one is outdated (a position since changed, a price since moved): validity is
+  // judged against what else is known, as a bi-temporal store invalidates the older of two edges.
+  const groups = new Set(due.map((f) => f.folder));
+  const dated = (f: Fact) => f.happened ?? f.updated;
+  const context = hot
+    .filter((f) => groups.has(f.folder))
+    .sort((a, b) => (dated(a) === dated(b) ? 0 : dated(a) < dated(b) ? 1 : -1))
+    .map((f) => `[${f.id}] (${f.folder}, ${f.happened ? `happened ${f.happened}, ` : ""}learned ${f.updated}) ${f.statement}`);
+  const state = [`Today is ${today}. Which stored facts are still current? Facts in the same groups, newest first:`, ...context].join("\n");
+  try {
+    const answers = await deps.judge.ask(state, due.map((f) => currentQ(`cur:${f.id}`, f, today)));
+    for (const f of due) {
+      const answer = answers.find((a) => a.id === `cur:${f.id}` && a.type === "noul");
+      if (answer?.type === "noul") deps.world.layers.currency.set(f.id, { on: today, p: answer.p });
+    }
+    await deps.world.flush();
+  } catch (err) {
+    console.warn(`[scopes] ${deps.judge.name} failed on the currency check (${err instanceof Error ? err.message : String(err)}); those facts keep their layer`);
+  }
+  return due.length;
+}
+
+/**
+ * A new or updated fact gets today's currency check shortly after it is saved, batched, and so does
+ * every hot fact in its group: a new fact can make an older one outdated ("now long 220,000"
+ * against "long 180,000"), so what was known about the group today no longer holds.
+ */
+export function attachCurrency(deps: Pick<ScopesDeps, "world" | "store" | "judge" | "bus">, batchMs = 400): { unsubscribe(): void } {
+  let waiting = new Map<string, Fact>();
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const unsubscribe = deps.bus.subscribe((event) => {
+    if (event.type !== "fact.saved") return;
+    for (const f of [event.fact, ...deps.store.listFacts({ tier: "hot" }).filter((x) => x.folder === event.fact.folder)]) {
+      deps.world.layers.currency.delete(f.id);
+      waiting.set(f.id, f);
+    }
+    clearTimeout(timer);
+    timer = setTimeout(() => {
+      const batch = [...waiting.values()];
+      waiting = new Map();
+      void refreshCurrency(deps, batch);
+    }, batchMs);
+  });
+  return { unsubscribe: () => { clearTimeout(timer); unsubscribe(); } };
+}
+
 // ---------------------------------------------------------------------------- living scopes
 //
 // PRD #11. Facts in the inbox (and quarantined captures, which never become facts) join no member
@@ -722,7 +789,11 @@ export async function runHandoff(deps: ScopesDeps, client: string, body: unknown
   // failure serves nothing unjudged — the handoff still succeeds with the pinned profile alone.
   let judge_ms = 0;
   const pById = new Map<string, number>();
+  const specificById = new Map<string, number>();
   let needsNoContext = false;
+  const now = Date.now();
+  const today = dayOf(now);
+  const layers = deps.world.layers;
   if (candidates.length > 0) {
     const state = [`Handoff for ${principal}.`, "Candidate facts:", ...candidates.map((f, i) => `${i + 1}. [${f.id}] ${f.statement}`)].join("\n");
     try {
@@ -730,22 +801,47 @@ export async function runHandoff(deps: ScopesDeps, client: string, body: unknown
       judge_ms += needs.ms;
       needsNoContext = noulP(needs.result, "needs", 0) < TRIAGE_THRESHOLDS.NEEDS_CONTEXT;
       if (!needsNoContext) {
-        const judged = await timed(() => deps.judge.ask(state, candidates.map((f) => helpsRequestQ(`hf:${f.id}`, f, request))));
+        // Memory layers ride in the same batch: today's currency for any candidate not yet asked
+        // about today, and "does the request ask about this specifically?" for every candidate
+        // that is (or may turn out to be) in the background.
+        const unchecked = needsCurrency(layers, candidates, today);
+        const uncheckedIds = new Set(unchecked.map((f) => f.id));
+        const maybeBackground = candidates.filter((f) => uncheckedIds.has(f.id) || layerOf(layers, who, f, now).layer === "background");
+        const judged = await timed(() => deps.judge.ask(state, [
+          ...candidates.map((f) => helpsRequestQ(`hf:${f.id}`, f, request)),
+          ...unchecked.map((f) => currentQ(`cur:${f.id}`, f, today)),
+          ...maybeBackground.map((f) => specificQ(`sp:${f.id}`, f, request)),
+        ]));
         judge_ms += judged.ms;
         for (const f of candidates) pById.set(f.id, noulP(judged.result, `hf:${f.id}`, 0));
+        for (const f of unchecked) {
+          const answer = judged.result.find((a) => a.id === `cur:${f.id}` && a.type === "noul");
+          if (answer?.type === "noul") layers.currency.set(f.id, { on: today, p: answer.p });
+        }
+        for (const f of maybeBackground) specificById.set(f.id, noulP(judged.result, `sp:${f.id}`, 0));
       }
     } catch (err) {
       console.warn(`[scopes] ${deps.judge.name} failed on handoff for ${principal} (${err instanceof Error ? err.message : String(err)}); nothing unjudged is served`);
     }
   }
 
-  // 5. The token budget, in code: the best facts that fit, best first.
-  const relevant = candidates
-    .map((fact) => ({ fact, p: pById.get(fact.id) ?? 0 }))
-    .filter((s) => s.p >= TRIAGE_THRESHOLDS.RELEVANT)
-    .sort((a, b) => (b.p !== a.p ? b.p - a.p : a.fact.updated !== b.fact.updated ? (a.fact.updated < b.fact.updated ? 1 : -1) : a.fact.id < b.fact.id ? -1 : 1));
+  // 5. Layers, then the token budget, in code. A background fact competes only when the request
+  // asks about it specifically; everything else that helps competes on relevance, then salience.
+  const layerById = new Map(candidates.map((f) => [f.id, layerOf(layers, who, f, now)]));
+  const isBackground = (f: Fact) => layerById.get(f.id)?.layer === "background" && (specificById.get(f.id) ?? 0) < LAYERS.SPECIFIC;
+  const helpful = candidates.map((fact) => ({ fact, p: pById.get(fact.id) ?? 0 })).filter((s) => s.p >= TRIAGE_THRESHOLDS.RELEVANT);
+  const relevant = helpful
+    .filter((s) => !isBackground(s.fact))
+    .sort((a, b) => {
+      if (b.p !== a.p) return b.p - a.p;
+      const sa = layerById.get(a.fact.id)?.salience ?? 0, sb = layerById.get(b.fact.id)?.salience ?? 0;
+      if (sb !== sa) return sb - sa;
+      return a.fact.updated !== b.fact.updated ? (a.fact.updated < b.fact.updated ? 1 : -1) : a.fact.id < b.fact.id ? -1 : 1;
+    });
   const { kept, tokens } = needsNoContext ? { kept: [] as Fact[], tokens: 0 } : cutToBudget(relevant.map((s) => s.fact), budget);
   const keptIds = new Set(kept.map((f) => f.id));
+  // Every fact served is a use: what people keep asking about stays top of mind.
+  recordUse(layers, principal, kept.map((f) => f.id), now);
 
   // What the inspector sees: every candidate the pipeline considered and which stage cut it.
   // On inject-nothing (or a failed judge) nothing was individually scored, so `p` is omitted.
@@ -754,8 +850,9 @@ export async function runHandoff(deps: ScopesDeps, client: string, body: unknown
     const out: HandoffCandidate = {
       fact_id: fact.id,
       group: fact.folder,
-      cut: keptIds.has(fact.id) ? null : needsNoContext || (p ?? 0) < TRIAGE_THRESHOLDS.RELEVANT ? "relevance" : "budget",
+      cut: keptIds.has(fact.id) ? null : needsNoContext || (p ?? 0) < TRIAGE_THRESHOLDS.RELEVANT ? "relevance" : isBackground(fact) ? "background" : "budget",
       tokens: factTokens(fact),
+      layer: layerById.get(fact.id)?.layer ?? "top",
     };
     if (p !== undefined) out.p = p;
     return out;
@@ -778,7 +875,7 @@ export async function runHandoff(deps: ScopesDeps, client: string, body: unknown
     ...(typeof run_id === "string" ? { run_id } : {}),
     detail:
       `Handoff for "${request}": ${inScope.length} in scope → ${deps.retriever.name} ${candidates.length} candidate(s) → ` +
-      `${deps.judge.name} ${relevant.length} relevant → budget kept ${kept.length} (${tokens} est. tokens)` +
+      `${deps.judge.name} ${helpful.length} relevant → ${helpful.length - relevant.length} left in the background → budget kept ${kept.length} (${tokens} est. tokens)` +
       `${inject_nothing ? "; only the pinned profile went out" : ""}${simLabel(deps)}.`,
   });
   deps.bus.emit({

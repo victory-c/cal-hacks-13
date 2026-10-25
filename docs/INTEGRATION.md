@@ -57,6 +57,7 @@ nothing, because the action itself is public knowledge). `404` = not found or no
 | `GET /api/principals/:id/scope` | moderator; members for themselves and their agents | The scope: rule and fact ids |
 | `GET /api/facts` | anyone | Facts visible to you, filterable by `group`, `label`, `q` |
 | `PATCH /api/facts/:id` · `POST /api/facts/:id/retire` | anyone, inside their scope | Edit the statement, or retire to cold storage |
+| `POST /api/facts/:id/layer` | a person, inside their scope | Their own memory-layer override `{ layer }`, one of `top`, `background` or `auto`; returns the fact as `GET /api/facts` shows it. Nobody else's view changes |
 | `POST /api/facts/:id/file` | moderator | Refile a fact `{ group, labels }` (for example announced terms to `market/public`); affected scopes update and emit `scope.changed` |
 | `POST /api/items` | anyone | Add an item `{ kind, source, text, author? }` (kind: memo, chat, email, transcript or note). `author` defaults to you; only moderators may name someone else. Returns `{ item_id }`; Canon then archives, triages and writes facts, and the results arrive as `item.captured`, `item.quarantined` and `fact.saved` events |
 | `GET /api/inbox` | moderator | Unplaced facts, filed with `POST /api/facts/:id/file` |
@@ -74,10 +75,12 @@ nothing, because the action itself is public knowledge). `404` = not found or no
 ```ts
 Principal  { id, kind: "person" | "agent", name, tier?: "moderator" | "member", creator?: id }
 Item       { id, kind: "memo" | "chat" | "email" | "transcript" | "note" | "session", source, author, text, captured_at }
-Fact       { id, statement, group, labels[], source, author, happened_at, learned_at, status: "hot" | "cold" }
+Fact       { id, statement, group, labels[], source, author, happened_at, learned_at, status: "hot" | "cold",
+             layer: "top" | "background", layer_reason: "current" | "pinned" | "moved" | "past_date" | "idle",
+             uses, last_used }   // memory layers, for the caller (server/README.md § Memory layers)
 ScopeRule  { task: string, exclusions: { groups[], labels[], text[] } }   // text[] = plain-language exclusions
 Scope      { principal, rule: ScopeRule, fact_ids[], built_at }
-Handoff    { id, principal, request, candidates[{ fact_id, p, decision: "kept" | "cut_relevance" | "cut_budget" }],
+Handoff    { id, principal, request, candidates[{ fact_id, p, decision: "kept" | "cut_relevance" | "cut_background" | "cut_budget" }],
              tokens_est, timings_ms: { search, judge, total }, judge, retriever, simulated }
 AgentRun   { id, creator, name, task, status: "ready" | "running" | "restarting" | "done" | "failed" | "stopped",
              steps[{ id, text, kind, file?, status, at }], files[], inbox[{ text, at }],
