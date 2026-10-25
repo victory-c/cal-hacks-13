@@ -55,13 +55,17 @@ export function createRouter(deps: RouterDeps): Handler {
       if (method === "GET" && (path === ROUTES.events || path === ROUTES.facts || path === ROUTES.grants)) {
         const viewer = optionalAuth(req, deps.tokens);
         if (viewer === "unknown") return sendJson(res, 401, UNKNOWN_TOKEN);
-        if (path === ROUTES.events) {
-          attachSse(res, deps.bus, viewer ? undefined : publicEvent, viewer?.client === "distiller" ? undefined : withoutExtractionPlan);
-          return;
-        }
         if (path === ROUTES.grants) return sendJson(res, 200, api.grants(deps));
         const visible = viewer ? grantView(deps, viewer.client) : publicFolder;
         if (!visible) return sendJson(res, 403, { error: `no grants for client "${viewer?.client}"` });
+        if (path === ROUTES.events) {
+          if (viewer?.client === "distiller") attachSse(res, deps.bus);
+          else {
+            const view = eventView(deps, visible, viewer?.client);
+            attachSse(res, deps.bus, view.filter, view.project);
+          }
+          return;
+        }
         return sendJson(res, 200, api.listFacts(deps, url.searchParams, visible));
       }
 
@@ -104,14 +108,54 @@ function optionalAuth(req: IncomingMessage, tokens: Map<string, string>): { clie
 /** What a tokenless caller (the dashboard, a curl) may see: every folder but `private/`. */
 const publicFolder = (folder: Folder): boolean => !folderAllows(["private"], folder);
 
-/** The tokenless SSE view: the same rule applied to the one event that carries a whole fact. */
-const publicEvent = (e: CanonEvent): boolean => e.type !== "fact.saved" || publicFolder(e.fact.folder);
-
-/** Plans summarize raw transcripts and may mention facts not in the emitted batch. */
-function withoutExtractionPlan(event: CanonEvent): CanonEvent {
-  if (event.type !== "distill.finished") return event;
-  const { plan: _plan, ...safe } = event;
-  return safe;
+/** Apply the fact-read boundary to both replay and live events. The tokenless dashboard keeps
+ * its team-wide telemetry; client tokens see their own session and request metadata only. */
+function eventView(deps: RouterDeps, visible: (folder: Folder) => boolean, client?: string) {
+  const readableFact = (id: string): boolean => {
+    const fact = deps.store.getFact(id);
+    return !!fact && visible(fact.folder);
+  };
+  return {
+    filter(event: CanonEvent): boolean {
+      switch (event.type) {
+        case "fact.saved":
+          // Re-check canonical state: a replayed fact may since have moved to another folder.
+          return visible(event.fact.folder) && readableFact(event.fact.id);
+        case "fact.retired":
+          return readableFact(event.id) && readableFact(event.superseded_by);
+        case "context.served":
+          return (!client || event.client === client) && event.fact_ids.every(readableFact);
+        case "session.captured":
+          return !client || event.session.client === client;
+        case "distill.started":
+        case "distill.finished":
+          return !client || deps.store.sessionClient(event.session_id) === client;
+        case "access.denied":
+          return (!client || event.client === client) && visible(event.folder);
+        case "server.started":
+          return true;
+      }
+    },
+    project(event: CanonEvent): CanonEvent {
+      // Plans summarize raw transcripts and may mention facts not in the emitted batch.
+      if (event.type === "distill.finished") {
+        const { plan: _plan, ...safe } = event;
+        return safe;
+      }
+      if (event.type === "fact.saved") {
+        const { supersedes: factPrevious, ...fact } = event.fact;
+        const { supersedes: decisionPrevious, ...decision } = event.decision;
+        return {
+          ...event,
+          fact: factPrevious && readableFact(factPrevious) ? { ...fact, supersedes: factPrevious } : fact,
+          decision: decisionPrevious && readableFact(decisionPrevious)
+            ? { ...decision, supersedes: decisionPrevious }
+            : { ...decision, action: "add" },
+        };
+      }
+      return event;
+    },
+  };
 }
 
 /** A token's view of GET /api/facts is its read grant; undefined when the client has no grant. */

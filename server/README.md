@@ -25,12 +25,12 @@ use, bad `JUDGE_PROVIDER`, broken `CANON_GRANTS_FILE`) are one `[server] ...` li
 | Method + path | Auth | Does |
 |---|---|---|
 | `GET /health` | – | `HealthResponse`: counts, uptime, judge and retriever names |
-| `GET /events` | optional | SSE of `CanonEvent`: replays the last 100, then live; heartbeat comment every 15 s. **Without a token, `fact.saved` events for `private/` facts are dropped**; with one, the stream is complete |
+| `GET /events` | optional | SSE of `CanonEvent`: replays the last 100, then live; heartbeat comment every 15 s. Tokenless dashboard excludes private facts; ordinary tokens receive only facts in their read grant and their own activity. Only the internal distiller receives the full stream, including extraction plans |
 | `GET /api/facts?folder=&tier=` | optional | Facts (folder is prefix-per-segment, like grants). **Without a token: every folder but `private/`** (the dashboard). With one: the client's read grant |
 | `GET /api/grants` | – | The grants table |
-| `POST /api/sessions` | bearer | Upsert a `CapturedSession` into the cold archive. `body.client` must match the token (403) |
+| `POST /api/sessions` | bearer | Upsert a `CapturedSession` into the cold archive. `body.client` must match the token; an existing session ID can only be updated by its original capturing client (403) |
 | `GET /api/sessions/:id` | bearer | One archived session. **Only the client that captured it and the internal `distiller` may read it** (403 otherwise): raw transcripts have no folder scoping |
-| `POST /api/facts` | bearer | Distiller files decided facts (`PostFactsBody`). Needs write grant on the folder (403 + `access.denied`). Each `decision` is validated (action, `supersedes` id, tier/folder equal to the fact's, probabilities in [0, 1], judge name) and rebuilt before it is broadcast. `supersede`/`merge` re-writes the old fact as `cold` (never deletes) and emits `fact.retired` |
+| `POST /api/facts` | bearer | Distiller files decided facts (`PostFactsBody`). Needs write grants on the destination and on existing facts being overwritten or retired (403 + `access.denied`). The entire batch is authorized before writing. Each `decision` is validated (action, `supersedes` id, tier/folder equal to the fact's, probabilities in [0, 1], judge name) and rebuilt before it is broadcast. `supersede`/`merge` re-writes the old fact as `cold` (never deletes) and emits `fact.retired` |
 | `POST\|GET\|DELETE /mcp` | bearer | MCP Streamable HTTP, stateless: fresh `McpServer` per request, scoped to the token's grant |
 
 Auth is `Authorization: Bearer <token>`; tokens map to clients via `CANON_CLIENT_TOKENS`. A missing or
