@@ -8,8 +8,8 @@ while you are still typing in it.
 
 | Piece | Runs in | Does |
 |---|---|---|
-| `src/content/chatgpt.ts` | the chatgpt.com tab (isolated world) | Watches the DOM, extracts the turns 1.5 s after the last change, sends `{ kind: "turns", … }` to the worker. On `pagehide` sends `ended: true`. |
-| `src/background.ts` | extension service worker | Throttles per conversation (2 s), stamps `started_at`, `POST /api/sessions` with the bearer token. Badge `•` green on success, `!` red on failure. |
+| `src/content/chatgpt.ts` | the chatgpt.com tab (isolated world) | Watches the DOM, extracts the turns 1.5 s after the last change, sends `{ kind: "turns", … }` to the worker. On `pagehide` sends `ended: true`. A snapshot counts as delivered only when the worker answers `{ ok: true }`; otherwise the newest one is retried with backoff (1 s to 30 s). |
+| `src/background.ts` | extension service worker | Queues the newest snapshot per conversation in `chrome.storage.session` and acks (`ok` means queued, not posted), throttles (2 s), stamps `started_at`, `POST /api/sessions` with the bearer token. Network errors, timeouts, 408, 429 and 5xx stay queued and retry with backoff (2 s to 60 s, 30 tries), also after Chrome restarts the worker (an `alarms` wake-up). Badge `•` green on success, `!` red on failure. |
 | `src/options.html` + `options.ts` | options page | Bullwark URL, client token, principal id, Save, Test connection (`GET /health`), last post result. |
 | `src/shared/` | both | `protocol.ts` (messages), `session.ts` (turns → `CapturedSession`, FNV-1a session ids), `settings.ts` (storage keys). Pure, tested. |
 
@@ -64,8 +64,11 @@ npm test -w extension               # node:test, offline, ~1 s
 
 Tests cover the session id (format, stability, per-site), `extractTurns` against a fake DOM root
 (roles, order, empty and unknown roles skipped), `toCapturedSession` (title fallback, `ended_at`),
-the worker's pure helpers (`buildPost`, `shouldDebounce`), the message guard, and a build smoke
-test that bundles into a temp dir and asserts no `node:` import reached the browser.
+the worker's pure helpers (`buildPost`, `shouldDebounce`, `isRetryableStatus`), delivery retries
+(content-script `SnapshotSender`, worker `Outbox`: rejection, 5xx/timeout, recovery with unchanged
+content, coalescing to the latest snapshot, resume after a worker restart), the message guard, and
+a build smoke test that bundles into a temp dir, asserts no `node:` import reached the browser and
+runs the built content script in a `node:vm` page with a failing worker.
 
 ## Fragility note
 
