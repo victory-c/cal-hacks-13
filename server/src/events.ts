@@ -69,8 +69,8 @@ export class EventBus {
   /**
    * Turns `res` into an SSE stream: replay, then live events, with a comment heartbeat every 15 s
    * so proxies and browsers keep the connection open. Cleans up when the client goes away.
-   * `filter` drops events this subscriber may not see (the router passes one for tokenless
-   * callers); ids keep their ring positions, so Last-Event-ID still lines up.
+   * `filter` drops events this subscriber may not see, or returns a redacted copy to send instead
+   * (the router passes one for tokenless callers and strips plans for everyone but the distiller); ids keep their ring positions, so Last-Event-ID still lines up.
    */
   attachSse(res: ServerResponse, filter: EventFilter = () => true): () => void {
     res.writeHead(200, {

@@ -280,7 +280,24 @@ function toResult(json: unknown, session: CapturedSession, groups: readonly Grou
     throw new Error(`ClaudeDistiller: no emit_facts call in the response (stop_reason: ${String(json.stop_reason)})${said ? `; Claude said: ${said}` : ""}`);
   }
 
-  const input = tool.input;
+  const result: DistillResult = { ...draftsFromEmit(tool.input, session, groups, "claude"), simulated: false };
+  const usage = isRecord(json.usage) ? json.usage : undefined;
+  if (usage && typeof usage.input_tokens === "number" && typeof usage.output_tokens === "number") {
+    result.usage = { input_tokens: usage.input_tokens, output_tokens: usage.output_tokens };
+  }
+  return result;
+}
+
+/**
+ * The checks every writer's output goes through, whichever engine wrote it (Claude's emit_facts
+ * call, or Droid's structured output in the same schema): drafts and the plan, never fixed up.
+ */
+export function draftsFromEmit(
+  input: Record<string, unknown>,
+  session: CapturedSession,
+  groups: readonly Group[],
+  engine: string,
+): { drafts: DraftFact[]; plan?: string } {
   const plan = typeof input.plan === "string" ? input.plan : undefined;
   const rawFacts = Array.isArray(input.facts) ? input.facts : [];
   const source = sourceOf(session);
@@ -315,16 +332,9 @@ function toResult(json: unknown, session: CapturedSession, groups: readonly Grou
   }
   if (foreign) {
     // A count only: which name it was is moderators-only, and this line can reach any log.
-    console.warn(`[distiller] claude: left out ${foreign} ${foreign === 1 ? "draft" : "drafts"} naming a group or alias the item never mentions`);
+    console.warn(`[distiller] ${engine}: left out ${foreign} ${foreign === 1 ? "draft" : "drafts"} naming a group or alias the item never mentions`);
   }
-
-  const result: DistillResult = { drafts, simulated: false };
-  if (plan) result.plan = plan;
-  const usage = isRecord(json.usage) ? json.usage : undefined;
-  if (usage && typeof usage.input_tokens === "number" && typeof usage.output_tokens === "number") {
-    result.usage = { input_tokens: usage.input_tokens, output_tokens: usage.output_tokens };
-  }
-  return result;
+  return plan ? { drafts, plan } : { drafts };
 }
 
 /**

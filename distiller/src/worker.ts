@@ -19,7 +19,7 @@
 import { createHash } from "node:crypto";
 
 import { ROUTES, timed } from "@canon/shared";
-import type { CanonEvent, CapturedSession, Fact, Group, Judge, PostQuarantineBody } from "@canon/shared";
+import type { CanonEvent, CapturedSession, Fact, Group, Judge, PostFactsBody, PostQuarantineBody } from "@canon/shared";
 import { isMissingRoute } from "./client.ts";
 import type { CanonClient, RelayedEvent } from "./client.ts";
 import type { Distiller } from "./engines/index.ts";
@@ -306,7 +306,8 @@ async function processSession(
       log(`session ${id}: newer revision recorded, dropping stale result`);
       return;
     }
-    const delivered = await timed(() => deliver(opts.client, result, warnOnce));
+    const distillation = { session_id: id, engine: opts.distiller.name, ...(plan ? { plan } : {}), duration_ms: distilled.ms + triaged.ms };
+    const delivered = await timed(() => deliver(opts.client, result, warnOnce, distillation));
     const d = delivered.result;
     log(
       `session ${id}: saved ${d.saved.length}, retired ${d.retired.length}, filed ${d.quarantined} quarantine items, relayed ${d.events} events in ${delivered.ms} ms${d.unsent ? `; held for retry: ${describeUnsent(d.unsent)}` : ""}`,
@@ -406,10 +407,16 @@ export interface Sent {
 /**
  * Files one triage result: facts first (an existing route, so a failure here fails the session
  * and it is retried whole), then the quarantine item, then the events (redeliver()).
+ * `distillation` rides on the facts post, so the server's distill.finished names the real engine.
  */
-export async function deliver(client: CanonClient, result: TriageResult, warnOnce: WarnOnce): Promise<Delivered> {
+export async function deliver(
+  client: CanonClient,
+  result: TriageResult,
+  warnOnce: WarnOnce,
+  distillation?: PostFactsBody["distillation"],
+): Promise<Delivered> {
   const facts = triagedFacts(result);
-  const posted = facts.length ? await client.postFacts({ facts }) : { saved: [], retired: [] };
+  const posted = facts.length ? await client.postFacts({ facts, ...(distillation ? { distillation } : {}) }) : { saved: [], retired: [] };
   const sent = await redeliver(client, outbox(result), warnOnce);
   return { saved: posted.saved, retired: posted.retired, ...sent };
 }

@@ -61,7 +61,9 @@ export function createRouter(deps: RouterDeps): Handler {
         const viewer = optionalAuth(req, deps.tokens);
         if (viewer === "unknown") return sendJson(res, 401, UNKNOWN_TOKEN);
         if (path === ROUTES.events) {
-          attachSse(res, deps.bus, viewer && seesEverything(deps, viewer.client) ? undefined : publicEvent);
+          // Moderators and internal workers see the whole stream; only the distiller sees raw
+          // extraction plans, which summarize transcripts and may mention facts outside a batch.
+          attachSse(res, deps.bus, !viewer || !seesEverything(deps, viewer.client) ? publicEvent : viewer.client === "distiller" ? undefined : withoutExtractionPlan);
           return;
         }
         if (path === ROUTES.grants) return sendJson(res, 200, api.grants(deps));
@@ -159,6 +161,13 @@ function seesEverything(deps: RouterDeps, client: string): boolean {
   const principal = grantFor(deps.grants, client)?.principal;
   const p = principal ? deps.world.principals.get(principal) : undefined;
   return p?.kind === "person" && p.tier === "moderator";
+}
+
+/** Plans summarize raw transcripts and may mention facts not in the emitted batch. */
+function withoutExtractionPlan(event: CanonEvent): CanonEvent {
+  if (event.type !== "distill.finished") return event;
+  const { plan: _plan, ...safe } = event;
+  return safe;
 }
 
 /**

@@ -69,7 +69,7 @@ logged error, not a silent downgrade.
 
 | Engine | Real? | Needs | Where it plugs in |
 |---|---|---|---|
-| `droid` | **No, placeholder.** Picked only by `DISTILLER=droid`; constructs, and `distill()` throws `NotConfiguredError`. Droid runs dispatched agents (B2), not fact writing. | `FACTORY_API_KEY` | `src/engines/droid.ts` |
+| `droid` | Official Factory SDK + pinned CLI, headless, in the Claude writer's schema and checks; never silently downgrades. Picked only by `DISTILLER=droid`: Droid's main job is running dispatched agents (B2). Not yet run against a real Factory key. | `FACTORY_API_KEY` | `src/engines/droid.ts` |
 | `claude` | Yes. The fact writer: `claude-sonnet-5-5`, one strict `emit_facts` tool (statement, group from the item's group list or null, labels, happened, detail), at most 16 facts, raw Messages API over `fetch` (no SDK dependency). | `ANTHROPIC_API_KEY` | `src/engines/claude.ts` |
 | `heuristic` | **No, simulated.** Keyword sentences (deal words such as agreed, proposed, LOI, EBITDA, and prices or multiples written as numbers), the speaker named in third person, `happened` from an ISO date in the sentence, a group when the sentence names exactly one group's aliases, paragraphs aimed at an AI left out, max 8. | nothing | `src/engines/heuristic.ts` |
 
@@ -88,12 +88,23 @@ and the prompt tells the writer to convert such a time to the firm's day. The pr
 no fixture or benchmark task, and a test checks that it holds none of the test world's names,
 phrases or numbers.
 
-**Factory integration:** `src/engines/droid.ts` is a distiller adapter stub, not an implemented
-agent runner. The current product target is Droid agent runs inside the creator's scope: a
-sandbox of scope facts, work steps and inbox updates (B2 and B18). Confirm headless finance work
-at the Factory gate before claiming the integration. The existing Claude and heuristic engines
-remain usable for development. The agent dispatcher itself (B2, B18) is a separate entrypoint in
-`src/dispatch/` (`npm run dispatch -w distiller`); see `src/dispatch/README.md`.
+**Factory integration:** the product target is Droid agent runs inside the creator's scope: a
+sandbox of scope facts, work steps and inbox updates (B2 and B18). The agent dispatcher is a
+separate entrypoint in `src/dispatch/` (`npm run dispatch -w distiller`); see
+`src/dispatch/README.md`. Confirm headless finance work at the Factory gate before claiming the
+integration.
+
+`src/engines/droid.ts` is an opt-in fact writer on the official `@factory/droid-sdk/node`. It
+creates a headless session in an empty temporary directory, rejects permissions, disables all
+discovered tools and built-in skills, and asks for the Claude writer's `emit_facts` schema
+(group from the item's group list, labels, happened). Its output goes through the same checks
+(`draftsFromEmit` in `claude.ts`), and Jev triages every draft before the worker writes through
+`POST /api/facts`. The session closes and its temporary directory is removed even on failure.
+Source attribution comes from the captured item, never from model output. Successful writes emit
+the engine, timing and plan as `distill.finished`; only the distiller's own event stream
+carries the plan, since it summarizes the raw transcript. Set
+`FACTORY_MODEL` only to override the account's default. `npm ci` installs the pinned CLI
+alongside the SDK.
 
 **Anthropic track.** `claude-sonnet-5-5` follows the claude-api skill: forced `tool_choice` is a
 400 on this model, so the request uses `auto` + `strict: true` + a system prompt that says to call
@@ -281,6 +292,5 @@ CLI say "simulated".
 - Replay skipping is time-based (events older than the worker). Proposal for A↔B: the server's
   `EventBus` honours `Last-Event-ID` (replay only ring ids above it) and `subscribeEvents` sends
   the last id it saw on reconnect; then the worker can drop the 5 s heuristic.
-- How the engine's plan reaches the dashboard: `distill.finished` is a server-emitted event and
-  `PostFactsBody` has no `plan`/`engine`/`duration_ms`. Proposal for A↔B: add them as optional
-  fields on `PostFactsBody` so the server can emit the event. Until then the plan is in the logs.
+- `PostFactsBody.distillation` now attributes extraction completion. The dashboard gets engine,
+  fact count and duration; exposing raw plans requires a future privileged console view.

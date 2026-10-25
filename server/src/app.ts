@@ -98,7 +98,10 @@ export async function startServer(opts: StartOptions = {}): Promise<RunningServe
     close: () =>
       new Promise<void>((resolve, reject) => {
         server.closeAllConnections(); // SSE clients would otherwise hold the server open
-        server.close((err) => (err ? reject(err) : resolve()));
+        server.close((err) => {
+          if (err) reject(err);
+          else Promise.resolve(retriever.close?.()).then(resolve, reject);
+        });
       }),
   };
 }

@@ -234,6 +234,18 @@ describe("server over HTTP", () => {
     assert.match(((await invalid.json()) as { error: string }).error, /facts\[0\]\.fact: tier must be/);
   });
 
+  test("POST /api/facts: only the worker attributes successful distillation events", async () => {
+    const distillation={session_id:session.id,engine:"droid",plan:"Keep project decisions",duration_ms:120};
+    const before=events.length;
+    const response=await api("/api/facts",{method:"POST",token:"tok-dist",json:{facts:[],distillation}});
+    assert.equal(response.status,200);
+    const event=events.slice(before).find(event=>event.type==="distill.finished");
+    assert.ok(event && event.type==="distill.finished");
+    assert.equal(event.engine,"droid");assert.equal(event.plan,distillation.plan);
+    assert.equal((await api("/api/facts",{method:"POST",token:"tok-cc",json:{facts:[],distillation}})).status,400);
+    assert.equal((await api("/api/facts",{method:"POST",token:"tok-dist",json:{facts:[],distillation:{...distillation,duration_ms:-1}}})).status,400);
+  });
+
   test("POST /api/facts: the decision is validated, not trusted", async () => {
     // A statement no other test searches for, so the fact this leaves behind trips nothing later.
     const factE: Fact = { ...factA, id: "fct_e2e0000e", statement: "Prefers zsh over bash for shell work" };
@@ -332,7 +344,14 @@ describe("server over HTTP", () => {
     assert.ok(savedFolders(publicView).length > 0);
     assert.ok(savedFolders(publicView).every((f) => !f.startsWith("private")), "no private/ fact.saved on the dashboard stream");
 
+    const plans = (view: Array<{ event?: string; data: string }>) => view
+      .filter(e => e.event === "distill.finished").map(e => JSON.parse(e.data).plan);
+    assert.ok(types.includes("distill.finished"), "ordinary subscribers keep engine/timing telemetry");
+    assert.ok(plans(publicView).every(plan => plan === undefined));
+    assert.ok(plans(await readReplay("tok-cc")).every(plan => plan === undefined));
+
     const internalView = await readReplay("tok-dist");
+    assert.ok(plans(internalView).includes("Keep project decisions"), "only the internal worker sees raw extraction plans");
     assert.ok(savedFolders(internalView).includes("private/health"), "the distiller's stream is complete");
     assert.equal((await api("/events", { token: "wrong", headers: { accept: "text/event-stream" } })).status, 401);
   });

@@ -17,6 +17,7 @@ export interface RetrievalHit {
 
 export interface Retriever {
   readonly name: string;
+  close?(): Promise<void>;
   /** Replaces the index with these facts. */
   index(facts: Fact[]): Promise<void>;
   /** Top `k` hits whose folder is granted (folderAllows semantics). */
@@ -26,7 +27,7 @@ export interface Retriever {
 /** Moss when its credentials are set, else the keyword stub. Logs which one. */
 export function createRetriever(): Retriever {
   if (env("MOSS_PROJECT_ID") && env("MOSS_PROJECT_KEY")) {
-    console.warn("[retrieval] moss selected (MOSS_PROJECT_ID set) but not implemented yet (task A4): queries will fail until it is. Unset MOSS_* to use the keyword stub.");
+    console.info("[retrieval] provider: moss (local semantic + keyword index)");
     return new MossRetriever();
   }
   console.info("[retrieval] provider: keyword (stub, simulated relevance; Moss lands in task A4)");

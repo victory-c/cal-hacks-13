@@ -1,8 +1,8 @@
 import assert from "node:assert/strict";
 import { describe, test } from "node:test";
 
-import { ClaudeDistiller, DroidDistiller, HeuristicDistiller, NotConfiguredError, createDistiller, resolveEngine } from "./index.ts";
-import { loadFixture, quiet, withEnv } from "../test-helpers.ts";
+import { ClaudeDistiller, DroidDistiller, HeuristicDistiller, createDistiller, resolveEngine } from "./index.ts";
+import { quiet, withEnv } from "../test-helpers.ts";
 
 const clean = { DISTILLER: undefined, FACTORY_API_KEY: undefined, ANTHROPIC_API_KEY: undefined };
 
@@ -48,13 +48,4 @@ describe("createDistiller", () => {
     });
   });
 
-  test("DroidDistiller constructs with a key and distill() fails loudly until Q1 is resolved", async () => {
-    const droid = new DroidDistiller({ apiKey: "test-factory" });
-    assert.equal(droid.name, "droid");
-    await assert.rejects(droid.distill(loadFixture()), (err: unknown) => {
-      assert.ok(err instanceof NotConfiguredError);
-      assert.equal(err.message, "Droid SDK wiring pending: blocker Q1 (headless Droid), task B2");
-      return true;
-    });
-  });
 });

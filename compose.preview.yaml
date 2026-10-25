@@ -1,0 +1,45 @@
+services:
+  app:
+    build: .
+    init: true
+    restart: unless-stopped
+    env_file: ${PREVIEW_ENV_FILE:-.env.preview}
+    environment:
+      CANON_PORT: "4100"
+      WEB_PORT: "4200"
+      CANON_URL: http://127.0.0.1:4100
+      CANON_DATA_DIR: /app/data
+    # Only the Caddy listener is published. API and web stay inside this network namespace.
+    ports:
+      - "${PREVIEW_BIND_ADDRESS:-127.0.0.1}:${PREVIEW_HTTP_PORT:-8080}:80"
+      - "${PREVIEW_BIND_ADDRESS:-127.0.0.1}:${PREVIEW_HTTPS_PORT:-8443}:443"
+    volumes:
+      - canon-data:/app/data
+      - moss-models:/root/.cache/moss-models
+    healthcheck:
+      test: ["CMD", "node", "-e", "Promise.all([fetch('http://127.0.0.1:4100/health'),fetch('http://127.0.0.1:4200/'),fetch('http://127.0.0.1:4300/')]).then(rs=>process.exit(rs.every(r=>r.ok)?0:1)).catch(()=>process.exit(1))"]
+      interval: 15s
+      timeout: 5s
+      start_period: 30s
+    stop_grace_period: 155s
+
+  proxy:
+    image: caddy:2-alpine
+    restart: unless-stopped
+    network_mode: service:app
+    depends_on:
+      app:
+        condition: service_healthy
+    environment:
+      PREVIEW_SITE: ${PREVIEW_SITE:?Run npm run preview:setup first}
+      PREVIEW_PUBLIC_URL: ${PREVIEW_PUBLIC_URL:?Set the preview URL}
+    volumes:
+      - ./scripts/Caddyfile.preview:/etc/caddy/Caddyfile:ro
+      - caddy-data:/data
+      - caddy-config:/config
+
+volumes:
+  canon-data:
+  moss-models:
+  caddy-data:
+  caddy-config:

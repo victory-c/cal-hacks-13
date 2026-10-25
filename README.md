@@ -40,6 +40,17 @@ npm run dev            # server :4100, distiller worker, agent dispatcher, front
 | http://localhost:4100/health | Server health; `/events` for SSE, `/mcp` for MCP |
 | http://localhost:4173 | Team status board (`npm run status:board`) |
 
+## Shared preview
+
+See [`docs/PREVIEW.md`](docs/PREVIEW.md) for the Docker preview and sponsor-host deployment.
+`npm run preview:setup` generates local credentials in gitignored `.env.preview`;
+`npm run preview:check` checks configured provider credentials without printing values.
+The browser preview is at `http://localhost:8080`, with a visible team sign-in page.
+
+This runs the current scaffold. A shared browser password does not implement the planned
+moderator/member roles or scopes. Factory CLI and Moss embedding assets must download before
+those providers can run; a successful offline test suite does not establish live provider health.
+
 ## How it works
 
 **Canon.** Capture and ingest archive raw context. Triage and the fact writer turn it into short facts,
@@ -87,85 +98,20 @@ the work. Keep credentials in `.env`; share keys directly between teammates.
 
 ## Sponsor tracks and integration evidence
 
-Where each sponsor's tool does real work in the product described in the PRD (two tiers and
-task-built scopes for small finance teams: moderators see everything, and every other person and
-agent gets a memory that holds only what their task needs). Status says where the code is, and
-nothing counts as shipped until it is on `main`:
-
-- **built**: on `main` and running in the demo.
-- **in review**: on an open pull request, not merged to `main` (the PR is named).
-- **in progress**: on a pushed branch with no pull request yet, or still being written. An item
-  whose open PR was written for the cut walls design stays here until its scopes version is up
-  for review.
-- **planned**: not started, waiting on a blocker, or in the cut order.
-
-Paths below that are not on `main` exist only on the pull request named next to them. File-level
-detail, blockers and the last check time: [`docs/SPONSORS.md`](docs/SPONSORS.md). Devpost
-text: [`docs/DEVPOST.md`](docs/DEVPOST.md). Scale slide: [`docs/SCALE_SLIDE.md`](docs/SCALE_SLIDE.md).
-
-- **Factory Droid:** runs every agent as headless `droid exec --auto low`, one sandbox folder
-  per run outside the repo holding only that agent's scope as markdown files, a few short steps
-  with an inbox between them, and every step streamed into the agent's dashboard lane. New
-  in-scope facts reach the agent at its next step; when its creator's scope narrows, the run
-  restarts from the plan step in a fresh folder without the removed facts. On `main` the Droid
-  distiller engine is still a stub. Agent runs and live routing: **in review** (B2, B18; PR
-  #9), not yet run against a real `droid`; gate Sat 11:00 (blocker Q1). See
-  [Where Droid runs](#where-droid-runs) below.
-- **Anthropic (Claude):** `claude-sonnet-5-5` writes facts from captured context
-  (`distiller/src/engines/claude.ts`) and agent briefs from the agent's scope;
-  `claude-haiku-5-5` is the fallback judge (`shared/src/judge/claude.ts`); the benchmark
-  responder is `bench/src/responder.ts`. Excluded groups are removed in code before any model
-  sees a fact, and briefs are written only from facts already in the agent's scope. When the
-  fallback judge runs (no Jev key, blocker Q3), Claude Haiku picks each fact's group (unsure
-  goes to the moderators-only `inbox`) and answers the scope-build questions, where a "maybe" on
-  an exclusion counts as excluded. The risk left is a deal fact misfiled into a public group that
-  the per-fact exclusion check also misses; the benchmark's paraphrase and indirect attacks
-  measure it. Judge, scaffold fact writer and responder: **built**. Finance fact writer, with
-  group and label suggestions: **in review** (B17, on draft PR #7). Briefs and the fallback
-  agent runner: **in review** (B2; PR #9).
-- **Jev (TypeSafe AI)**, not a prize track: the judge behind save-time triage (keep, which group,
-  AI instructions, relation), the scope builder's exclusion and relevance questions, handoff
-  relevance and live routing (`shared/src/judge/jev.ts`, `distiller/src/triage.ts`,
-  `server/`). Client **built** but unverified against TypeSafe's docs (blocker Q3). Triage:
-  **in review** (B5; PR #10). Live routing: **in review** (B18; PR #9). Scope and handoff
-  questions: **planned** (lane A).
-- **Moss:** candidates for every scope build, live update and handoff, with each fact indexed by
-  id, group and labels so a handoff searches only inside the requester's scope
-  (`server/src/retrieval/moss.ts`). **Planned** (A4, blocker Q2); `moss.ts` is a stub and the
-  keyword retriever runs today.
-- **Hyphenate (Autonomous Systems for Finance):** the whole product: two tiers, the scope builder
-  (exclusions in code → Moss → Jev yes/no → a fixed list of fact ids), living scopes, agent
-  profiles capped at their creator's scope, no refusals, and the audit log
-  (`shared/src/types/scopes.ts`, `server/`, `web/`). Scopes contract: **in review** (draft PR
-  #7). Scope builder, living scopes, tiers, agent profiles, handoff and audit in `server/`:
-  **planned** (lane A). Until then, the scaffold's read routes (`GET /api/facts`, `/events`,
-  `/health`) still answer callers with no token: every fact outside `private/`, and the total
-  fact count. Moderator console and member view in `web/`: **planned** (C13, C14).
-- **Microsoft (Built for the Real World):** the benchmark in `bench/` (leak rate,
-  missing-context rate, accuracy, tokens, latency, cost and scope build time across four setups,
-  over 60 attacks and 30 tasks), the audit log and the scale path. The scaffold runner for three
-  baselines is **built**, but its results do not measure scopes. Finance runner and task sets:
-  **planned** (A8, C6). Scale slide: **in review** (PR #16, `b/story-scopes`, stacked on PR #7).
-- **Armadin (security):** scopes enforced in code at question time (no refusal to probe),
-  agents capped at their creator's scope, quarantine of captured text with instructions aimed at
-  an AI, and the attack box. Quarantine: **in review** (B5; PR #10); the server route that
-  holds a flagged item is lane A's, **planned**. Scopes and agent caps: **planned** (lane A).
-  Attack box: **planned** (C16). See `docs/SPONSORS.md`.
-- **Bitdeer, Mana, Notability:** **planned**, see `docs/SPONSORS.md`.
-
-### Where Droid runs
-
-Status: **in review** (B2 agent runs, B18 live routing; PR #9, `b/dispatch`). Nothing below is
-on `main`, and `distiller/src/dispatch/` exists only on PR #9 until it merges. It has not yet run
-against a real `droid` (its tests put a fake one on PATH) or against lane A's scope routes. If
-Droid can't run headless finance tasks (gate Sat 11:00, blocker Q1), the Claude runner takes
-over and this section is removed.
-
-| Step | Where | What Droid does |
-|---|---|---|
-| Create | `POST /api/agents`, then `POST /api/dispatch` | A member creates an agent with a task and optional exclusions. The server builds its scope from the creator's scope only and checks it is a subset. A dispatch request starts the run. |
-| Sandbox | One folder per run, outside the repo and the data directory (on PR #9: `$TMPDIR/canon-agents/<run>/`) | The folder holds only the agent's scope as markdown files (`GET /api/scopes/:principal/facts`), quoted as information, never instructions, plus a brief Claude writes from them. Droid runs `droid exec --auto low` there and reads and writes files in that folder; whether `--auto low` also lets it run Python for the numbers is still to be confirmed at the Factory booth (blocker Q1). On macOS a `sandbox-exec` profile denies the repo, the data directory and other runs; it covers file paths only, so whether Droid can reach the network, including Bullwark's own server, is part of blocker Q1. |
-| Steps and lanes | `agent.run`, `agent.step` events | Each task is a few short Droid steps. Every step, file and result streams into the agent's dashboard lane and its audit record. The agent's new facts are saved as its creator's memories. |
-| Live routing | `distiller/src/dispatch/routing.ts`, `agent.inbox` events | Between steps, facts that join the agent's scope reach its inbox when Jev says it needs them now. A narrowed scope is urgent: the run folder is discarded and the run restarts from the plan step in a fresh folder built from the new scope. |
+- **Anthropic:** Claude fact writing and briefs are the product plan. Existing Claude adapters
+  are in `distiller/src/engines/claude.ts`, `shared/src/judge/claude.ts` and `bench/src/responder.ts`.
+- **Factory:** the target is Droid running every agent in a sandbox folder holding only its scope,
+  with visible steps and inbox updates. The scaffold now has an optional headless SDK distiller
+  (`distiller/src/engines/droid.ts`) that proposes structured facts with tools disabled. Scoped
+  finance-agent dispatch is separate pending work.
+- **Moss:** scope builds and in-scope handoff search are planned. `server/src/retrieval/moss.ts` now implements
+  local hybrid retrieval over hot facts with folder metadata prefilters and canonical-ID checks.
+  Scope-based group, label and fact-ID filtering remains pending; keyword retrieval is the offline fallback.
+- **Jev:** `shared/src/judge/jev.ts` provides the adapter behind `judge()`. It uses TypeSafe's
+  documented keyed questions and answers at `https://api.typesafe.ai/v1/systemone` by default. Live
+  requests passed; this does not validate the planned scope pipeline.
+- **Hyphenate and Microsoft:** proof will come from the finance demo, audit trail and measured
+  leak, missing-context, accuracy, token, latency and cost results. Existing scaffold results
+  alone do not measure information barriers.
 
 The demo uses synthetic data. Quote measured runs only and label simulated behavior.

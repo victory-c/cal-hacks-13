@@ -13,6 +13,8 @@
     "test": "node --import tsx --test \"src/**/*.test.ts\""
   },
   "dependencies": {
-    "@canon/shared": "*"
+    "@canon/shared": "*",
+    "@factory/cli": "0.249.0",
+    "@factory/droid-sdk": "0.10.0"
   }
 }

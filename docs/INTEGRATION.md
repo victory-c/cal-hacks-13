@@ -5,6 +5,13 @@
 (C, Bullwark's client side); Victor (B) joins for agent events. Types live in `shared/src/types/`
 and are imported from `@canon/shared`.
 
+## Implementation status
+
+This document defines the target finance contract. The current scaffold still uses folder-based
+facts, grants and session capture; package READMEs and `shared/src/types/` describe those implemented
+shapes. The preview team login protects access to that scaffold; it does not establish a moderator
+or member principal. Provider adapters can run without the planned scope builder or agent APIs.
+
 ## Five rules
 
 1. **Canon decides, Bullwark shows.** Canon owns all state and every access decision. Bullwark never

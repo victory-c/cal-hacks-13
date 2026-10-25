@@ -169,6 +169,14 @@ export async function postFacts(deps: ApiDeps, client: string, body: unknown, gr
   if (!grant) throw new HttpError(403, `no grants for client "${client}"`);
   if (!isRecord(body) || !Array.isArray(body.facts)) throw new HttpError(400, "body must be { facts: [{ fact, decision }] }");
 
+  const attribution = body.distillation;
+  if (attribution !== undefined && (client !== "distiller" || !isRecord(attribution) ||
+      typeof attribution.session_id !== "string" || !["droid", "claude", "heuristic"].includes(String(attribution.engine)) ||
+      typeof attribution.duration_ms !== "number" || !Number.isFinite(attribution.duration_ms) || attribution.duration_ms < 0 ||
+      (attribution.plan !== undefined && typeof attribution.plan !== "string"))) {
+    throw new HttpError(400, "invalid internal distillation attribution");
+  }
+
   const entries: Array<{ fact: Fact; decision: SaveDecision }> = body.facts.map((entry, i) => {
     if (!isRecord(entry)) throw new HttpError(400, `facts[${i}] must be { fact, decision }`);
     const v = validateFact(entry.fact);
@@ -201,6 +209,12 @@ export async function postFacts(deps: ApiDeps, client: string, body: unknown, gr
     await deps.store.putFact(fact);
     deps.bus.emit({ type: "fact.saved", fact, decision });
     saved.push(fact.id);
+  }
+  if (isRecord(attribution)) {
+    deps.bus.emit({ type: "distill.finished", session_id: attribution.session_id as string,
+      engine: attribution.engine as "droid" | "claude" | "heuristic", facts: saved.length,
+      duration_ms: attribution.duration_ms as number,
+      ...(typeof attribution.plan === "string" && entries.every(({fact}) => !fact.folder.startsWith("private")) ? { plan: attribution.plan } : {}) });
   }
   return { saved, retired };
 }

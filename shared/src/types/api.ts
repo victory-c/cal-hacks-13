@@ -1,7 +1,7 @@
 // REST surface of the Canon server (besides MCP at /mcp and SSE at /events).
 // Auth on every /api and /mcp call: `Authorization: Bearer <client token>`.
 
-import type { CanonEvent, RelayedEventType } from "./events.ts";
+import type { CanonEvent, DistillEngine, RelayedEventType } from "./events.ts";
 import type { Fact, GroupId } from "./fact.ts";
 import type { Grant } from "./grants.ts";
 import type { SaveDecision } from "./judge.ts";
@@ -67,6 +67,8 @@ export interface PostSessionResponse {
 }
 
 export interface PostFactsBody {
+  /** Internal worker attribution; emitted after the write succeeds. */
+  distillation?: { session_id: string; engine: DistillEngine; plan?: string; duration_ms: number };
   facts: Array<{ fact: Fact; decision: SaveDecision }>;
 }
 export interface PostFactsResponse {
