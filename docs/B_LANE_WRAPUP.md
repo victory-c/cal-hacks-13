@@ -1,7 +1,7 @@
 # Lane B freeze wrap-up
 
 Verified October 24, 2026 (PDT), on `codex/b-finish-pipeline`, based on main `ec4ef79`.
-Changes are local; the shared preview has not been rebuilt during this task. This report is the
+The review branch also integrates main `4dc9c81`; the shared preview has not been rebuilt. This report is the
 handoff to Henry and Edan for the additive contract, dispatcher and frontend changes.
 
 ## Screenshot coding checklist
@@ -51,10 +51,13 @@ added. A canonical-executable regression accompanies the fix.
 
 ## Validation
 
-Final `npm run check` passed **742 tests**, status validation and every workspace typecheck.
+Original implementation checks passed 742 tests. After integrating main `4dc9c81`, final
+`npm run check` passed **811 tests**, status validation and every workspace typecheck.
 `npm run build` passed the browser and extension bundles. `git diff --check`, submission-marker
 checks and local Markdown-link checks passed. The final distiller suite contains 258 tests,
-including the actual demo-seed position case; the server suite contains 121 tests.
+including the actual demo-seed position case; the integrated server suite contains 140 tests.
+Stop is rechecked inside the new per-session write lock; a queued-write regression verifies
+that a save overtaken by cancellation cannot overwrite the archived session.
 
 Root regressions include `scripts/agent-control.test.mjs` and `scripts/pipeline.test.mjs`.
 The control test uses real HTTP/SSE with explicitly simulated judge/runtime and covers scope
@@ -76,7 +79,7 @@ Still outside this completed coding work:
 - Henry: complete the measured four-setup finance benchmark; only its resulting finance files
   may supply leak/missing-context/accuracy/cost claims.
 - Team: review/merge this branch and deploy server, dispatcher and browser bundles together;
-  then run the full preview dress rehearsal. This task did not publish or deploy changes.
+  then run the full preview dress rehearsal. Publishing the review branch does not deploy it.
 - Edan: recording/upload, screenshots and cover image, teammates/track selections, rehearsal
   and final Devpost submission. A customer interview requires a real participant and consent.
 - Deferred connectors: live ChatGPT-extension acceptance and ChatGPT MCP connector. The

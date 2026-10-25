@@ -117,6 +117,35 @@ describe("FileStore", () => {
     assert.deepEqual(await new FileStore(own).putSession(update, sameClient(update)), { updated: true });
   });
 
+  test("queued session writes recheck Stop immediately before writing", async (t) => {
+    const own = await mkdtemp(join(tmpdir(), "canon-stop-queue-"));
+    t.after(() => rm(own, { recursive: true, force: true }));
+    const store = new FileStore(own);
+    const session: CapturedSession = { id: "ses_00ef", client: "dispatcher", started_at: "now", messages: [] };
+    const read = store.getSession.bind(store);
+    let release!: () => void;
+    let entered!: () => void;
+    const started = new Promise<void>((resolve) => { entered = resolve; });
+    const gate = new Promise<void>((resolve) => { release = resolve; });
+    let first = true;
+    t.mock.method(store, "getSession", async (id: string) => {
+      if (first) { first = false; entered(); await gate; }
+      return read(id);
+    });
+    const initial = store.putSession(session, () => true);
+    await started;
+    let stopped = false;
+    const queued = store.putSession({ ...session, title: "Late output" }, () => true, () => {
+      if (stopped) throw new Error("agent run was stopped");
+    });
+    const rejected = assert.rejects(queued, /agent run was stopped/);
+    stopped = true;
+    release();
+    await initial;
+    await rejected;
+    assert.deepEqual(await read(session.id), session);
+  });
+
   test("concurrent first writes of one id with an ownership rule: exactly one wins and owns it", async (t) => {
     const own = await mkdtemp(join(tmpdir(), "canon-store-race-"));
     t.after(() => rm(own, { recursive: true, force: true }));
