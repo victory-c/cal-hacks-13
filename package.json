@@ -23,6 +23,7 @@
     "preview:check": "node scripts/setup-preview.mjs --check",
     "doctor": "node scripts/doctor.mjs",
     "dev": "node scripts/dev.mjs",
+    "demo:claude": "node scripts/demo-claude.mjs",
     "typecheck": "npm run typecheck --workspaces --if-present",
     "test": "npm test --workspaces --if-present && node --import tsx --test scripts/*.test.mjs",
     "build": "npm run build --workspaces --if-present",

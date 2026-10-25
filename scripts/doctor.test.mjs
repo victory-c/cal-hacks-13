@@ -96,6 +96,9 @@ test("the person-token check validates identity without echoing the token", () =
   assert.equal(checkPersonToken({ personToken: "", clientTokens: "", principals }), null);
   assert.equal(checkAuthor({ personToken: "", principal: "" }).level, "warn");
   assert.equal(checkAuthor({ personToken: "set", principal: "" }), null);
+  const off = checkAuthor({ personToken: "", principal: "", capture: "0" });
+  assert.equal(off.level, "ok", "a checkout that keeps capture off on purpose is not a problem");
+  assert.match(off.message, /npm run demo:claude/);
 });
 
 test("the committed MCP and hook wiring pass; malformed or credential-holding variants fail", () => {

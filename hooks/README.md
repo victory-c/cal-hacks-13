@@ -111,6 +111,23 @@ a 10 s watchdog ends the process no matter what. Missing transcript or 0 message
 running the hooks exit silently; `CANON_CAPTURE=0` and `CANON_CONTEXT=0` opt out independently.
 Start a **new** Claude Code session after pulling because hooks are read at session start.
 
+**Coding here vs. demoing as a person.** Both switches are read like every other key (environment
+first, then `.env`), so put `CANON_CAPTURE=0` and `CANON_CONTEXT=0` in this checkout's `.env` and
+leave `CANON_PERSON_TOKEN` empty: sessions you code in are nobody's memory and get nobody's
+context. Then open Claude Code as one synthetic person with the launcher at the repo root:
+
+```bash
+npm run demo:claude                          # list the people this .env's tokens open
+npm run demo:claude -- dollar-bill           # Claude Code as Dollar Bill against CANON_URL
+npm run demo:claude -- axe --url https://…   # against a shared server; --token <t> for a handed-out token
+```
+
+It asks the server who the token is (`GET /api/me`, refusing worker tokens), prints the person
+and their task (never the token), and starts `claude` in the repo with `CANON_PERSON_TOKEN`,
+`CANON_URL`, `CANON_CAPTURE=1` and `CANON_CONTEXT=1` set for that process only, so the hooks and
+the `canon` MCP server in `.mcp.json` all act as that person. Two launchers in two terminals are two
+people on the same server. Arguments after `--` go to `claude`.
+
 To capture **every** project on your machine (the real product), install at user scope:
 
 ```bash

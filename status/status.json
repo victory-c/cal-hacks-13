@@ -1,6 +1,6 @@
 {
   "project": "Bullwark",
-  "updated": "2026-10-25T08:45:38.169Z",
+  "updated": "2026-10-25T08:59:51.776Z",
   "team": [
     {
       "id": "A",
@@ -614,6 +614,15 @@
       "state": "done",
       "title": "Refile cascade: an agent loses a fact when its creator does",
       "note": "POST /api/facts/:id/file now removes a refiled fact from every agent scope whose creator no longer holds it (repeated until stable), not only from scopes whose own rule excludes it. Before this, Wags filing one of Dollar Bill's facts into deal/stonewall left it in his desk assistant's scope. Regression test in server/src/world.test.ts (fails without the fix); server 140/140 and e2e 7/7 pass."
+    },
+    {
+      "id": "A25",
+      "owner": "A",
+      "milestone": "M5",
+      "priority": "must",
+      "state": "done",
+      "title": "Demo launcher: open Claude Code as one person; coding sessions stay nobody's memory",
+      "note": "npm run demo:claude -- <person> [--url] [--token] checks GET /api/me (refuses worker tokens), prints the person and task (never the token) and starts claude with CANON_PERSON_TOKEN, CANON_URL, CANON_CAPTURE=1 and CANON_CONTEXT=1 for that process only. The capture and context hooks now read their off switches from .env as well as the environment (environment wins), so a checkout sets both to 0 and coding sessions are never captured or given anyone's memory. Doctor reports that setup as ok. Tests: scripts/demo-claude.test.mjs, hooks capture/context switch tests, doctor."
     },
     {
       "id": "B28",
