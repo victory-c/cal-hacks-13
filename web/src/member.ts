@@ -21,6 +21,9 @@ const storage = safeStorage();
 const TOKEN_KEY = "canon.memberToken";
 
 function pickApi(): MemberApi {
+  // demo-member.ts hands over a mock playing someone other than Ben.
+  const handed = (globalThis as { __bullwarkMemberApi?: MemberApi }).__bullwarkMemberApi;
+  if (handed) return handed;
   const q = new URLSearchParams(location.search);
   if (q.get("data") === "mock") return new MockCanon();
   const fromQuery = q.get("token");
@@ -64,7 +67,7 @@ const el = {
   firm: byId("firm"), greeting: byId("greeting"), notice: byId("notice"), modeLine: byId("mode-line"),
   agents: byId<HTMLUListElement>("agents"), newAgent: byId<HTMLButtonElement>("new-agent"),
   agentForm: byId<HTMLFormElement>("agent-form"), agentFormTitle: byId("agent-form-title"),
-  aName: byId<HTMLInputElement>("a-name"), aTask: byId<HTMLTextAreaElement>("a-task"), aLeave: byId<HTMLInputElement>("a-leave"),
+  aName: byId<HTMLInputElement>("a-name"), aTask: byId<HTMLTextAreaElement>("a-task"),
   docChoices: byId("doc-choices"), aSchedule: byId<HTMLSelectElement>("a-schedule"),
   aGroups: byId("a-groups"), aGroupsField: byId("a-groups-field"), saveAgent: byId<HTMLButtonElement>("save-agent"),
   deleteAgent: byId<HTMLButtonElement>("delete-agent"), cancelAgent: byId<HTMLButtonElement>("cancel-agent"),
@@ -342,7 +345,9 @@ function buildDocChoices(): void {
  */
 function buildGroupChoices(run: AgentRun | null | undefined): void {
   const fromRun = new Map((run?.memory_groups ?? []).map((g) => [g.id, g]));
-  const ids = run?.memory_groups?.length ? run.memory_groups.map((g) => g.id) : Object.keys(state.names).filter((id) => id !== "inbox");
+  // Never offer a group the member holds nothing in: listing one would reveal that it exists.
+  const held = new Set(state.facts.filter((f) => f.status === "hot" && f.group !== "inbox").map((f) => f.group));
+  const ids = [...held];
   el.aGroups.replaceChildren(...ids.map((id) => {
     const g = fromRun.get(id);
     const mine = state.facts.filter((f) => f.group === id && f.status === "hot").length;
@@ -360,7 +365,6 @@ function openAgentForm(target: "new" | string): void {
   el.aName.value = run?.name ?? "";
   el.aName.disabled = api.mode === "canon" && !!run;
   el.aTask.value = run?.task ?? "";
-  el.aLeave.value = run?.leave_out ?? "";
   buildGroupChoices(run);
   const docs = new Set<string>(run?.docs ?? ["summary"]);
   for (const box of el.docChoices.querySelectorAll<HTMLInputElement>("input[name=docs]")) box.checked = docs.has(box.value);
@@ -379,7 +383,9 @@ async function saveAgent(e: Event): Promise<void> {
   e.preventDefault();
   const name = el.aName.value.trim(), task = el.aTask.value.trim();
   if (!name || !task) return;
-  const leave = el.aLeave.value.trim();
+  // There is no free-text leave-out any more; an existing agent keeps whatever it already had.
+  const editing = state.agentForm && state.agentForm !== "new" ? state.agents.find((a) => a.id === state.agentForm) : undefined;
+  const leave = editing?.leave_out?.trim() ?? "";
   const docs = [...el.docChoices.querySelectorAll<HTMLInputElement>("input[name=docs]:checked")].map((b) => b.value as DocType);
   const boxes = [...el.aGroups.querySelectorAll<HTMLInputElement>("input[name=groups]")];
   if (boxes.length && boxes.every((b) => !b.checked)) { notify("Tick at least one group, or the agent has nothing to work from."); return; }
@@ -634,7 +640,7 @@ async function start(): Promise<void> {
   el.docChoices.closest("fieldset")!.hidden = api.mode !== "mock";
   el.aSchedule.closest("label")!.hidden = api.mode !== "mock";
   el.modeLine.textContent = api.mode === "mock"
-    ? "Demo data: Ben Kim’s view of the synthetic Axe Capital world. Triage, relevance and agent runs are simulated in the browser."
+    ? `Demo data: ${(globalThis as { __bullwarkDemoWho?: string }).__bullwarkDemoWho ?? "Ben Kim"}’s view of the synthetic Axe Capital world. Triage, relevance and agent runs are simulated in the browser.`
     : "Connected to Canon.";
   const res = await attempt("load your profile", () => api.me());
   if (!res.ok) return;

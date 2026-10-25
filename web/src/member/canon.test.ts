@@ -15,12 +15,12 @@ const run = (over: Record<string, unknown> = {}) => ({ id: "research-analyst", c
 
 test("a token rides in the Authorization header; reads unwrap their envelopes", async (t) => {
   const canon = fakeCanon(t, {
-    "GET /api/me": { id: "ben", kind: "person", name: "Ben Carter", firm: "Axe Capital" },
+    "GET /api/me": { id: "ben", kind: "person", name: "Ben Kim", firm: "Axe Capital" },
     "GET /api/facts": { facts: [fact("fct_1", "TMC paused its buyback")] },
     "GET /api/agents": { agents: [run()] },
   });
   const client = new CanonClient(SERVER, "tok_ben");
-  assert.equal((await client.me()).name, "Ben Carter");
+  assert.equal((await client.me()).name, "Ben Kim");
   assert.deepEqual((await client.facts()).map((f) => f.id), ["fct_1"]);
   assert.deepEqual((await client.agents()).map((a) => a.id), ["research-analyst"]);
   for (const c of canon.calls) {
@@ -107,7 +107,7 @@ test("live agent events refetch the run and map run states to started or finishe
 });
 
 test("a retired fact asks the page to refresh its memory; unknown event types are ignored", async (t) => {
-  const canon = fakeCanon(t, { "GET /api/me": { id: "ben", kind: "person", name: "Ben Carter" } });
+  const canon = fakeCanon(t, { "GET /api/me": { id: "ben", kind: "person", name: "Ben Kim" } });
   const seen: MemberEvent[] = [];
   const close = new CanonClient(SERVER, "tok").subscribe((e) => seen.push(e), () => {});
   await canon.settle();

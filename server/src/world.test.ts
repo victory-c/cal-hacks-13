@@ -87,12 +87,12 @@ describe("demo world on the server (fixtures/world/)", () => {
     assert.ok(scopeOf("axe").some((f) => f.folder === "deal/stonewall"), "the deal lead's task is the deal");
   });
 
-  test("no deal/stonewall fact reaches Bill Stevens or his agent, and the agent stays inside his scope", () => {
+  test("no deal/stonewall fact reaches Dollar Bill or his agent, and the agent stays inside his scope", () => {
     for (const p of ["dollar-bill", "desk-assistant"]) {
       assert.equal(scopeOf(p).filter((f) => f.folder.startsWith("deal")).length, 0, `${p} holds no deal fact`);
     }
     const bill = new Set(running.world.scopes.get("dollar-bill")?.fact_ids);
-    for (const id of running.world.scopes.get("desk-assistant")?.fact_ids ?? []) assert.ok(bill.has(id), `${id} is in Bill Stevens's scope`);
+    for (const id of running.world.scopes.get("desk-assistant")?.fact_ids ?? []) assert.ok(bill.has(id), `${id} is in Dollar Bill's scope`);
     assert.ok(running.world.audit.some((e) => e.kind === "scope.built" && e.principal === "dollar-bill" && e.actor === "server"));
   });
 
@@ -123,7 +123,7 @@ describe("demo world on the server (fixtures/world/)", () => {
     for (const id of demo.announced) assert.equal(running.store.getFact(id)?.folder, "market/public");
 
     // Code still keeps every unannounced deal fact out; the announced ones may now join by rule.
-    await until(() => scopeOf("dollar-bill").some((f) => demo.announced.includes(f.id)), "an announced fact joining Bill Stevens's scope");
+    await until(() => scopeOf("dollar-bill").some((f) => demo.announced.includes(f.id)), "an announced fact joining Dollar Bill's scope");
     assert.equal(scopeOf("dollar-bill").filter((f) => f.folder.startsWith("deal")).length, 0);
     const bill = new Set(running.world.scopes.get("dollar-bill")?.fact_ids);
     for (const id of running.world.scopes.get("desk-assistant")?.fact_ids ?? []) assert.ok(bill.has(id), "the agent still sits inside its creator");
@@ -139,7 +139,7 @@ describe("demo world on the server (fixtures/world/)", () => {
 
     const res = await api(`${ROUTES.facts}/${id}/file`, { method: "POST", token: "tok-wags", json: { group: "deal/stonewall" } });
     assert.equal(res.status, 200);
-    assert.equal(running.world.scopes.get("dollar-bill")?.fact_ids.includes(id), false, "Bill Stevens's rule excludes deal/*");
+    assert.equal(running.world.scopes.get("dollar-bill")?.fact_ids.includes(id), false, "Dollar Bill's rule excludes deal/*");
     assert.equal(running.world.scopes.get("desk-assistant")?.fact_ids.includes(id), false, "the agent never keeps what its creator lost");
     assert.ok(running.world.audit.some((e) => e.kind === "fact.left_scope" && e.principal === "desk-assistant" && e.fact_ids?.includes(id)), "the agent's loss is audited");
 

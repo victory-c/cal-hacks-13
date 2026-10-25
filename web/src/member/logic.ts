@@ -53,7 +53,7 @@ export function fmtDay(iso: string, timeZone?: string): string {
 export function matchesKeyword(f: Fact, keyword: string, names: Record<string, string>): boolean {
   const words = keyword.toLowerCase().split(/\s+/).filter(Boolean);
   if (!words.length) return true;
-  const hay = `${f.statement} ${groupLabel(f.group, names)} ${sourceTitle(f)}`.toLowerCase();
+  const hay = `${f.statement} ${groupLabel(f.group, names)} ${sourceTitle(f)}`.toLowerCase().replace(/\btmc\b/g, "tmc taylor mason capital");
   return words.every((w) => hay.includes(w));
 }
 

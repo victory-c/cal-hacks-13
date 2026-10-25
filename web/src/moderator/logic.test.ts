@@ -49,7 +49,7 @@ test("build stages read in plain words", () => {
 });
 
 test("feed lines: quarantine is an alert, intermediate build stages are silent", () => {
-  const name = (id: string) => ({ ben: "Ben Carter" } as Record<string, string>)[id] ?? id;
+  const name = (id: string) => ({ ben: "Ben Kim" } as Record<string, string>)[id] ?? id;
   const q = modFeedText({ type: "item.quarantined", at: "", item_id: "i", source: "Counsel email", reason: "Contains instructions aimed at an AI" }, name, groups)!;
   assert.equal(q.alert, true);
   assert.match(q.text, /aimed at an AI/);

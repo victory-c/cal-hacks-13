@@ -22,9 +22,22 @@ const storage = safeStorage();
 const TOKEN_KEY = "canon.moderatorToken";
 const NEW = "__new";
 
+/** Demo mode: refiled facts are shared with demo member tabs (demo-member.html) through localStorage. */
+function shareFiled(facts: Fact[]): void {
+  try {
+    const key = "bullwark.demo.shared";
+    const shared = JSON.parse(localStorage.getItem(key) ?? "{}") as { facts?: Fact[] };
+    const byId = new Map((shared.facts ?? []).map((f) => [f.id, f]));
+    for (const f of facts) byId.set(f.id, f);
+    localStorage.setItem(key, JSON.stringify({ ...shared, facts: [...byId.values()] }));
+  } catch {
+    // storage blocked: the tabs simply don't sync
+  }
+}
+
 function pickApi(): ModeratorApi {
   const q = new URLSearchParams(location.search);
-  if (q.get("data") === "mock") return new ModeratorMock();
+  if (q.get("data") === "mock") return new ModeratorMock({ onFiled: shareFiled });
   const fromQuery = q.get("token");
   if (fromQuery) {
     storage.setItem(TOKEN_KEY, fromQuery);

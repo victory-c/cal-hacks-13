@@ -78,7 +78,7 @@ export function classify(text: string): string {
 const tokens = (f: Fact) => Math.ceil(f.statement.length / 4);
 const err = (status: number, message: string) => Object.assign(new Error(message), { status });
 
-export interface ModMockOptions { stepMs?: number; buildMs?: number; triageMs?: number }
+export interface ModMockOptions { stepMs?: number; buildMs?: number; triageMs?: number; onFiled?: (facts: Fact[]) => void }
 
 export class ModeratorMock implements ModeratorApi {
   readonly mode = "mock" as const;
@@ -96,11 +96,13 @@ export class ModeratorMock implements ModeratorApi {
   private readonly stepMs: number;
   private readonly buildMs: number;
   private readonly triageMs: number;
+  private readonly onFiled?: (facts: Fact[]) => void;
 
   constructor(opts: ModMockOptions = {}) {
     this.stepMs = opts.stepMs ?? 650;
     this.buildMs = opts.buildMs ?? 450;
     this.triageMs = opts.triageMs ?? 1200;
+    this.onFiled = opts.onFiled;
     const seen = new Set<string>();
     for (const itemId of SEED_ITEMS) {
       const item = ITEMS[itemId]!;
@@ -130,7 +132,7 @@ export class ModeratorMock implements ModeratorApi {
         outputs: [], finished_at: null, fact_count: p.fact_ids.length, pending: 0,
       });
     }
-    // 0:00: Bill Stevens's question to his desk assistant, answered from inside its scope.
+    // 0:00: Dollar Bill's question to his desk assistant, answered from inside its scope.
     const h = this.handoff("desk-assistant", "Anything going on with Taylor Mason Capital? Should we add to our position?");
     this.log.push({ type: "context.served", at: h.at, handoff: h });
   }
@@ -367,6 +369,7 @@ export class ModeratorMock implements ModeratorApi {
     for (const f of moving) f.group = group;
     this.record(`Filed ${moving.length} ${moving.length === 1 ? "fact" : "facts"} from ${from.join(", ")} to ${this.gname(group)}`, null, group);
     this.emit({ type: "fact.filed", at: this.now(), fact_ids: moving.map((f) => f.id), group, from });
+    this.onFiled?.(structuredClone(moving));
     this.recompute(`filed to ${this.gname(group)}`);
   }
 

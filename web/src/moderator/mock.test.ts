@@ -37,7 +37,7 @@ test("seed state follows the timeline: Ben has no scope, moderators see everythi
   assert.equal(ps.find((p) => p.id === "wags")!.fact_ids.length, (await api.facts()).length);
 });
 
-test("0:00: Bill's trading desk assistant is handed no Stonewall fact", async () => {
+test("0:00: Dollar Bill's desk assistant is handed no Stonewall fact", async () => {
   const api = fast();
   const [h] = await api.handoffs();
   const stonewall = new Set((await api.facts()).filter((f) => f.group === "deal/stonewall").map((f) => f.id));
@@ -65,8 +65,8 @@ test("0:25: the other live items file the answer key's facts", async () => {
   await wait();
   const facts = await api.facts();
   assert.ok(facts.some((f) => f.source_title === memo.source && f.group === "deal/stonewall"));
-  assert.ok((await scopeOf(api, "axe")).some((f) => f.source_title === memo.source), "joins Bob's scope");
-  assert.ok((await scopeOf(api, "dollar-bill")).every((f) => f.source_title !== memo.source), "never Bill Stevens's");
+  assert.ok((await scopeOf(api, "axe")).some((f) => f.source_title === memo.source), "joins Axe's scope");
+  assert.ok((await scopeOf(api, "dollar-bill")).every((f) => f.source_title !== memo.source), "never Dollar Bill's");
 });
 
 test("0:40: building Ben's scope streams four stages and removes the walled groups in code", async () => {
@@ -75,14 +75,14 @@ test("0:40: building Ben's scope streams four stages and removes the walled grou
   await buildBen(api);
   const stages = events.filter((e): e is Extract<ModEvent, { type: "scope.build" }> => e.type === "scope.build" && e.principal === "ben");
   assert.deepEqual(stages.map((s) => s.stage), ["exclusions", "candidates", "judged", "done"]);
-  assert.deepEqual(stages[0]!.groups_removed, ["Project Stonewall", "Bill's trading desk"]);
+  assert.deepEqual(stages[0]!.groups_removed, ["Project Stonewall", "Dollar Bill's desk"]);
   const ben = await scopeOf(api, "ben");
   assert.ok(ben.length > 0);
   assert.ok(ben.every((f) => f.group !== "deal/stonewall" && f.group !== "desk/dollar-bill"));
   assert.ok((await scopeOf(api, "research-analyst")).length > 0, "his agent picks up from his scope");
 });
 
-test("1:20: refiling the announced terms reaches Ben and Bill Stevens; the deal analyst keeps them", async () => {
+test("1:20: refiling the announced terms reaches Ben and Dollar Bill; the deal analyst keeps them", async () => {
   const api = fast();
   await buildBen(api);
   const announced = (await api.facts()).filter((f) => f.group === "deal/stonewall" && /52\.75|premium|tender offer|equity value|November 10/i.test(f.statement)).map((f) => f.id);

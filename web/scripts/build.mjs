@@ -7,7 +7,7 @@
 //   node scripts/build.mjs --watch --serve  also run scripts/serve.mjs (npm run dev -w web)
 
 import { spawn } from "node:child_process";
-import { copyFileSync, mkdirSync, readFileSync, readdirSync, watch } from "node:fs";
+import { copyFileSync, mkdirSync, readFileSync, readdirSync, watch, writeFileSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -54,7 +54,7 @@ function importedNames(source, specifier) {
 }
 
 const options = {
-  entryPoints: [join(srcDir, "main.ts"), join(srcDir, "member.ts"), join(srcDir, "moderator.ts")],
+  entryPoints: [join(srcDir, "main.ts"), join(srcDir, "member.ts"), join(srcDir, "moderator.ts"), join(srcDir, "demo-member.ts")],
   outdir: distDir,
   bundle: true,
   format: "esm",
@@ -70,6 +70,9 @@ const isStatic = (f) => f.endsWith(".html") || f.endsWith(".css");
 function copyStatic() {
   mkdirSync(distDir, { recursive: true });
   for (const f of readdirSync(srcDir)) if (isStatic(f)) copyFileSync(join(srcDir, f), join(distDir, f));
+  // The demo recording page is the member page with its own script, generated so the two never drift.
+  const member = readFileSync(join(srcDir, "member.html"), "utf8");
+  writeFileSync(join(distDir, "demo-member.html"), member.replace('src="./member.js"', 'src="./demo-member.js"'));
 }
 
 if (args.has("--watch")) {

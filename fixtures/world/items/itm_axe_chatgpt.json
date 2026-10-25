@@ -1,9 +1,9 @@
 {
   "id": "itm_axe_chatgpt",
   "kind": "session",
-  "source": "Bob's ChatGPT session: bid financing",
+  "source": "Axe's ChatGPT session: bid financing",
   "author": "axe",
   "captured_at": "2026-10-24T17:00:25.000Z",
   "replay": "Arrives live at 0:25 (through the ChatGPT extension, or the ingest API if the extension is cut).",
-  "text": "Bob Adams: I'm buying a listed asset manager for $3.2 billion in cash. I've got $1.3 billion of my own and two banks committing $1.9 billion, letters due November 15. Bridge loan or term loan?\n\nAssistant: For a cash tender offer you typically need the financing committed before you launch, so most bidders sign a bridge facility first and refinance it later with a term loan or bonds. Key points to negotiate: the commitment fee, the ticking fee if closing slips, and certain-funds language so the banks can't walk if markets move.\n\nBob Adams: Certain funds, no market-out. And I want the commitment letters signed before the November 10 announcement, not after.\n\nAssistant: Then ask both banks to sign by November 6, your board date, with the November 15 date as a hard backstop. Make the announcement conditional on signed letters."
+  "text": "Axe: I'm buying a listed asset manager for $3.2 billion in cash. I've got $1.3 billion of my own and two banks committing $1.9 billion, letters due November 15. Bridge loan or term loan?\n\nAssistant: For a cash tender offer you typically need the financing committed before you launch, so most bidders sign a bridge facility first and refinance it later with a term loan or bonds. Key points to negotiate: the commitment fee, the ticking fee if closing slips, and certain-funds language so the banks can't walk if markets move.\n\nAxe: Certain funds, no market-out. And I want the commitment letters signed before the November 10 announcement, not after.\n\nAssistant: Then ask both banks to sign by November 6, your board date, with the November 15 date as a hard backstop. Make the announcement conditional on signed letters."
 }

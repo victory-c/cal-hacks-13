@@ -5,6 +5,7 @@
 
 import type { AddItemBody, AgentBody, AgentOutput, AgentRun, DocType, Fact, Me, MemberApi, MemberEvent, MemoryLayer, ScopeExclusions } from "./contract.ts";
 import { GROUP_NAMES, ITEMS, ME, seedAgents, seedFacts } from "./fixture.ts";
+import type { SourceItem } from "./fixture.ts";
 import { docLabel } from "./logic.ts";
 
 const STOP = new Set(["the", "and", "what", "are", "about", "for", "our", "any", "anything", "with", "from", "that", "this", "into", "your", "update", "write", "draft", "everything", "include", "all"]);
@@ -113,13 +114,32 @@ export interface MockOptions {
   /** Delay before a pasted item's facts arrive. */
   triageMs?: number;
   now?: () => number;
+  /** Whose view to play. Defaults to Ben Kim's (fixture.ts); the demo page passes other people's. */
+  seed?: MockSeed;
+  /** Called with the facts a pasted item produced, so a demo page can share them with other tabs. */
+  onFacts?: (facts: Fact[]) => void;
+  /** Simulated triage for this view; defaults to classify(). */
+  classify?: (sentence: string) => string;
 }
+
+export interface MockSeed {
+  me: Me;
+  facts: Fact[];
+  agents: AgentRun[];
+  items: readonly SourceItem[];
+  groupNames: Record<string, string>;
+}
+
+const BEN: () => MockSeed = () => ({ me: ME, facts: seedFacts(), agents: seedAgents(), items: ITEMS, groupNames: GROUP_NAMES });
 
 const err = (status: number, message: string) => Object.assign(new Error(message), { status });
 
 export class MockCanon implements MemberApi {
   readonly mode = "mock" as const;
-  private store: Fact[] = seedFacts();
+  private readonly seed: MockSeed;
+  private store: Fact[];
+  private readonly onFacts?: (facts: Fact[]) => void;
+  private readonly fileTo: (sentence: string) => string;
   private agentsById = new Map<string, AgentState>();
   private log: MemberEvent[] = [];
   private listeners = new Set<(ev: MemberEvent) => void>();
@@ -134,11 +154,15 @@ export class MockCanon implements MemberApi {
     this.buildMs = opts.buildMs ?? 350;
     this.triageMs = opts.triageMs ?? 1500;
     this.now = opts.now ?? Date.now;
-    // The replay a new subscriber gets: Ben's own items, as Canon captured them.
-    for (const i of ITEMS.filter((x) => x.author === ME.id)) {
+    this.seed = opts.seed ?? BEN();
+    this.store = this.seed.facts;
+    this.onFacts = opts.onFacts;
+    this.fileTo = opts.classify ?? classify;
+    // The replay a new subscriber gets: this person's own items, as Canon captured them.
+    for (const i of this.seed.items.filter((x) => x.author === this.seed.me.id)) {
       this.log.push({ type: "item.captured", at: i.captured_at, item_id: i.id, kind: i.kind, source: i.title, author: i.author });
     }
-    for (const run of seedAgents()) {
+    for (const run of this.seed.agents) {
       const plan = planScope(this.store, run.task, run.leave_out);
       this.agentsById.set(run.id, { run: { ...run, fact_count: plan.kept.length }, factIds: plan.kept, seen: [...plan.kept], pendingIds: [], timers: [], exclusions: { groups: [], labels: [], text: [] } });
     }
@@ -175,7 +199,7 @@ export class MockCanon implements MemberApi {
     const groups = [...new Set(this.store.filter((f) => f.status === "hot").map((f) => f.group))];
     return groups.map((id) => ({
       id,
-      name: GROUP_NAMES[id] ?? id,
+      name: this.seed.groupNames[id] ?? id,
       included: !a.exclusions.groups.some((p) => id === p || id.startsWith(`${p}/`)),
       count: this.store.filter((f) => f.group === id && a.factIds.includes(f.id)).length,
     }));
@@ -191,7 +215,7 @@ export class MockCanon implements MemberApi {
   }
 
   async me(): Promise<Me> {
-    return { ...ME };
+    return { ...this.seed.me };
   }
 
   async facts(): Promise<Fact[]> {
@@ -216,7 +240,7 @@ export class MockCanon implements MemberApi {
   }
 
   async groupNames(): Promise<Record<string, string>> {
-    return { ...GROUP_NAMES };
+    return { ...this.seed.groupNames };
   }
 
   async editFact(id: string, statement: string): Promise<Fact> {
@@ -246,7 +270,7 @@ export class MockCanon implements MemberApi {
   async addItem(body: AddItemBody): Promise<{ item_id: string }> {
     const itemId = this.id("itm");
     const source = body.source.trim() || docKind(body.kind);
-    this.emit({ type: "item.captured", at: this.at(), item_id: itemId, kind: body.kind, source, author: ME.id });
+    this.emit({ type: "item.captured", at: this.at(), item_id: itemId, kind: body.kind, source, author: this.seed.me.id });
     // A planted instruction is quarantined. Members get no event for that, so it simply produces no facts.
     if (isPlanted(body.text)) return { item_id: itemId };
     setTimeout(() => this.triage(itemId, body, source), this.triageMs);
@@ -256,9 +280,28 @@ export class MockCanon implements MemberApi {
   private triage(itemId: string, body: AddItemBody, source: string): void {
     const at = this.at();
     const fresh: Fact[] = sentences(body.text).map((s) => ({
-      id: this.id("fct"), statement: s, group: classify(s), labels: [], source: itemId, author: ME.id,
+      id: this.id("fct"), statement: s, group: this.fileTo(s), labels: [], source: itemId, author: this.seed.me.id,
       happened_at: at, learned_at: at, status: "hot", source_kind: body.kind, source_title: source,
     }));
+    this.absorb(fresh);
+    this.onFacts?.(structuredClone(fresh));
+  }
+
+  /** Facts this person already holds moved to another group: update them and tell the page to refresh. */
+  regroup(moved: Fact[]): void {
+    let changed = false;
+    for (const m of moved) {
+      const f = this.store.find((x) => x.id === m.id);
+      if (f && f.group !== m.group) { f.group = m.group; changed = true; }
+    }
+    if (changed) this.emit({ type: "scope.changed", at: this.at(), principal: this.seed.me.id, added: [], removed: [] });
+  }
+
+  /** Adds facts to this person's memory as Canon would (fact.saved, then living scopes for agents). */
+  absorb(incoming: Fact[]): void {
+    const at = this.at();
+    const fresh = incoming.filter((f) => !this.store.some((x) => x.id === f.id));
+    if (!fresh.length) return;
     this.store.unshift(...fresh);
     for (const f of fresh) this.emit({ type: "fact.saved", at, fact: structuredClone(f) });
     // Living scopes: each new fact joins the member's agents whose rule it fits.
@@ -281,7 +324,7 @@ export class MockCanon implements MemberApi {
   async createAgent(body: AgentBody): Promise<{ id: string; build_id: string }> {
     const id = this.id("agt");
     const run: AgentRun = {
-      id, creator: ME.id, name: body.name, status: "building", steps: [], files: [], inbox: [],
+      id, creator: this.seed.me.id, name: body.name, status: "building", steps: [], files: [], inbox: [],
       task: body.task, leave_out: body.exclusions.text.join("; "), docs: body.docs, schedule: body.schedule,
       outputs: [], finished_at: null, fact_count: 0, pending: 0,
     };

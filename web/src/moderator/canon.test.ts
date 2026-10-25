@@ -59,7 +59,7 @@ const modFact = (id: string, group: string) => ({ id, statement: id, group, labe
 
 test("principals merge each one's rule and scope; a principal without a scope gets an empty one", async (t) => {
   fakeCanon(t, {
-    "GET /api/principals": { principals: [{ id: "dollar-bill", kind: "person", name: "Bill Stevens", tier: "member" }, { id: "ben", kind: "person", name: "Ben Carter", tier: "member" }] },
+    "GET /api/principals": { principals: [{ id: "dollar-bill", kind: "person", name: "Dollar Bill", tier: "member" }, { id: "ben", kind: "person", name: "Ben Kim", tier: "member" }] },
     "GET /api/principals/dollar-bill/scope": { rule: { task: "Positions and public news", exclusions: { groups: ["deal/*"], labels: [], text: [] } }, fact_ids: ["fct_1", "fct_2"] },
     "GET /api/principals/ben/scope": Response.json({ error: "not found" }, { status: 404 }),
   });
@@ -69,7 +69,7 @@ test("principals merge each one's rule and scope; a principal without a scope ge
 
 test("a scope read that fails for any other reason surfaces instead of looking empty", async (t) => {
   fakeCanon(t, {
-    "GET /api/principals": { principals: [{ id: "ben", kind: "person", name: "Ben Carter" }] },
+    "GET /api/principals": { principals: [{ id: "ben", kind: "person", name: "Ben Kim" }] },
     "GET /api/principals/ben/scope": Response.json({ error: "boom" }, { status: 500 }),
   });
   await assert.rejects(new CanonModClient(SERVER, "tok").principals(), (e: unknown) => e instanceof HttpError && e.status === 500 && e.message === "boom");
@@ -127,7 +127,7 @@ test("live events: quarantine, filing, tier changes and handoffs become console 
   const handoff = { id: "hnd_1", at: "t4", principal: "desk-assistant", request: "TMC?", candidates: [], tokens_est: 0, budget_est: 0, timings_ms: { search: 1, judge: 2, total: 3 }, simulated: false };
   const canon = fakeCanon(t, {
     "GET /api/quarantine": { items: [{ id: "q_1", kind: "email", source: "Counsel email", author: "axe", reason: "Instructions aimed at an AI", at: "t1" }] },
-    "GET /api/principals": { principals: [{ id: "ben", kind: "person", name: "Ben Carter", tier: "moderator" }] },
+    "GET /api/principals": { principals: [{ id: "ben", kind: "person", name: "Ben Kim", tier: "moderator" }] },
     "GET /api/principals/ben/scope": { rule: null, fact_ids: [] },
     "GET /api/handoffs": { handoffs: [handoff] },
   });
