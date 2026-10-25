@@ -1,6 +1,6 @@
 {
   "project": "Bullwark",
-  "updated": "2026-10-25T01:52:59Z",
+  "updated": "2026-10-25T02:39:36Z",
   "team": [
     {
       "id": "A",
@@ -514,7 +514,7 @@
       "priority": "must",
       "state": "doing",
       "title": "Shared preview infrastructure and sponsor-host deployment",
-      "note": "Docker, visible login, random client tokens and persistent volumes implemented. B25 provides a live authenticated HTTPS team preview through a supervised ngrok tunnel on the host Mac. Independent Vultr hosting still requires activated MLH credit/account and VM access."
+      "note": "Docker preview and supervised HTTPS team access are implemented (B25). Independent hosting must use a new isolated sponsor VM. Vultr is selected; the signed-in account is pending manual review (up to 48 hours), so no VM or spendable credit is confirmed (B26)."
     },
     {
       "id": "B22",
@@ -551,6 +551,15 @@
       "state": "done",
       "title": "Publish the tested preview through supervised HTTPS access",
       "note": "docs/SHARED_PREVIEW.md: stable main exposed through ngrok with existing team login, secure cookies and inspection disabled. macOS LaunchAgent restarts tunnel; local private access file contains team credentials only. Public 36 HTTP/MCP checks and 14 independent unauthenticated checks pass; live SSE and 15 s heartbeat verified. Real Factory/Jev capture saved 7 facts in 21.6 s (5 hot / 2 cold); Moss retrieval passed. Host Mac/Docker must remain running; Vultr and finance-scope integration remain separate."
+    },
+    {
+      "id": "B26",
+      "owner": "B",
+      "milestone": "M2",
+      "priority": "must",
+      "state": "blocked",
+      "title": "Deploy to a new isolated Vultr sponsor VM",
+      "note": "docs/VULTR_DEPLOYMENT.md: rechecked official sponsor tracks and prepared SJC 2 vCPU / 4GB / 80GB Ubuntu 24.04 plan at USD 20/month, subject to actual MLH credit and availability. Browser sign-in succeeded; account is pending manual review for up to 48 hours and support page is gated. No Vultr resource created. Cancelled existing-Hermes attempt fully rolled back; original Hermes process/ports preserved. Support email draft prepared, not sent; awaiting explicit communication authorization."
     }
   ],
   "tracks": [
