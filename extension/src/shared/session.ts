@@ -64,8 +64,8 @@ export function toCapturedSession(msg: TurnsMessage, startedAt: string, endedAt:
   return session;
 }
 
-/** A person's principal id: their first name, as the contract writes it (`dan`, `maya`). */
-const PERSON_ID_RE = /^[a-z][a-z0-9_]*$/;
+/** A person's principal id, as the contract writes it (`dan`, `dollar-bill`); never one that starts like an agent's. */
+const PERSON_ID_RE = /^(?!agt[-_])[a-z][a-z0-9_-]*$/;
 /** An agent's principal id: `agt_` + slug or hex, hyphens allowed (`agt_deal-analyst`). */
 const AGENT_ID_RE = /^agt_[a-z0-9][a-z0-9_-]*$/;
 

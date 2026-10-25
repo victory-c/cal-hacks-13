@@ -1,6 +1,6 @@
 {
   "project": "Bullwark",
-  "updated": "2026-10-25T01:25:49Z",
+  "updated": "2026-10-25T03:04:17Z",
   "team": [
     {
       "id": "A",
@@ -197,9 +197,18 @@
       "owner": "A",
       "milestone": "M4",
       "priority": "must",
-      "state": "todo",
+      "state": "done",
       "title": "Calibrate the scope-build and handoff thresholds on live Jev",
-      "note": "Measured 10/24 on the demo world, one run, Dollar Bill's rule: live Jev scores 'group falls under the exclusion text' 0.38-0.43 for every non-deal group (0.75 for deal/stonewall) against EXCLUDE_GROUP 0.2, so his live scope builds empty. Fact-level exclusion separates (deal 0.58-0.83, others 0.14-0.35; threshold 0.3) and relevance for his public facts is 0.55-0.77 (IN_SCOPE 0.7). Thresholds were tuned on the simulated judge. Needs a decision before the demo."
+      "note": "Calibrated on live Jev (demo world, one run, Sat 10/24): EXCLUDE_GROUP 0.2→0.6, EXCLUDE_FACT 0.3→0.45, IN_SCOPE 0.7→0.5, RELEVANT 0.7→0.6, NEEDS_CONTEXT stays 0.5; measured ranges sit next to each value in shared/src/types/judge.ts. Live result: Dollar Bill's scope 11 facts (public, research, his desk; zero deal), Axe's 18 (12 deal). Small scopes (≤40 facts) are judged whole, so the keyword stub no longer drops paraphrases. One world, one run: re-check on the benchmark."
+    },
+    {
+      "id": "A21",
+      "owner": "A",
+      "milestone": "M3",
+      "priority": "must",
+      "state": "done",
+      "title": "A person's AI reads their own memory: self handoff and the Claude Code context hook",
+      "note": "POST /api/handoff now serves a per-person token its own scope (principal from the token; naming anyone else is one constant 403; no candidates in the reply). hooks/claude-code/canon-context.mjs (UserPromptSubmit, committed in .claude/settings.json) adds that slice to every prompt when CANON_PERSON_TOKEN is set, otherwise does nothing. Live Jev: Dollar Bill's opening question gets 9 public/desk facts; asking for the bid or a haiku gets nothing. MCP canon_context still reads folder grants, not scopes (next)."
     },
     {
       "id": "B1",

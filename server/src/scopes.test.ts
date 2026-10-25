@@ -332,7 +332,8 @@ describe("scopes REST surface, scope builder and handoff (A2, A4+A6, A7+A16)", (
     assert.ok(tiny.profile.length > 0, "the profile is always sent");
 
     const member = await api("/api/handoff", { method: "POST", token: "tok-leo", json: { principal: "leo", task: "What are my positions?" } });
-    assert.equal(member.status, 403, "handoff is for internal clients, never members directly");
+    assert.equal(member.status, 200, "a person may ask for their own memory");
+    assert.equal("candidates" in (await body<Record<string, unknown>>(member)), false, "a person never sees what was considered");
     assert.equal((await api("/api/handoff", { method: "POST", token: "tok-dist", json: { principal: "ghost", task: "x" } })).status, 404, "internal callers may see a 404");
     assert.equal((await api("/api/handoff", { method: "POST", token: "tok-dist", json: { principal: "agt_leodesk", task: "" } })).status, 400);
   });
@@ -401,14 +402,23 @@ describe("scopes REST surface, scope builder and handoff (A2, A4+A6, A7+A16)", (
     assert.match(row.detail, /simulated/, "stub providers stay labelled in the audit row");
   });
 
-  test("handoff: a request matching nothing stored injects nothing without any judge call", async () => {
+  test("handoff: a request needing nothing stored injects nothing after one needs-context question", async () => {
     const asksBefore = askLog.length;
     const out = await handoff({ principal: "agt_leodesk", task: "Convert 3.7 kilograms to pounds" });
     assert.equal(out.inject_nothing, true);
     assert.deepEqual(out.facts, []);
-    assert.deepEqual(out.candidates, []);
+    // A small scope is judged whole (JUDGE_ALL_UP_TO), so its facts are candidates, cut unscored.
+    assert.ok(out.candidates.every((c) => c.cut === "relevance" && c.p === undefined));
     assert.ok(out.profile.length > 0, "the pinned profile is always sent");
-    assert.equal(askLog.length, asksBefore, "no candidates, so the judge had nothing to decide");
+    const asked = askLog.slice(asksBefore);
+    assert.equal(asked.length, 1, "only the needs-context question; the relevance batch was never asked");
+    assert.match(asked[0][0].text, /need any stored context/);
+  });
+
+  test("handoff: a small scope is judged whole, so a paraphrase the search misses still reaches the judge", async () => {
+    const scope = await body<Scope>(await api("/api/scopes/agt_leodesk", { token: "tok-maya" }));
+    const out = await handoff({ principal: "agt_leodesk", task: "zzqx" }); // shares no word with any fact
+    assert.deepEqual(out.candidates.map((c) => c.fact_id).sort(), [...scope.fact_ids].sort());
   });
 
   test("handoff: the budget keeps the best facts that fit, in code", async () => {
@@ -449,12 +459,22 @@ describe("scopes REST surface, scope builder and handoff (A2, A4+A6, A7+A16)", (
     assert.ok(!/exclu|deal|pending/i.test(out.profile));
   });
 
-  test("handoff: members get one identical 403 before any lookup — no candidates, no existence signal", async () => {
-    const real = await api("/api/handoff", { method: "POST", token: "tok-leo", json: { principal: "leo", task: "x" } });
+  test("handoff: a person reads only their own memory; naming anyone else is one identical 403", async () => {
+    const other = await api("/api/handoff", { method: "POST", token: "tok-leo", json: { principal: "dan", task: "x" } });
     const ghost = await api("/api/handoff", { method: "POST", token: "tok-leo", json: { principal: "ghost", task: "x" } });
-    assert.equal(real.status, 403);
+    assert.equal(other.status, 403);
     assert.equal(ghost.status, 403);
-    assert.deepEqual(await real.json(), await ghost.json(), "the same bytes whether the principal exists or not");
+    assert.deepEqual(await other.json(), await ghost.json(), "the same bytes whether the principal exists or not");
+
+    // With no principal, the token's own is used; the reply holds only facts inside that scope.
+    const mine = await api("/api/handoff", { method: "POST", token: "tok-leo", json: { task: "What are my positions?" } });
+    assert.equal(mine.status, 200);
+    const out = await body<Omit<HandoffResult, "candidates">>(mine);
+    const leo = await body<Scope>(await api("/api/scopes/leo", { token: "tok-maya" }));
+    assert.ok(out.facts.every((f) => leo.fact_ids.includes(f.id)), "only Leo's own scope is served");
+    assert.match(out.profile, /^Leo \(leo\)/);
+    const { entries } = await body<{ entries: AuditEvent[] }>(await api("/api/audit", { token: "tok-maya" }));
+    assert.ok(entries.some((e) => e.id === out.audit_id && e.actor === "leo" && e.principal === "leo"), "audited with the person as actor");
   });
 
   test("PUT /api/scope-rules/:principal rebuilds the scope through the full pipeline", async () => {

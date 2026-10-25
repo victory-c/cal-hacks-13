@@ -21,6 +21,17 @@
           }
         ]
       }
+    ],
+    "UserPromptSubmit": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node \"$CLAUDE_PROJECT_DIR/hooks/claude-code/canon-context.mjs\"",
+            "timeout": 15
+          }
+        ]
+      }
     ]
   },
   "permissions": {

@@ -154,6 +154,8 @@ export interface ScopesDeps {
  */
 export const MODERATORS_ONLY = { error: "moderators only" };
 const INTERNAL_ONLY = { error: "internal clients only" };
+/** A person asking for anyone's memory but their own: one constant body, no existence signal. */
+const OWN_MEMORY_ONLY = { error: "a person may only ask for their own memory" };
 /** Agent routes: creators are allowed too, so "moderators only" would be wrong — but the body is still one constant. */
 const NOT_YOUR_AGENT = { error: "only the agent's creator or a moderator may do this" };
 
@@ -207,6 +209,20 @@ function allowedByRule(rule: Pick<ScopeRule, "exclude">, fact: Fact): boolean {
  */
 function hotCandidates(deps: ScopesDeps): Fact[] {
   return deps.store.listFacts({ tier: "hot" }).filter((f) => inWorldGroup(deps, f));
+}
+
+/**
+ * Up to this many facts, every one of them is a candidate for the judge: the retriever only orders
+ * them. A keyword stub misses paraphrases ("Taylor Mason Capital" against facts that say "TMC"),
+ * and one batched judge call over a pool this size is cheap. Above it, the retriever narrows.
+ */
+export const JUDGE_ALL_UP_TO = 40;
+
+/** The retriever's hits from `pool`, in its order; for a small pool, the rest of the pool after them. */
+function withSmallPool(hits: readonly Fact[], pool: readonly Fact[]): Fact[] {
+  if (pool.length > JUDGE_ALL_UP_TO) return [...hits];
+  const seen = new Set(hits.map((f) => f.id));
+  return [...hits, ...pool.filter((f) => !seen.has(f.id))];
 }
 
 function inWorldGroup(deps: ScopesDeps, fact: Fact): boolean {
@@ -266,7 +282,7 @@ export async function buildScope(deps: ScopesDeps, principal: Principal, rule: S
   let candidates: Fact[];
   try {
     const hits = await deps.retriever.search(rule.task, { folders: [...new Set(pool.map((f) => f.folder))], k: pool.length });
-    candidates = hits.map((h) => poolById.get(h.fact.id)).filter((f): f is Fact => f !== undefined);
+    candidates = withSmallPool(hits.map((h) => poolById.get(h.fact.id)).filter((f): f is Fact => f !== undefined), pool);
   } catch (err) {
     console.warn(`[scopes] ${deps.retriever.name} search failed (${err instanceof Error ? err.message : String(err)}); every post-exclusion fact stays a candidate`);
     candidates = [...pool];
@@ -612,7 +628,7 @@ async function runHandoff(deps: ScopesDeps, client: string, body: unknown): Prom
   try {
     const r = await timed(() => deps.retriever.search(request, { folders: [...new Set(inScope.map((f) => f.folder))], k: inScope.length }));
     retrieval_ms = r.ms;
-    candidates = r.result.map((h) => byId.get(h.fact.id)).filter((f): f is Fact => f !== undefined);
+    candidates = withSmallPool(r.result.map((h) => byId.get(h.fact.id)).filter((f): f is Fact => f !== undefined), inScope);
   } catch (err) {
     console.warn(`[scopes] ${deps.retriever.name} search failed on handoff (${err instanceof Error ? err.message : String(err)}); every in-scope fact stays a candidate`);
     candidates = [...inScope];
@@ -880,10 +896,19 @@ export async function handleScopesRoute(
     return sendJson(res, 200, { entries }), true;
   }
 
-  // ---- POST /api/handoff (internal: the dispatcher and the MCP layer call this, never members).
+  // ---- POST /api/handoff. Internal clients (the dispatcher) ask for anyone. A person asks for
+  // their own memory only, through their own per-person token: the principal comes from the
+  // token, never from the body, and the reply leaves out what was considered (`candidates`).
+  // A person naming anyone else gets the same bytes whether that principal exists or not.
   if (path === ROUTES.handoff && method === "POST") {
-    if (!isInternal) return sendJson(res, 403, INTERNAL_ONLY), true;
-    return sendJson(res, 200, await runHandoff(deps, client, await readJsonBody(req))), true;
+    const body = await readJsonBody(req);
+    if (isInternal) return sendJson(res, 200, await runHandoff(deps, client, body)), true;
+    const own = grantFor(deps.grants, client)?.principal;
+    const caller = own !== undefined ? state.principals.get(own) : undefined;
+    if (!caller || caller.kind !== "person") return sendJson(res, 403, INTERNAL_ONLY), true;
+    if (isRecord(body) && body.principal !== undefined && body.principal !== own) return sendJson(res, 403, OWN_MEMORY_ONLY), true;
+    const { candidates: _considered, ...mine } = await runHandoff(deps, client, { ...(isRecord(body) ? body : {}), principal: own });
+    return sendJson(res, 200, mine), true;
   }
 
   // ---- POST /api/dispatch (the agent's creator or a moderator).

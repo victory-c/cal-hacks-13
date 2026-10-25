@@ -12,6 +12,33 @@ Two capture paths live here:
 - `ingest/`: a CLI that posts firm content (memos, team chat, meeting transcripts, email, notes)
   as client `ingest`. See [Ingest CLI](#ingest-cli-hooksingest).
 
+And one read path: `claude-code/canon-context.mjs`, which adds a person's memory to every prompt
+([Context hook](#context-hook-claude-codecanon-contextmjs)).
+
+## Context hook (`claude-code/canon-context.mjs`)
+
+Wired to `UserPromptSubmit` in the committed `.claude/settings.json`. Before Claude sees a prompt,
+the hook posts it to `POST /api/handoff` with **the person's own token** and adds the reply to the
+prompt as context (`hookSpecificOutput.additionalContext`). The server does all the deciding:
+only facts inside that person's scope are candidates, Jev judges whether the prompt needs stored
+context at all and which facts help, and a token budget caps the slice. The principal comes from
+the token on the server, never from this machine, and the reply never says what was considered.
+A prompt that needs nothing (a haiku, a unit conversion) or asks about something outside the scope
+gets nothing added: no refusal, no hint. A slash command is never sent.
+
+| Env (process env, then the repo `.env`) | |
+|---|---|
+| `CANON_PERSON_TOKEN` | The person's own client token (`dev-dollar-bill` in `.env.example`). **Unset = the hook does nothing.** |
+| `CANON_URL` | Default `http://localhost:4100` |
+| `CANON_CONTEXT_BUDGET` | Optional token budget for the slice (server default otherwise) |
+| `CANON_CONTEXT=0` | Opt out for one shell |
+
+Same rules as the capture hook: it never blocks or breaks a session (exit 0 always, 8 s request
+timeout, 12 s watchdog), stdout carries only the context JSON, and `CANON_DEBUG=1` prints one line
+to stderr. Measured on live Jev (Sat 10/24, demo world, Dollar Bill): "Anything going on with
+Taylor Mason Capital? Should we add to our position?" added 9 public and desk facts (143 est.
+tokens); "What price are we offering for Taylor Mason…?" and "Write me a haiku" added nothing.
+
 ## The principal is the author
 
 Every session carries `kind` and, when known, `principal`. In Bullwark's scopes model the

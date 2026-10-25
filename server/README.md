@@ -39,7 +39,7 @@ use, bad `JUDGE_PROVIDER`, broken `CANON_GRANTS_FILE`) are one `[server] ...` li
 | `POST /api/agents`, `DELETE /api/agents/:id` | any person for themselves; delete also moderator | The agent's scope is built from its creator's scope only and checked in code to be a subset |
 | `GET\|POST /api/quarantine`, `POST /api/quarantine/:id/release` | GET + release moderator; POST internal | Held captures; release is 409 when already released |
 | `GET /api/audit?principal=&since=` | moderator | `AuditResponse` |
-| `POST /api/handoff` | internal | `HandoffBody` → `HandoffResult`: candidates only ever come from inside the fixed scope, budget cut, pinned profile (never the exclusions), audit row + `handoff.served`. **Stub relevance: keyword overlap, not Moss + Jev** |
+| `POST /api/handoff` | internal; a person for themselves | `HandoffBody` → `HandoffResult`: candidates only ever come from inside the fixed scope (every in-scope fact when the scope holds at most `JUDGE_ALL_UP_TO` = 40, the retriever only ordering them), the needs-context check, batched relevance, budget cut, pinned profile (never the exclusions), audit row + `handoff.served`. A per-person token gets its own principal's slice (a body `principal` naming anyone else is one constant 403) and no `candidates` field. The Claude Code context hook calls it |
 | `POST /api/dispatch` | the agent's creator or a moderator | `DispatchRequest` → `{ id }`, emits `dispatch.requested`; `by` must be the caller |
 | `POST /api/events` | internal | Re-broadcast one `RELAYED_EVENTS` event on `/events` (the server stamps `at`) |
 | `POST /api/facts/:id/file` | moderator | Refile a fact `{ group, labels? }` (INTEGRATION.md), e.g. the announced Stonewall terms to `market/public` at 1:20. A scope whose rule now excludes it loses it in code; then it joins the scopes it now fits through the living-scope checks. Emits `fact.filed`; audit `fact.filed` |
@@ -126,8 +126,8 @@ for the distiller. `src/seed.ts` copies `fixtures/` (sample data, see `fixtures/
 - **Simulated:** the `fake` judge (no keys; for scope builds it answers from keyword overlap, see
   `src/scope-judge.ts`), the `keyword` retriever (no Moss creds). Both are named in `GET /health`,
   in the start-up log and in the `scope.built` audit detail so the dashboard can label them.
-- **Stub:** handoff relevance (`POST /api/handoff`) is keyword overlap inside the fixed scope, not
-  Moss + Jev yet (task A7).
+- **Thresholds** (`TRIAGE_THRESHOLDS` in `shared/src/types/judge.ts`) are calibrated on one live
+  Jev run on the demo world (A20); the measured ranges sit next to each value.
 - **Real:** everything else above. Latency numbers in `context.served` (`latency_ms`, `retrieval_ms`,
   `judge_ms`) are wall-clock measurements; `tokens` is `estimateTokens()` and must be shown as "est.".
 

@@ -176,6 +176,7 @@ test("normalizePrincipal: only an id is kept; names and emails are not guessed i
   const table = [
     [" Dan ", "dan"],
     ["dan", "dan"],
+    ["Dollar-Bill", "dollar-bill"],
     ["agt_research_1", "agt_research_1"],
     ["AGT_Research_1", "agt_research_1"],
     ["agt_deal-analyst", "agt_deal-analyst"],
