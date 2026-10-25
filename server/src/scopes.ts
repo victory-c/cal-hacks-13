@@ -149,16 +149,30 @@ export class ScopeState {
     for (const s of w.scopes) this.scopes.set(s.principal, s);
     for (const q of w.quarantine) this.quarantine.set(q.id, q);
     this.audit = w.audit;
+    const agentsFile = dir ? join(dir, "world", "agents.json") : undefined;
+    if (agentsFile && existsSync(agentsFile)) {
+      const telemetry = JSON.parse(readFileSync(agentsFile, "utf8")) as {
+        runs: Array<[string, Record<string, unknown>]>;
+        steps: Array<[string, Array<Record<string, unknown>>]>;
+        inbox: Array<[string, Array<Record<string, unknown>>]>;
+        invalid_versions: Array<[string, number]>;
+      };
+      for (const [agent, run] of telemetry.runs) if (this.principals.get(agent)?.kind === "agent") this.agentRuns.set(agent, run);
+      for (const [runId, steps] of telemetry.steps) this.agentSteps.set(runId, steps);
+      for (const [runId, inbox] of telemetry.inbox) this.agentInbox.set(runId, inbox);
+      for (const [runId, version] of telemetry.invalid_versions) this.invalidRunVersions.set(runId, version);
+    }
   }
 
   /** One queue for snapshots and append-only audit. A failed write remains visible to callers. */
   flush(): Promise<void> {
     if (!this.dir) return Promise.resolve();
-    const snapshot = structuredClone({ principals: [...this.principals.values()], rules: [...this.rules.values()], scopes: [...this.scopes.values()], groups: this.groups, items: [...this.quarantine.values()], audit: this.audit });
+    const snapshot = structuredClone({ principals: [...this.principals.values()], rules: [...this.rules.values()], scopes: [...this.scopes.values()], groups: this.groups, items: [...this.quarantine.values()], audit: this.audit, agents: { runs: [...this.agentRuns], steps: [...this.agentSteps], inbox: [...this.agentInbox], invalid_versions: [...this.invalidRunVersions] } });
     const dir = join(this.dir, "world");
     this.writes = this.writes.then(async () => {
       await mkdir(dir, { recursive: true });
       for (const [name, key] of [["groups", "groups"], ["rules", "rules"], ["scopes", "scopes"], ["quarantine", "items"], ["principals", "principals"]] as const) await writeAtomic(join(dir, `${name}.json`), JSON.stringify({ [key]: snapshot[key] }) + "\n");
+      await writeAtomic(join(dir, "agents.json"), JSON.stringify(snapshot.agents) + "\n");
       const rows = snapshot.audit.slice(this.persistedAudit);
       if (rows.length) { await appendFile(join(dir, "audit.jsonl"), rows.map((row) => JSON.stringify(row)).join("\n") + "\n"); this.persistedAudit = snapshot.audit.length; }
     });

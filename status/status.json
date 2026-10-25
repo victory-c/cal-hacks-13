@@ -1,6 +1,6 @@
 {
   "project": "Bullwark",
-  "updated": "2026-10-25T04:42:23.162780+00:00",
+  "updated": "2026-10-25T04:44:16.605859+00:00",
   "team": [
     {
       "id": "A",
@@ -586,7 +586,7 @@
       "priority": "must",
       "state": "done",
       "title": "Integrate outstanding PRs into the finance scope and capture pipeline",
-      "note": "Integrated Edan PR34 with current main and preserved PR31 operations. 736 automated tests, typechecks and builds pass. Cross-HTTP capture/writer/triage/scope/MCP/restart test passes; 32 real HTTPS auth/privacy/MCP checks pass; Factory/Jev saved person-bound Axe fact and Claude desk-assistant completed two runtime invocations. Final integration PR records ancestry and supersedes old dispatch/triage PRs. Linux Droid dispatch, live Stop/schedules/docs and full finance benchmark remain outside the measured completion."
+      "note": "Integrated Edan PR34 with current main and preserved PR31 operations. 737 automated tests, typechecks and builds pass. Cross-HTTP capture/writer/triage/scope/MCP/restart test passes; 32 real HTTPS auth/privacy/MCP checks pass; Factory/Jev saved person-bound Axe fact and Claude desk-assistant completed two runtime invocations. Final integration PR records ancestry and supersedes old dispatch/triage PRs. Linux Droid dispatch, live Stop/schedules/docs and full finance benchmark remain outside the measured completion. Agent run/step/inbox and revoked-version telemetry now persist atomically and have a dedicated restart regression."
     }
   ],
   "tracks": [

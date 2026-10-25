@@ -174,3 +174,26 @@ test("internal sandbox reads enforce a creator narrowing while a child scope is 
     const scope = await (await request(server, `/api/scopes/${agent.id}`, "distiller")).json() as { fact_ids: string[] }; assert.deepEqual(scope.fact_ids, []);
   } finally { await server.close(); await rm(dir, { recursive: true, force: true }); }
 });
+
+test("completed agent runs, result steps and inbox survive server restart", async () => {
+  const { dir, server } = await setup(); let current = server;
+  try {
+    const agent = await (await request(server, "/api/agents", "alice", { name: "Public assistant", task: "market holdings", exclusions: { groups: [], labels: [], text: [] } })).json() as { id: string };
+    const run = { id: "run_aa0055", agent: agent.id, created_by: "alice", task: "market holdings", state: "done", runtime: "fake", sandbox: "synthetic", steps: 1, restarts: 0, started_at: "2026-10-24T00:00:00Z", ended_at: "2026-10-24T00:00:01Z" };
+    const publish = (event: unknown) => request(current, "/api/events", "distiller", { event });
+    assert.equal((await publish({ type: "agent.run", run })).status, 200);
+    assert.equal((await publish({ type: "agent.step", step: { run_id: run.id, n: 1, kind: "result", text: "The synthetic portfolio holds 200000 shares.", at: run.ended_at } })).status, 200);
+    assert.equal((await publish({ type: "agent.inbox", item: { id: "inb_aa0055", run_id: run.id, kind: "new_fact", urgent: false, text: "Synthetic holdings updated", at: run.ended_at } })).status, 200);
+    const before = await (await request(current, "/api/agents", "alice")).json();
+    await current.close();
+    current = await startServer({ dataDir: dir, world: world(), tokens, grants, judge, retriever: new KeywordRetriever(), log: () => {} });
+    const after = await (await request(current, "/api/agents", "alice")).json(); assert.deepEqual(after, before);
+    const restored = after as { agents: Array<{ status: string; steps: unknown[]; inbox: unknown[]; outputs: unknown[] }> }; assert.equal(restored.agents[0].status, "done"); assert.equal(restored.agents[0].steps.length, 1); assert.equal(restored.agents[0].inbox.length, 1); assert.equal(restored.agents[0].outputs.length, 1);
+    // A later revocation must also stay revoked across a subsequent restart.
+    current.bus.emit({ type: "scope.updated", principal: agent.id, reason: "fact_left", added: [], removed: ["fct_aa0011"], size: 0 });
+    await current.close();
+    current = await startServer({ dataDir: dir, world: world(), tokens, grants, judge, retriever: new KeywordRetriever(), log: () => {} });
+    const narrowed = await (await request(current, "/api/agents", "alice")).json() as { agents: Array<{ status: string; steps: unknown[]; inbox: unknown[]; outputs: unknown[] }> }; assert.equal(narrowed.agents[0].status, "restarting"); assert.deepEqual(narrowed.agents[0].steps, []); assert.deepEqual(narrowed.agents[0].outputs, []); assert.deepEqual(narrowed.agents[0].inbox, []);
+    const late = await (await publish({ type: "agent.run", run })).json() as { ignored: boolean }; assert.equal(late.ignored, true);
+  } finally { await current.close().catch(() => {}); await rm(dir, { recursive: true, force: true }); }
+});

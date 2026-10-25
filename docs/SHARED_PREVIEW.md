@@ -27,7 +27,7 @@ Never give a teammate the distiller/dispatcher token or the whole host environme
 
 ## Measured verification, October 24, 2026
 
-The final integration passed **736 automated tests**, workspace TypeScript checks and builds.
+The final integration passed **737 automated tests**, workspace TypeScript checks and builds.
 The test suite includes a real HTTP capture → archive → writer → triage → living scope → MCP
 round trip, worker catch-up after an outage, durable duplicate receipts and a server restart.
 Providers in that regression are labelled simulations; it is not live provider evidence.
