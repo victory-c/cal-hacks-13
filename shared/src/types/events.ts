@@ -36,6 +36,8 @@ export type CanonEvent =
     })
   | (Base & { type: "fact.saved"; fact: Fact; decision: SaveDecision })
   | (Base & { type: "fact.retired"; id: string; superseded_by: string })
+  /** A moderator refiled a fact (POST /api/facts/:id/file). Moderators and internal clients only. */
+  | (Base & { type: "fact.filed"; fact_id: string; from: Folder; group: Folder; labels: string[] })
   | (Base & {
       type: "context.served";
       client: ClientId;

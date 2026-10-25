@@ -30,6 +30,7 @@ export const EVENT_TYPES = [
   "agent.run",
   "agent.step",
   "agent.inbox",
+  "fact.filed",
 ] as const satisfies readonly CanonEventType[];
 
 // The typecheck fails here when the contract gains an event type the list above lacks.
@@ -190,6 +191,7 @@ export function reduce(state: State, e: CanonEvent): State {
     case "agent.run":
     case "agent.step":
     case "agent.inbox":
+    case "fact.filed":
       return state;
 
     default:

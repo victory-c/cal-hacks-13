@@ -11,13 +11,14 @@ import { join } from "node:path";
 import { startServer } from "@canon/server/src/app.ts";
 import type { RunningServer } from "@canon/server/src/app.ts";
 import { seedDataDir } from "@canon/server/src/seed.ts";
+import { loadDemoWorld } from "@canon/server/src/world.ts";
 import { ROUTES, timed } from "@canon/shared";
 import type { CapturedSession, Fact, HandoffResult, Judge, Principal, ScopeRule } from "@canon/shared";
 
 import type { AgentSpec } from "./types.ts";
 
 /** Clients the harness acts as. Their tokens come from the server's own token table. */
-const MODERATOR_CLIENT = "maya";
+const MODERATOR_CLIENT = "wags";
 const DISPATCHER_CLIENT = "dispatcher";
 const STORE_READER_CLIENT = "distiller"; // reads every folder: the shared-memory "one store" view
 
@@ -53,7 +54,8 @@ export class FinanceWorld {
   }
 
   /**
-   * Seeds a throwaway data dir from server/fixtures/, starts the server with `judge`, and (when
+   * Seeds a throwaway data dir with the demo world as the cases see it (every non-quarantined item,
+   * fixtures/world/), starts the server with `judge`, and (when
    * `rebuildScopes`) rebuilds every member scope through PUT /api/scope-rules so the scopes being
    * measured come from this judge, not from the fixture snapshot. Rebuild times are measured.
    */
@@ -61,8 +63,9 @@ export class FinanceWorld {
     const dir = await mkdtemp(join(tmpdir(), "bench-finance-"));
     let server: RunningServer | undefined;
     try {
-      await seedDataDir(dir);
-      server = await startServer({ dataDir: dir, judge: opts.judge, port: 0, log: () => {} });
+      await seedDataDir(dir, null, "all"); // the demo world only: no scaffold notes in the measured store
+      // Scopes come from rebuildScopes() below (timed), not the server's startup builds.
+      server = await startServer({ dataDir: dir, judge: opts.judge, port: 0, buildInitialScopes: false, log: () => {} });
       const world = new FinanceWorld(server, dir, { judge: server.judge.name, retriever: server.retriever.name }, new Map(), []);
       await world.loadRules();
       if (opts.rebuildScopes) await world.rebuildScopes();
@@ -114,6 +117,17 @@ export class FinanceWorld {
         this.call("PUT", `${ROUTES.scopeRules}/${encodeURIComponent(principal)}`, MODERATOR_CLIENT, { task: rule.task, exclude: rule.exclude }),
       );
       this.scopeBuilds.push({ principal, ms });
+    }
+  }
+
+  /**
+   * The 1:20 announcement: the moderator refiles the announced terms to market/public through the
+   * real route, which re-checks every scope against its own rule before it answers.
+   */
+  async announce(): Promise<void> {
+    const demo = loadDemoWorld();
+    for (const id of demo.announced) {
+      await this.call("POST", `${ROUTES.facts}/${encodeURIComponent(id)}/file`, MODERATOR_CLIENT, { group: demo.announcedGroup });
     }
   }
 

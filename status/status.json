@@ -1,6 +1,6 @@
 {
   "project": "Bullwark",
-  "updated": "2026-10-24T23:29:24Z",
+  "updated": "2026-10-25T01:25:49Z",
   "team": [
     {
       "id": "A",
@@ -100,7 +100,7 @@
       "priority": "must",
       "state": "doing",
       "title": "Fixture-backed REST and MCP stubs for the moderator console and member view",
-      "note": "server/src/scopes.ts: all scopes routes live with real tier gates (neutral 403 before any lookup), code-level exclusion filtering, agent-subset check, audit + events. World state in distiller/fixtures/world/, 12 world facts in server/fixtures/. Stubs: fixture-seeded scopes, removal-only rebuilds, keyword handoff relevance — Moss/Jev builder still open (A4/A7). Remaining for PRD v4.1: seed from fixtures/world/ (the server still seeds the Harbor Lane world in server/fixtures/), and the console routes in docs/INTEGRATION.md."
+      "note": "server/src/scopes.ts: all scopes routes live with real tier gates (neutral 403 before any lookup), code-level exclusion filtering, agent-subset check, audit + events. Now seeded from Edan's fixtures/world/ (server/src/world.ts): Axe Capital people, groups, rules and the answer key's 34 facts with their stable fact ids; the 0:00 scopes (axe, dollar-bill, desk-assistant) are built by the real pipeline at startup, never copied. Added POST /api/facts/:id/file (moderator refile, 1:20 beat) with fact.filed and scope re-checks, and moderator handoffs. canon_search no longer refuses an ungranted folder. The Falcon world stays as the server tests' world. Remaining: the other console routes in docs/INTEGRATION.md (A1)."
     },
     {
       "id": "A3",
@@ -118,7 +118,7 @@
       "priority": "must",
       "state": "done",
       "title": "Moss index with group and label metadata; scope builds and handoffs filter by scope fact ids",
-      "note": "Real scope builder and in-scope handoff search landed (4576d07, 1eb0270): one retriever query over the post-exclusion pool only, every hit re-checked against the scope's fact ids in code. Retriever is the labelled keyword stub standing in for Moss until credentials land (Q2); createRetriever() is the swap point and GET /health names the provider."
+      "note": "Real scope builder and in-scope handoff search landed (4576d07, 1eb0270): one retriever query over the post-exclusion pool only, every hit re-checked against the scope's fact ids in code. Main's B22 (#27) adds the Moss local hybrid adapter (server/src/retrieval/moss.ts), merged into this branch; it runs once MOSS_PROJECT_ID/KEY are set and its live retrieval is still unverified, so the keyword stub (labelled simulated) runs here."
     },
     {
       "id": "A5",
@@ -154,7 +154,7 @@
       "priority": "must",
       "state": "done",
       "title": "Finance benchmark runner: four setups, leak and missing-context rates, accuracy, tokens, latency, cost and scope build time",
-      "note": "Four-setup runner in bench/src/finance/ (no-memory, shared-memory, bullwark-claude, bullwark-jev): leak detection (code + judge), missing-context, accuracy, tokens, latency, cost. Drives the real runHandoff. Awaits C6's 30 tasks + 60 attacks for real numbers; runs on partial sets. Runs C6's 90 Billions-world cases once A2 seeds fixtures/world/; until then the Bullwark setups fail them (unknown principals). Examples and case.schema.json moved to bench/examples/finance/."
+      "note": "Four-setup runner in bench/src/finance/ (no-memory, shared-memory, bullwark-claude, bullwark-jev): leak detection (code + judge), missing-context, accuracy, tokens, latency, cost. Drives the real runHandoff. Runs on C6's Axe Capital cases: each setup's server is seeded with the demo world's answer key, Wags is the moderator, and cases may set state: announced (the runner refiles the announced terms through the real route before those). bullwark-jev now uses Jev whenever JEV_API_KEY is set (the URL has a default). No full measured run yet: see A20."
     },
     {
       "id": "A16",
@@ -191,6 +191,15 @@
       "state": "done",
       "title": "Agent profiles: scope built from and kept inside the creator's scope",
       "note": "An agent scope is built from its creator's scope only and checked to be a subset in code at build time (500 if it escapes) and on every living update and rule-edit cascade (server/src/scopes.ts, scopes.test.ts)."
+    },
+    {
+      "id": "A20",
+      "owner": "A",
+      "milestone": "M4",
+      "priority": "must",
+      "state": "todo",
+      "title": "Calibrate the scope-build and handoff thresholds on live Jev",
+      "note": "Measured 10/24 on the demo world, one run, Dollar Bill's rule: live Jev scores 'group falls under the exclusion text' 0.38-0.43 for every non-deal group (0.75 for deal/stonewall) against EXCLUDE_GROUP 0.2, so his live scope builds empty. Fact-level exclusion separates (deal 0.58-0.83, others 0.14-0.35; threshold 0.3) and relevance for his public facts is 0.55-0.77 (IN_SCOPE 0.7). Thresholds were tuned on the simulated judge. Needs a decision before the demo."
     },
     {
       "id": "B1",

@@ -86,6 +86,8 @@ export interface FinanceSetup {
   open(): Promise<void>;
   info(): SetupInfo;
   prepare(c: FinanceCase): Promise<PreparedFinance>;
+  /** Moves the world to "announced" (see CASE_STATES). Setups without a world have nothing to move. */
+  announce?(): Promise<void>;
   close(): Promise<void>;
 }
 
@@ -135,6 +137,12 @@ class SharedMemorySetup implements FinanceSetup {
 
   async open(): Promise<void> {
     this.world = await FinanceWorld.start({ judge: new FakeJudge(), rebuildScopes: false });
+    this.facts = await this.world.allFacts();
+  }
+
+  async announce(): Promise<void> {
+    if (!this.world) throw new Error("setup not opened");
+    await this.world.announce();
     this.facts = await this.world.allFacts();
   }
 
@@ -196,7 +204,7 @@ class BullwarkSetup implements FinanceSetup {
 
   private makeJudge(): Judge {
     if (this.judgeRequested === "claude" && env("ANTHROPIC_API_KEY")) return new ClaudeJudge();
-    if (this.judgeRequested === "jev" && env("JEV_API_KEY") && env("JEV_API_URL")) return new JevJudge();
+    if (this.judgeRequested === "jev" && (env("JEV_API_KEY") || env("TYPESAFE_API_KEY"))) return new JevJudge(); // the URL has a documented default
     this.judgeSimulated = true;
     return new FakeJudge({ override: simulatedScopeAnswers });
   }
@@ -209,6 +217,12 @@ class BullwarkSetup implements FinanceSetup {
     await this.world?.close();
     this.world = undefined;
     this.confidentialByPrincipal.clear();
+  }
+
+  async announce(): Promise<void> {
+    if (!this.world) throw new Error("setup not opened");
+    await this.world.announce();
+    this.confidentialByPrincipal.clear(); // the announced terms are no longer behind the wall
   }
 
   info(): SetupInfo {

@@ -11,9 +11,11 @@ baselines we run*). The runner refuses to write quotable files from a simulated 
 
 `npm run finance -w bench` runs every case in [`tasks/finance/`](tasks/finance/) (C6: 30 tasks +
 60 attacks, 10 per PRD style, in the Axe Capital world of `fixtures/world/`; the runner consumes
-whatever exists) across the four PRD setups. The server still seeds the earlier Harbor Lane world,
-so `npm run validate -w bench` warns that C6's principals are outside it and the Bullwark setups
-fail those cases until the server seeds `fixtures/world/`.
+whatever exists) across the four PRD setups. Each setup's server is seeded with that world's answer
+key (every non-quarantined item; no scaffold notes), so a case's `needed_fact_ids` are the facts in
+the store. A case may set `"state": "announced"`: the runner runs every confidential case first,
+then moves the world to 1:20 once (the moderator refiles the announced terms to `market/public`
+through `POST /api/facts/:id/file`), then runs the announced cases.
 
 | Setup | What it is |
 |---|---|
@@ -23,7 +25,7 @@ fail those cases until the server seeds `fixtures/world/`.
 | `bullwark-jev` | the full product (Jev when credentialed) |
 
 The Bullwark setups start the **real server** (`server/src/app.ts`) in-process on a free port with
-a throwaway seeded data dir and the setup's judge, rebuild every member scope through
+a throwaway seeded data dir and the setup's judge, rebuild every member scope (as Wags) through
 `PUT /api/scope-rules` (scope build time is measured there), and run every case as one
 `POST /api/handoff` — the same `server/src/scopes.ts runHandoff` pipeline production traffic uses,
 never a bench-side reimplementation. Agent-escalation attacks create their agent through

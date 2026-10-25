@@ -16,12 +16,13 @@ import type { CanonEvent, CapturedSession, Fact, HealthResponse, SaveDecision } 
 import { startServer } from "./app.ts";
 import type { RunningServer } from "./app.ts";
 import { KeywordRetriever } from "./retrieval/keyword.ts";
+import { FALCON_TEST_GRANTS, loadWorldFixtures } from "./scopes.ts";
 
 const tokens = new Map([
   ["tok-cc", "claude-code"],
   ["tok-gpt", "chatgpt"],
   ["tok-dist", "distiller"],
-  ["tok-maya", "maya"], // the moderator's own client (DEMO_GRANTS binds it to principal maya)
+  ["tok-maya", "maya"], // the moderator's own client (FALCON_TEST_GRANTS binds it to principal maya)
   ["tok-dan", "dan"], // a member's per-person client
 ]);
 
@@ -90,7 +91,7 @@ describe("server over HTTP", () => {
   before(async () => {
     console.info = () => {};
     dir = await mkdtemp(join(tmpdir(), "canon-app-"));
-    running = await startServer({ port: 0, dataDir: dir, tokens, grants: [...DEMO_GRANTS], judge: new FakeJudge(), retriever: new KeywordRetriever(), log: () => {} });
+    running = await startServer({ port: 0, dataDir: dir, tokens, grants: [...DEMO_GRANTS, ...FALCON_TEST_GRANTS], judge: new FakeJudge(), retriever: new KeywordRetriever(), world: loadWorldFixtures(), log: () => {} });
     events = [];
     running.bus.subscribe((e) => events.push(e));
   });
@@ -300,7 +301,7 @@ describe("server over HTTP", () => {
     assert.equal((await api("/api/facts", { token: "wrong" })).status, 401, "an unknown token is not downgraded to the public view");
 
     const grants = (await (await api("/api/grants")).json()) as { grants: unknown[] };
-    assert.equal(grants.grants.length, DEMO_GRANTS.length);
+    assert.equal(grants.grants.length, DEMO_GRANTS.length + FALCON_TEST_GRANTS.length);
   });
 
   /**
@@ -368,7 +369,7 @@ describe("server over HTTP", () => {
     await transport.close();
   });
 
-  test("MCP endpoint through the SDK client: tools, whoami, refusal, context, save", async () => {
+  test("MCP endpoint through the SDK client: tools, whoami, no refusal, context, save", async () => {
     const client = new Client({ name: "test", version: "0.0.0" });
     const transport = new StreamableHTTPClientTransport(new URL(`${running.url}/mcp`), {
       requestInit: { headers: { authorization: "Bearer tok-cc" } },
@@ -385,9 +386,10 @@ describe("server over HTTP", () => {
       assert.deepEqual(whoami.structuredContent, { client: "claude-code", read: ["projects", "career"], write: ["projects"] });
       assert.deepEqual(JSON.parse(whoami.content[0].text ?? ""), whoami.structuredContent);
 
-      const refused = (await client.callTool({ name: "canon_search", arguments: { query: "typescript", folders: ["private"] } })) as ToolResult;
-      assert.equal(refused.isError, true);
-      assert.equal(refused.content[0].text, "refused: claude-code cannot read private. Call canon_whoami to see your folders.");
+      // An ungranted folder is not refused: the search just has nothing there.
+      const outside = (await client.callTool({ name: "canon_search", arguments: { query: "typescript", folders: ["private"] } })) as ToolResult;
+      assert.notEqual(outside.isError, true);
+      assert.deepEqual(outside.structuredContent, { facts: [] });
       assert.ok(events.some((e) => e.type === "access.denied" && e.tool === "canon_search" && e.folder === "private"));
 
       const search = (await client.callTool({ name: "canon_search", arguments: { query: "TypeScript Node" } })) as ToolResult;
@@ -421,7 +423,7 @@ describe("POST /api/facts into scope groups", () => {
 
   before(async () => {
     dir = await mkdtemp(join(tmpdir(), "canon-groups-"));
-    running = await startServer({ port: 0, dataDir: dir, tokens: groupTokens, grants: [...DEMO_GRANTS], judge: new FakeJudge(), retriever: new KeywordRetriever(), log: () => {} });
+    running = await startServer({ port: 0, dataDir: dir, tokens: groupTokens, grants: [...DEMO_GRANTS, ...FALCON_TEST_GRANTS], judge: new FakeJudge(), retriever: new KeywordRetriever(), world: loadWorldFixtures(), log: () => {} });
   });
   after(async () => {
     await running.close();

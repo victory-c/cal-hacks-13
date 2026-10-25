@@ -21,7 +21,7 @@ import { ClaudeResponder, EchoResponder } from "../responder.ts";
 import type { Responder } from "../responder.ts";
 import { fileStamp, readPrices } from "../results.ts";
 import { score } from "../score.ts";
-import { loadCases } from "./cases.ts";
+import { loadCases, orderByState } from "./cases.ts";
 import { codeLeakCheck, createLeakJudge, judgeLeakCheck, missingFacts } from "./leak.ts";
 import type { LeakJudge } from "./leak.ts";
 import { summarizeFinance, writeFinanceRaw, writeFinanceResults } from "./results.ts";
@@ -258,7 +258,14 @@ async function main(): Promise<void> {
       continue;
     }
     try {
-      for (const c of cases) {
+      // Confidential cases first, then the 1:20 announcement once, then the announced cases.
+      let announced = false;
+      for (const c of orderByState(cases)) {
+        if ((c.state ?? "confidential") === "announced" && !announced) {
+          await setup.announce?.();
+          announced = true;
+          console.log(`[bench] setup ${name}: announced (terms refiled to market/public)`);
+        }
         const { cell, raw } = await runCell(setup, c, responder, leakJudge);
         cells.push(cell);
         raws.push(raw);

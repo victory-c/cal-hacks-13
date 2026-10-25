@@ -9,13 +9,13 @@ scopes; do not claim information barriers from this scaffold.
 
 ```bash
 npm run dev -w server         # tsx watch, http://127.0.0.1:4100 (CANON_PORT)
-npm run seed -w server        # optional: copy fixtures/ into the data dir (CANON_DATA_DIR, default data/), skip existing
+npm run seed -w server        # optional: scaffold fixtures/ + the demo world into the data dir (CANON_DATA_DIR, default data/), skip existing
 npm run typecheck -w server && npm test -w server    # ~0.5 s, offline, boots its own server on port 0
 ```
 
 Reads `.env` via `loadEnv()` (see `.env.example`). With no `CANON_CLIENT_TOKENS` the dev tokens from
 `.env.example` are used, with a warning. Binds to 127.0.0.1 only. **A store with no facts is seeded
-from `fixtures/` at start-up** (`src/index.ts`), so a fresh clone demos without a separate seed step;
+at start-up** (`src/index.ts`) with the scaffold `fixtures/` and the demo world's 0:00 facts (below), so a fresh clone demos without a separate seed step;
 `npm run seed` is for re-seeding a store you emptied by hand. The store is scanned once at boot: a
 file you add in Obsidian while the server runs shows up after a restart. Start-up failures (port in
 use, bad `JUDGE_PROVIDER`, broken `CANON_GRANTS_FILE`) are one `[server] ...` line, not a stack trace.
@@ -42,13 +42,29 @@ use, bad `JUDGE_PROVIDER`, broken `CANON_GRANTS_FILE`) are one `[server] ...` li
 | `POST /api/handoff` | internal | `HandoffBody` → `HandoffResult`: candidates only ever come from inside the fixed scope, budget cut, pinned profile (never the exclusions), audit row + `handoff.served`. **Stub relevance: keyword overlap, not Moss + Jev** |
 | `POST /api/dispatch` | the agent's creator or a moderator | `DispatchRequest` → `{ id }`, emits `dispatch.requested`; `by` must be the caller |
 | `POST /api/events` | internal | Re-broadcast one `RELAYED_EVENTS` event on `/events` (the server stamps `at`) |
+| `POST /api/facts/:id/file` | moderator | Refile a fact `{ group, labels? }` (INTEGRATION.md), e.g. the announced Stonewall terms to `market/public` at 1:20. A scope whose rule now excludes it loses it in code; then it joins the scopes it now fits through the living-scope checks. Emits `fact.filed`; audit `fact.filed` |
+
+**The demo world (`src/world.ts`).** The server runs on Edan's Axe Capital / Project Stonewall world
+in `../fixtures/world/` (C20): people, groups (code names become aliases), labels and scope rules
+from `world.json` (`deal/*` is the `deal` prefix), and the answer key's facts from `expected.json`,
+with their stable `fact_id`s (the ones `bench/tasks/finance/` cites), groups, labels, the item's
+author, and one raw session per item in the cold archive. Several items can state one fact; the
+first item listed is its source. `seed` holds the items loaded before the demo; `all` (the
+benchmark) adds the 0:25 items; the quarantined counsel email never becomes facts. **Scopes are
+never copied from a fixture:** at start-up the server builds the 0:00 ones (Axe, Dollar Bill, his
+desk assistant) with the configured judge and retriever (`buildInitialScopes`, audited as actor
+`server`); Ben's waits for Wags at 0:40 and the 1:00 agents are created live. A scope draws only
+from facts filed in one of the world's groups, so the scaffold's `career/` and `projects/` notes
+join none. A moderator has no scope record: their handoff draws from every hot fact. The server
+tests still run on the earlier Falcon world (`../distiller/fixtures/world/`, `fixtures/falcon/`,
+`FALCON_TEST_GRANTS`), whose prebuilt scope snapshot pins their expectations.
 
 **Scopes tier enforcement (A2, `src/scopes.ts`).** The caller's principal is its grant's `principal`
 or the client id itself (`maya=dev-maya` → `maya`). Moderator routes answer every non-moderator with
 one constant `403 { "error": "moderators only" }` **before anything is looked up**, so the same bytes
 come back whether the target exists or not — no refusals that reveal, no existence signals. World
-state (people, rules, scopes, quarantine, audit) loads from `../distiller/fixtures/world/` into
-memory per server; facts come from the regular store.
+state (people, rules, scopes, quarantine, audit) lives in memory per server, loaded from the demo
+world (above); facts come from the regular store.
 
 **Scope builder and living scopes (A4+A6, `src/scopes.ts` + `src/scope-judge.ts`).** A build is:
 excluded groups (prefix) and labels removed **in code** → one retriever query for the task, result
@@ -74,8 +90,9 @@ sees `private/`).
 
 **MCP tools** (`src/mcp.ts`): `canon_context`, `canon_search`, `canon_save`, `canon_whoami`, input shapes
 as in `shared/src/types/mcp.ts`. Every result has `content[0].text = JSON.stringify(output)` and
-`structuredContent = output`. A folder outside the grant is an `isError` result:
-`refused: <client> cannot read <folder>. Call canon_whoami to see your folders.`
+`structuredContent = output`. A `canon_search` folder outside the grant is dropped silently: the
+result is an ordinary (possibly empty) list, never a refusal, and moderators see the probe as an
+`access.denied` event.
 
 ## Data layout (`CANON_DATA_DIR`, gitignored, opens in Obsidian)
 

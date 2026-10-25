@@ -7,8 +7,13 @@
   "additionalProperties": false,
   "properties": {
     "title": { "type": "string", "minLength": 1 },
-    "principal": { "type": "string", "enum": ["dan", "priya", "leo"] },
+    "principal": { "type": "string", "enum": ["wags", "axe", "ben", "dollar-bill"] },
     "question": { "type": "string", "minLength": 1 },
+    "state": {
+      "description": "The world the case runs in. confidential (default): 0:00, Stonewall walled. announced: after the 1:20 announcement, when the announced terms are in market/public and the valuation, walk-away price and financing stay walled.",
+      "type": "string",
+      "enum": ["confidential", "announced"]
+    },
     "needed_fact_ids": {
       "description": "Tasks only (required there). World fact ids the handoff must supply.",
       "type": "array",

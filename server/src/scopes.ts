@@ -72,11 +72,23 @@ export interface WorldFixtures {
   scopes: Scope[];
   quarantine: QuarantineItem[];
   audit: AuditEvent[];
+  /**
+   * Principals whose scope the server builds with the real pipeline when it starts, people before
+   * agents (the demo world's 0:00 scopes). Scopes in `scopes` are a snapshot and are used as is.
+   */
+  initial_scopes?: string[];
 }
 
+/**
+ * The earlier Harbor Lane / Project Falcon world (lane B's fixtures), kept as the server tests'
+ * world: its prebuilt scope snapshot pins test expectations. The demo runs on fixtures/world/ (world.ts).
+ */
 export const WORLD_FIXTURES_DIR = join(REPO_ROOT, "distiller", "fixtures", "world");
 
-/** Reads the synthetic-world state (groups, people, rules, scopes, quarantine, audit). */
+/** One per-person client for each of the Falcon test world's people, added to DEMO_GRANTS in tests. */
+export const FALCON_TEST_GRANTS: readonly Grant[] = ["maya", "dan", "priya", "leo"].map((p) => ({ client: p, read: [], write: [], principal: p }));
+
+/** Reads the Falcon test world's state (groups, people, rules, scopes, quarantine, audit). */
 export function loadWorldFixtures(dir: string = WORLD_FIXTURES_DIR): WorldFixtures {
   const read = <T>(file: string, key: string): T => {
     const path = join(dir, file);
@@ -107,10 +119,13 @@ export class ScopeState {
   readonly scopes = new Map<string, Scope>(); // by principal
   readonly quarantine = new Map<string, QuarantineItem>();
   readonly audit: AuditEvent[];
+  /** Built by buildInitialScopes() at startup, people before agents. */
+  readonly initialScopes: string[];
 
   constructor(world: WorldFixtures = loadWorldFixtures()) {
     const w = structuredClone(world);
     this.groups = w.groups;
+    this.initialScopes = w.initial_scopes ?? [];
     for (const p of w.principals) this.principals.set(p.id, p);
     for (const r of w.rules) this.rules.set(r.principal, r);
     for (const s of w.scopes) this.scopes.set(s.principal, s);
@@ -185,9 +200,17 @@ function allowedByRule(rule: Pick<ScopeRule, "exclude">, fact: Fact): boolean {
   return true;
 }
 
-/** Hot facts a scope may ever draw from: never the moderators-only inbox. */
+/**
+ * Hot facts a scope may ever draw from: filed in one of the world's groups. Never the
+ * moderators-only inbox, and never a fact outside every group (the scaffold's career/ and
+ * projects/ notes), which no moderator has placed.
+ */
 function hotCandidates(deps: ScopesDeps): Fact[] {
-  return deps.store.listFacts({ tier: "hot" }).filter((f) => !folderAllows([INBOX], f.folder));
+  return deps.store.listFacts({ tier: "hot" }).filter((f) => inWorldGroup(deps, f));
+}
+
+function inWorldGroup(deps: ScopesDeps, fact: Fact): boolean {
+  return !folderAllows([INBOX], fact.folder) && deps.world.groups.some((g) => folderAllows([g.id], fact.folder));
 }
 
 /**
@@ -319,6 +342,81 @@ function scopeFacts(deps: ScopesDeps, principalId: string): Fact[] {
   return scope.fact_ids.map((fid) => deps.store.getFact(fid)).filter((f): f is Fact => f !== undefined);
 }
 
+/**
+ * Builds the world's 0:00 scopes (`initial_scopes`) with the real pipeline: the configured judge
+ * and retriever, audited like any other build. A failed build leaves that principal without a
+ * scope, so handoffs for them fail closed (404 to the internal caller) instead of serving a guess.
+ */
+export type InitialScopeResult = { principal: string; facts: number; ms: number } | { principal: string; error: string };
+
+export async function buildInitialScopes(deps: ScopesDeps): Promise<InitialScopeResult[]> {
+  const out: InitialScopeResult[] = [];
+  for (const id of deps.world.initialScopes) {
+    const principal = deps.world.principals.get(id);
+    const rule = deps.world.rules.get(id);
+    if (!principal || !rule) {
+      out.push({ principal: id, error: "no such principal or rule" });
+      continue;
+    }
+    const t0 = performance.now();
+    try {
+      const { scope } = await buildScope(deps, principal, rule, "server");
+      deps.bus.emit({ type: "scope.updated", principal: id, reason: "built", added: scope.fact_ids, removed: [], size: scope.fact_ids.length });
+      out.push({ principal: id, facts: scope.fact_ids.length, ms: Math.round(performance.now() - t0) });
+    } catch (err) {
+      out.push({ principal: id, error: err instanceof Error ? err.message : String(err) });
+    }
+  }
+  return out;
+}
+
+// -------------------------------------------------------------------------------- refiling
+//
+// INTEGRATION.md `POST /api/facts/:id/file` (moderator): move a fact to another group and/or set
+// its labels, e.g. the announced Stonewall terms to market/public at 1:20. A scope whose rule now
+// excludes the fact loses it in code; then the fact goes through the same living-scope checks as a
+// new fact (exclusions in code, then one batched judge call), so it joins only the scopes it now
+// fits. An agent still gains it only through its creator's scope.
+
+export async function refileFact(deps: ScopesDeps, callerId: string, factId: string, body: unknown): Promise<Fact> {
+  const fact = deps.store.getFact(factId);
+  if (!fact) throw new HttpError(404, `no fact "${factId}"`);
+  if (!isRecord(body)) throw new HttpError(400, "body must be { group, labels? }");
+  const { group, labels } = body;
+  if (typeof group !== "string" || !GROUP_RE.test(group)) throw new HttpError(400, 'body.group must be a group path like "market/public"');
+  if (group !== INBOX && !deps.world.groups.some((g) => g.id === group)) throw new HttpError(400, `no group "${group}"`);
+  if (labels !== undefined && (!Array.isArray(labels) || !labels.every((l) => typeof l === "string" && LABEL_RE.test(l)))) {
+    throw new HttpError(400, "body.labels must be lowercase slugs");
+  }
+  const next: Fact = { ...fact, folder: group, updated: nowIso().slice(0, 10) };
+  if (Array.isArray(labels)) {
+    if (labels.length > 0) next.labels = [...new Set(labels as string[])];
+    else delete next.labels;
+  }
+  const saved = await deps.store.putFact(next);
+  logAudit(deps, {
+    kind: "fact.filed",
+    actor: callerId,
+    fact_ids: [saved.id],
+    detail: `${saved.id} filed from ${fact.folder} to ${saved.folder}${saved.labels?.length ? ` with labels ${saved.labels.join(", ")}` : ""}.`,
+  });
+  deps.bus.emit({ type: "fact.filed", fact_id: saved.id, from: fact.folder, group: saved.folder, labels: saved.labels ?? [] });
+
+  // Leave every scope whose rule now excludes it (every scope, for the moderators-only inbox).
+  for (const scope of deps.world.scopes.values()) {
+    const i = scope.fact_ids.indexOf(saved.id);
+    if (i === -1) continue;
+    const rule = deps.world.rules.get(scope.principal);
+    if (!folderAllows([INBOX], saved.folder) && rule && allowedByRule(rule, saved)) continue;
+    scope.fact_ids.splice(i, 1);
+    logAudit(deps, { kind: "fact.left_scope", actor: callerId, principal: scope.principal, fact_ids: [saved.id], detail: `${saved.id} was filed to ${saved.folder} and left ${scope.principal}'s scope.` });
+    deps.bus.emit({ type: "scope.updated", principal: scope.principal, reason: "fact_filed", added: [], removed: [saved.id], size: scope.fact_ids.length });
+  }
+  // Then it joins the scopes it now fits, with the checks a new fact gets.
+  await onFactSaved(deps, saved);
+  return saved;
+}
+
 // ---------------------------------------------------------------------------- living scopes
 //
 // PRD #11. Facts in the inbox (and quarantined captures, which never become facts) join no member
@@ -352,7 +450,7 @@ interface LiveCheck {
 /** A new hot fact joins every scope whose checks it clears, with one batched judge() call across them all. */
 export async function onFactSaved(deps: ScopesDeps, fact: Fact): Promise<void> {
   if (fact.tier !== "hot") return;
-  if (folderAllows([INBOX], fact.folder)) return; // moderators only until filed; joins no scope
+  if (!inWorldGroup(deps, fact)) return; // the inbox (moderators only until filed) or no group at all: joins no scope
 
   const members: LiveCheck[] = [];
   const agents: LiveCheck[] = [];
@@ -473,7 +571,7 @@ export function pinnedProfile(deps: ScopesDeps, who: Principal): string {
   const rule = deps.world.rules.get(who.id);
   const role = who.kind === "agent" ? `an agent created by ${who.created_by ?? "unknown"}` : who.tier === "moderator" ? "a moderator" : "a member";
   return (
-    `${who.name} (${who.id}), ${role}. Standing task: ${rule?.task ?? "none set"}. ` +
+    `${who.name} (${who.id}), ${role}. Standing task: ${(rule?.task ?? "none set").replace(/[.\s]+$/, "")}. ` +
     `Any facts handed over with this profile are the complete stored context for this request; work from them and the request alone.`
   );
 }
@@ -490,14 +588,19 @@ async function runHandoff(deps: ScopesDeps, client: string, body: unknown): Prom
   if (run_id !== undefined && typeof run_id !== "string") throw new HttpError(400, "body.run_id must be a string");
   const who = deps.world.principals.get(principal);
   if (!who) throw new HttpError(404, `no principal "${principal}"`); // internal callers only; no member sees this
+  // A moderator sees everything and has no scope record: their universe is every hot fact, the
+  // moderators-only inbox included. Everyone else needs a built scope.
+  const isModerator = who.kind === "person" && who.tier === "moderator";
   const scope = deps.world.scopes.get(principal);
-  if (!scope) throw new HttpError(404, `no scope for "${principal}"`);
+  if (!scope && !isModerator) throw new HttpError(404, `no scope for "${principal}"`);
   const budget = budget_tokens ?? DEFAULT_BUDGET_TOKENS;
   const request = task.trim();
 
   // 1. Permission: only facts inside the fixed scope are ever candidates. An agent uses its own
   // scope (⊆ its creator's by construction); what is outside was never considered.
-  const inScope = scope.fact_ids.map((fid) => deps.store.getFact(fid)).filter((f): f is Fact => f !== undefined);
+  const inScope = scope
+    ? scope.fact_ids.map((fid) => deps.store.getFact(fid)).filter((f): f is Fact => f !== undefined)
+    : deps.store.listFacts({ tier: "hot" });
 
   // 2. Search inside the scope: the retriever query is narrowed to the scope's groups and every
   // hit is re-checked against the scope's fact ids in code (the PRD fallback until Moss filters
@@ -727,6 +830,15 @@ export async function handleScopesRoute(
     logAudit(deps, { kind: "agent.deleted", actor: callerId, principal: target, detail: `Agent "${targetPrincipal.name}" deleted.` });
     deps.bus.emit({ type: "principal.changed", principal: targetPrincipal, change: "agent_deleted", by: callerId });
     return sendJson(res, 200, { ok: true }), true;
+  }
+
+  // ---- POST /api/facts/:id/file (moderator): refile a fact into a group, with labels.
+  {
+    const m = /^\/api\/facts\/([^/]+)\/file$/.exec(path);
+    if (m && method === "POST") {
+      if (!isModerator) return sendJson(res, 403, MODERATORS_ONLY), true;
+      return sendJson(res, 200, await refileFact(deps, callerId, decodeURIComponent(m[1]), await readJsonBody(req))), true;
+    }
   }
 
   // ---- /api/quarantine (GET: moderator. POST: internal. :id/release: moderator).

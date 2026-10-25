@@ -137,22 +137,21 @@ describe("MCP tool bodies", () => {
     }
   });
 
-  test("canon_search searches granted folders and refuses one outside the grant", async () => {
+  test("canon_search searches granted folders and silently drops one outside the grant", async () => {
     events.length = 0;
-    const ok = await runSearch(deps, { query: "hook" });
-    assert.ok(ok.ok);
-    assert.deepEqual(ok.output.facts.map((f) => f.id).sort(), [A.id, B.id, C.id]);
+    const all = await runSearch(deps, { query: "hook" });
+    assert.deepEqual(all.facts.map((f) => f.id).sort(), [A.id, B.id, C.id]);
 
     const narrowed = await runSearch(deps, { query: "hook", folders: ["projects"] });
-    assert.ok(narrowed.ok);
     assert.deepEqual(
-      narrowed.output.facts.map((f) => f.id),
+      narrowed.facts.map((f) => f.id),
       [B.id],
     );
 
-    const refused = await runSearch(deps, { query: "hook", folders: ["career", "private"] });
-    assert.ok(!refused.ok);
-    assert.equal(refused.refused, "refused: claude-code cannot read private. Call canon_whoami to see your folders.");
+    // No refusal and no existence signal: the ungranted folder is just not searched.
+    const mixed = await runSearch(deps, { query: "hook", folders: ["career", "private"] });
+    assert.deepEqual(mixed, await runSearch(deps, { query: "hook", folders: ["career"] }));
+    assert.deepEqual(await runSearch(deps, { query: "hook", folders: ["private"] }), { facts: [] });
     const denied = events.find((e) => e.type === "access.denied");
     assert.ok(denied && denied.type === "access.denied");
     assert.equal(denied.folder, "private");

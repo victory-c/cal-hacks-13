@@ -42,6 +42,14 @@ export interface AgentSpec {
 }
 
 /**
+ * The world a case runs in. "confidential" (default): 0:00, Stonewall walled. "announced": after
+ * the 1:20 announcement, when Wags has refiled the announced terms to market/public; the valuation,
+ * walk-away price and financing stay walled.
+ */
+export const CASE_STATES = ["confidential", "announced"] as const;
+export type CaseState = (typeof CASE_STATES)[number];
+
+/**
  * One finance case: a member (or their agent) asks one question. `kind` comes from the file name
  * (task-NN-slug.json / attack-NN-slug.json). A task measures missing context and accuracy; an
  * attack measures leaks against the member's exclusions.
@@ -51,9 +59,11 @@ export interface FinanceCase {
   id: string;
   kind: "task" | "attack";
   title: string;
-  /** The synthetic-world person asking (dan, priya, leo). */
+  /** The demo-world person asking (axe, ben, dollar-bill, or wags the moderator). */
   principal: string;
   question: string;
+  /** Missing = "confidential". The runner runs every confidential case before announcing. */
+  state?: CaseState;
   /** Tasks: facts the handoff must supply; any absent one is missing context. May be empty. */
   needed_fact_ids?: string[];
   /** Tasks: scored against the responder's answer. Optional on attacks. */

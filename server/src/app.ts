@@ -14,8 +14,9 @@ import { createRetriever } from "./retrieval/index.ts";
 import type { Retriever } from "./retrieval/index.ts";
 import { createRouter } from "./router.ts";
 import { createServerJudge } from "./scope-judge.ts";
-import { ScopeState, attachLivingScopes, loadWorldFixtures } from "./scopes.ts";
+import { ScopeState, attachLivingScopes, buildInitialScopes } from "./scopes.ts";
 import type { WorldFixtures } from "./scopes.ts";
+import { loadDemoWorld } from "./world.ts";
 import { FileStore } from "./store.ts";
 
 export interface StartOptions {
@@ -28,8 +29,10 @@ export interface StartOptions {
   tokens?: Map<string, string>;
   judge?: Judge;
   retriever?: Retriever;
-  /** Scopes world state; defaults to the fixtures in distiller/fixtures/world/. */
+  /** Scopes world state; defaults to the demo world in fixtures/world/ (world.ts). */
   world?: WorldFixtures;
+  /** Build the world's 0:00 scopes (`initial_scopes`) before listening. Default true. */
+  buildInitialScopes?: boolean;
   log?: (line: string) => void;
 }
 
@@ -71,9 +74,16 @@ export async function startServer(opts: StartOptions = {}): Promise<RunningServe
     if (e.type === "fact.saved" || e.type === "fact.retired") void reindex();
   });
 
-  const world = new ScopeState(opts.world ?? loadWorldFixtures());
+  const world = new ScopeState(opts.world ?? loadDemoWorld().fixtures);
   // Living scopes (PRD #11): new hot facts join the scopes whose checks they clear; retired facts leave.
   attachLivingScopes({ world, store, bus, grants, judge, retriever });
+  // The 0:00 scopes come from the real pipeline (this judge and retriever), never from a snapshot.
+  if (opts.buildInitialScopes ?? true) {
+    for (const r of await buildInitialScopes({ world, store, bus, grants, judge, retriever })) {
+      if ("error" in r) console.error(`[scopes] initial scope for ${r.principal} not built: ${r.error}`);
+      else (opts.log ?? console.info)(`[scopes] initial scope for ${r.principal}: ${r.facts} facts in ${r.ms} ms (${judge.name}, ${retriever.name})`);
+    }
+  }
 
   const router = createRouter({ store, bus, grants, judge, retriever, tokens, world, startedAt: Date.now(), log: opts.log });
   const server = createServer((req, res) => void router(req, res));

@@ -9,9 +9,11 @@ import { fileURLToPath } from "node:url";
 import { FACT_ID_RE, GROUP_RE, LABEL_RE, SESSION_ID_RE } from "@canon/shared";
 import type { CapturedSession, SessionMessage } from "@canon/shared";
 
+import { loadDemoWorld } from "@canon/server/src/world.ts";
+
 import type { AnswerKey } from "../types.ts";
-import { ATTACK_STYLES } from "./types.ts";
-import type { AgentSpec, AttackStyle, FinanceCase } from "./types.ts";
+import { ATTACK_STYLES, CASE_STATES } from "./types.ts";
+import type { AgentSpec, AttackStyle, CaseState, FinanceCase } from "./types.ts";
 
 export const FINANCE_CASES_DIR = fileURLToPath(new URL("../../tasks/finance/", import.meta.url));
 /** The task-00 / attack-00 documentation examples and case.schema.json, kept out of C6's directory. */
@@ -19,11 +21,11 @@ export const FINANCE_EXAMPLES_DIR = fileURLToPath(new URL("../../examples/financ
 /** task-01-short-slug.json / attack-01-short-slug.json; number 00 is the documentation example. */
 export const CASE_FILE_RE = /^(task|attack)-(\d{2})-[a-z0-9]+(?:-[a-z0-9]+)*\.json$/;
 
-/** Synthetic-world members (A14). An unknown principal is a warning: the server 404s it later. */
-export const WORLD_MEMBERS: readonly string[] = ["dan", "priya", "leo"];
+/** The demo world's people (fixtures/world/). An unknown principal is a warning: the server 404s it later. */
+export const WORLD_PEOPLE: readonly string[] = loadDemoWorld().fixtures.principals.filter((p) => p.kind === "person").map((p) => p.id);
 
-const TASK_KEYS = ["title", "principal", "question", "needed_fact_ids", "answer_key", "notes"] as const;
-const ATTACK_KEYS = ["title", "principal", "question", "attack_style", "leak_probes", "agent", "setup_sessions", "answer_key", "notes"] as const;
+const TASK_KEYS = ["title", "principal", "question", "state", "needed_fact_ids", "answer_key", "notes"] as const;
+const ATTACK_KEYS = ["title", "principal", "question", "state", "attack_style", "leak_probes", "agent", "setup_sessions", "answer_key", "notes"] as const;
 const ROLES: ReadonlySet<string> = new Set(["user", "assistant", "system", "tool"]);
 
 export type ParseCaseResult = { ok: true; case: FinanceCase; warnings: string[] } | { ok: false; errors: string[]; warnings: string[] };
@@ -180,9 +182,17 @@ export function parseCase(json: string, fileName: string): ParseCaseResult {
   }
 
   if (!isText(raw.title)) err("title", `must be a non-empty string (got ${show(raw.title)})`);
-  if (!isText(raw.principal)) err("principal", `must be a non-empty string, e.g. "priya" (got ${show(raw.principal)})`);
-  else if (!WORLD_MEMBERS.includes(raw.principal)) {
-    warnings.push(`${fileName}: principal "${raw.principal}" is not a synthetic-world member (${WORLD_MEMBERS.join(", ")}); the Bullwark setups will fail this case unless the world defines them`);
+  if (!isText(raw.principal)) err("principal", `must be a non-empty string, e.g. "dollar-bill" (got ${show(raw.principal)})`);
+  else if (!WORLD_PEOPLE.includes(raw.principal)) {
+    warnings.push(`${fileName}: principal "${raw.principal}" is not a person in the demo world (${WORLD_PEOPLE.join(", ")}); the Bullwark setups will fail this case unless the world defines them`);
+  }
+  let state: CaseState | undefined;
+  if (raw.state !== undefined) {
+    if (typeof raw.state !== "string" || !(CASE_STATES as readonly string[]).includes(raw.state)) {
+      err("state", `must be one of ${CASE_STATES.join(" | ")} when set (got ${show(raw.state)}); missing means "confidential"`);
+    } else {
+      state = raw.state as CaseState;
+    }
   }
   if (!isText(raw.question)) err("question", `must be a non-empty string (got ${show(raw.question)})`);
   if (raw.notes !== undefined && typeof raw.notes !== "string") err("notes", `must be a string when set (got ${show(raw.notes)})`);
@@ -251,8 +261,14 @@ export function parseCase(json: string, fileName: string): ParseCaseResult {
   if (probes) c.leak_probes = probes;
   if (agent) c.agent = agent;
   if (sessions) c.setup_sessions = sessions;
+  if (state) c.state = state;
   if (typeof raw.notes === "string") c.notes = raw.notes;
   return { ok: true, case: c, warnings };
+}
+
+/** Every confidential case before any announced one, each group in its original order. */
+export function orderByState<T extends { state?: string }>(cases: readonly T[]): T[] {
+  return [...cases.filter((c) => (c.state ?? "confidential") !== "announced"), ...cases.filter((c) => c.state === "announced")];
 }
 
 /** Case files in `dir`, sorted. `ignored` lists .json files whose name is not a case name. */

@@ -35,8 +35,8 @@ import type { RunningServer } from "./app.ts";
 import { EventBus } from "./events.ts";
 import { KeywordRetriever } from "./retrieval/keyword.ts";
 import { simulatedScopeAnswers } from "./scope-judge.ts";
-import { ScopeState, buildScope, loadWorldFixtures } from "./scopes.ts";
-import { seedDataDir } from "./seed.ts";
+import { FALCON_TEST_GRANTS, ScopeState, buildScope, loadWorldFixtures } from "./scopes.ts";
+import { FALCON_FIXTURES_DIR, FIXTURES_DIR, seedDataDir } from "./seed.ts";
 
 const tokens = new Map([
   ["tok-maya", "maya"],
@@ -88,7 +88,9 @@ describe("scopes REST surface, scope builder and handoff (A2, A4+A6, A7+A16)", (
   before(async () => {
     console.info = () => {};
     dir = await mkdtemp(join(tmpdir(), "canon-scopes-"));
-    await seedDataDir(dir); // the world facts (fct_fa1c…, fct_ab11…, …) referenced by scopes.json
+    // The Falcon test world: its facts (fct_fa1c…, fct_ab11…, …) are what its scopes.json references.
+    await seedDataDir(dir, FIXTURES_DIR, false);
+    await seedDataDir(dir, FALCON_FIXTURES_DIR, false);
     const inner = new FakeJudge({ override: (q, s) => testAnswers?.(q) ?? simulatedScopeAnswers(q, s) });
     const judge: Judge = {
       name: "fake",
@@ -97,7 +99,7 @@ describe("scopes REST surface, scope builder and handoff (A2, A4+A6, A7+A16)", (
         return inner.ask(state, questions);
       },
     };
-    running = await startServer({ port: 0, dataDir: dir, tokens, grants: [...DEMO_GRANTS], judge, retriever: new RecordingRetriever(), log: () => {} });
+    running = await startServer({ port: 0, dataDir: dir, tokens, grants: [...DEMO_GRANTS, ...FALCON_TEST_GRANTS], judge, retriever: new RecordingRetriever(), world: loadWorldFixtures(), log: () => {} });
     events = [];
     running.bus.subscribe((e) => events.push(e));
   });
@@ -675,7 +677,7 @@ describe("scopes REST surface, scope builder and handoff (A2, A4+A6, A7+A16)", (
         return { id: q.id, type: "noul", p: 0.05 };
       },
     });
-    const deps = { world, store: running.store, bus: new EventBus(), grants: [...DEMO_GRANTS], judge, retriever };
+    const deps = { world, store: running.store, bus: new EventBus(), grants: [...DEMO_GRANTS, ...FALCON_TEST_GRANTS], judge, retriever };
     const agent = world.principals.get("agt_leodesk");
     const rule = world.rules.get("agt_leodesk");
     assert.ok(agent && rule);

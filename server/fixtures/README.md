@@ -14,9 +14,10 @@ transcript, an AI session, a public letter and an email from counsel containing 
 with an answer key. C6 writes legitimate tasks and attacks against that world. Replace fixtures only alongside the required
 schema, permission behavior and tests. Use synthetic data throughout. These fixtures do not define product scope; the PRDs in `../../docs/` do.
 
-Until the server seeds `fixtures/world/`, it still seeds the earlier Harbor Lane Partners /
-Project Falcon / Nimbus Logistics world (A14): `facts/deal/`, `facts/market/`, `facts/research/`,
-`facts/desk/` and `facts/firm/` hold thirteen facts distilled from the sessions in
+The server now seeds the demo world from `../../fixtures/world/` (`../src/world.ts`). The earlier
+Harbor Lane Partners / Project Falcon / Nimbus Logistics world (A14) stays as the server tests'
+world only, never seeded by default: `falcon/facts/deal/`, `market/`, `research/`, `desk/` and
+`firm/` hold thirteen facts distilled from the sessions in
 `../../distiller/fixtures/world/`, with the same numbers and dates, each carrying its `source`
 session, `author`, `happened` date and labels. The scope fixtures there (`scopes.json`) reference
 these fact ids, so rename them only together. Two sessions have no fact files on purpose: the

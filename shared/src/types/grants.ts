@@ -36,8 +36,9 @@ export const DEMO_GRANTS: readonly Grant[] = [
   // Scopes (A2): one token per synthetic-world person and the dispatcher. Direct folder reads/
   // writes stay deny-by-default; their only access is through their scope (server/src/scopes.ts).
   { client: "dispatcher", read: [], write: [] },
-  { client: "maya", read: [], write: [], principal: "maya" },
-  { client: "dan", read: [], write: [], principal: "dan" },
-  { client: "priya", read: [], write: [], principal: "priya" },
-  { client: "leo", read: [], write: [], principal: "leo" },
+  // The demo world (fixtures/world/): Axe Capital.
+  { client: "wags", read: [], write: [], principal: "wags" },
+  { client: "axe", read: [], write: [], principal: "axe" },
+  { client: "ben", read: [], write: [], principal: "ben" },
+  { client: "dollar-bill", read: [], write: [], principal: "dollar-bill" },
 ];
