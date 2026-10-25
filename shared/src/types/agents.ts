@@ -74,6 +74,8 @@ export interface InboxItem {
 
 /** Someone asked for an agent profile to run (POST /api/dispatch). */
 export interface DispatchRequest {
+  /** Optional task for this invocation; authorization still comes from the fixed scope. */
+  task?: string;
   /** The agent's principal id. */
   agent: string;
   /** Who asked: the agent's creator or a moderator. */

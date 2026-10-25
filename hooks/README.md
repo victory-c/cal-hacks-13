@@ -50,7 +50,7 @@ and the capture clients never guess it:
 
 | Client | `kind` | `principal` |
 |---|---|---|
-| Claude Code hook | `ai_session` | `CANON_PRINCIPAL` (process env, then `.env`) |
+| Claude Code hook | `ai_session` | Server binds the `CANON_PERSON_TOKEN` to its person; operator ingest can set `CANON_PRINCIPAL` |
 | ChatGPT extension | `ai_session` | the principal field on its options page |
 | Ingest CLI | per file (below) | front-matter, else a firm email's sender, else `--principal`. Never mail from outside the firm, an email recipient, or a chat or meeting speaker. Names and addresses go through `--principals FILE` |
 
@@ -67,14 +67,16 @@ shows the principal: `Stop ses_3f9a1c2b 8 msgs as dan → 200`, or `with no prin
 true` (ingest only) marks text from outside the firm, which triage reads with extra suspicion for
 instructions aimed at an AI.
 
-Set your own id only. The server takes `principal` from the body today, so a wrong
-`CANON_PRINCIPAL` files your facts as someone else's memories. Binding it to the client token is
-lane A's side.
+Set **`CANON_PERSON_TOKEN`** once (process env, then repo `.env`): both capture and context use
+it. The capture source remains `claude-code`, with `kind: ai_session` and `external: false`. The
+server binds the principal to that token; the hook leaves out any local `CANON_PRINCIPAL` when a
+person token is set. A different body principal is rejected by the server.
 
-**Today's server keeps only the original session keys** (`server/src/api.ts` `parseSession`),
-so `principal`, `kind` and `external` are accepted and dropped until lane A's server keeps them,
-and the distiller does not write `Fact.author` from the principal yet. Nothing breaks either way:
-the POST is the same route.
+For unattended operator captures, `CANON_TOKEN_CLAUDE_CODE` keeps the source client path. An
+operator who needs explicit `CANON_PRINCIPAL` attribution must also set `CANON_TOKEN_INGEST`; a
+plain capture token cannot name another person. Invalid attribution is visible in the hook's
+single debug line, including the server's error text. The server validates named principals, keeps
+provenance in the archive, and the worker carries it to fact authors.
 
 ## What is captured, and when
 
@@ -104,7 +106,7 @@ a 10 s watchdog ends the process no matter what. Missing transcript or 0 message
 ## Install
 
 **Already installed for this repo.** `.claude/settings.json` (committed) wires `Stop` and
-`SessionEnd` to `node "$CLAUDE_PROJECT_DIR/hooks/claude-code/canon-capture.mjs"`, so every
+`SessionEnd` to `node "${CLAUDE_PROJECT_DIR}/hooks/claude-code/canon-capture.mjs"`, so every
 Claude Code session in any clone or worktree of Bullwark posts to your local server. Nothing outside
 the repo is touched. With no server running the hook exits silently in milliseconds. Set
 `CANON_CAPTURE=0` in your environment to opt out. Start a **new** session after pulling: Claude
@@ -122,7 +124,7 @@ node hooks/claude-code/install.mjs --project    # rewrite the repo's .claude/set
 hand. Re-running replaces the old Bullwark entry. Don't install both user and project scope, or a
 Bullwark-repo session posts twice (harmless upsert, wasted work).
 
-Config resolution, per key (`CANON_URL`, `CANON_TOKEN_CLAUDE_CODE`, `CANON_PRINCIPAL`): process
+Config resolution, per key (`CANON_URL`, `CANON_PERSON_TOKEN`, `CANON_TOKEN_CLAUDE_CODE`, `CANON_TOKEN_INGEST`, `CANON_PRINCIPAL`): process
 env → `.env` at `CANON_REPO_ROOT` → `.env` in this checkout (`../../.env` from the script).
 `CANON_URL` defaults to `http://localhost:4100`.
 `CANON_TOKEN_CLAUDE_CODE` defaults to `dev-claude-code`, the same dev value the server accepts

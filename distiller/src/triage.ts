@@ -89,6 +89,8 @@ export interface TriagedDraft {
   /** Outcomes "fact" and "inbox": what goes to POST /api/facts (save.triage is set). */
   fact?: Fact;
   save?: SaveDecision;
+  /** The stored fact already says this. Keep its identity and record triage, without another write. */
+  unchanged?: boolean;
 }
 
 /** A quarantined item: what POST /api/quarantine gets, and one line for the logs and the CLI. */
@@ -233,17 +235,25 @@ export async function triage(input: TriageInput, judge: Judge): Promise<TriageRe
     reltoOptions,
     candidates,
     byId: new Map(existing.map((f) => [f.id, f])),
+    ownPositionFacts: live,
     byStatement,
     author: from.principal === UNKNOWN ? undefined : from.principal,
   };
-  const result: TriageResult = { session_id: session.id, injection_p, drafts: drafts.map((d, i) => decideDraft(d, i, got, ctx)), judge: judge.name };
+  const decided = drafts.map((d, i) => {
+    const result = decideDraft(d, i, got, ctx);
+    // A writer can repeat one claim twice in one response. Treat later copies exactly like
+    // copies already in the store, rather than creating two identities in the same batch.
+    if (result.fact) ctx.byStatement.set(normalizeStatement(result.fact.statement), result.fact);
+    return result;
+  });
+  const result: TriageResult = { session_id: session.id, injection_p, drafts: decided, judge: judge.name };
   if (quarantined) result.quarantine = quarantineHold(session, text, injection_p, drafts.length);
   return result;
 }
 
 /** What POST /api/facts gets: outcomes fact and inbox, each with decision.triage set. */
 export function triagedFacts(result: TriageResult): PostFactsBody["facts"] {
-  return result.drafts.flatMap((d) => (d.fact && d.save ? [{ fact: d.fact, decision: d.save }] : []));
+  return result.drafts.flatMap((d) => (d.fact && d.save && !d.unchanged ? [{ fact: d.fact, decision: d.save }] : []));
 }
 
 /** One line for the logs: outcome counts and the groups written to. */
@@ -355,6 +365,8 @@ interface DraftContext {
   candidates: string[][];
   /** The facts the judge saw, by id: a relto answer must name one of these. */
   byId: Map<string, Fact>;
+  /** Code can match a clear own-position update across the store without sending it all to Jev. */
+  ownPositionFacts: readonly Fact[];
   byStatement: Map<string, Fact>;
   /** The item's principal when known: every fact's author. */
   author?: string;
@@ -400,6 +412,17 @@ function decideDraft(draft: DraftFact, i: number, got: Map<string, Answer>, ctx:
     relation = "same";
     target = near = exact;
     acts = true;
+  } else if (ctx.author && groupAns && groupAns.p >= GROUP_CONFIDENT) {
+    // A person's explicit position update with exactly the same subject and units is a new
+    // value for their own position, even when a probabilistic relation answer is indecisive.
+    // Never match another author, another group, a different subject, or an older dated claim.
+    const own = ctx.ownPositionFacts.filter((f) => f.author === ctx.author && f.folder === pick && samePosition(draft.statement, f.statement) &&
+      !(draft.happened && f.happened && draft.happened < f.happened));
+    if (own.length === 1) {
+      relation = "replaces";
+      target = near = own[0];
+      acts = true;
+    }
   }
   let action: SaveAction = "add";
   if (target && acts && relation === "same") action = "merge";
@@ -502,7 +525,9 @@ function decideDraft(draft: DraftFact, i: number, got: Map<string, Answer>, ctx:
     if (typeof exact.author === "string" && exact.author) fact.author = exact.author;
   } else {
     if (draft.detail) fact.detail = draft.detail;
-    if (ctx.author) fact.author = ctx.author;
+    // Paraphrasing another person's memory never transfers ownership to the repeating person.
+    const author = action === "merge" && target ? target.author : ctx.author;
+    if (author) fact.author = author;
   }
   const happened = [draft.happened, exact?.happened].find((h) => typeof h === "string" && DATE_RE.test(h));
   if (happened) fact.happened = happened;
@@ -511,7 +536,20 @@ function decideDraft(draft: DraftFact, i: number, got: Map<string, Answer>, ctx:
   // folder_p is Jev's probability for its pick, whatever code did with it.
   const save: SaveDecision = { tier, folder: group, action, keep_p, folder_p: group_p, judge: ctx.judge, triage: decision };
   if (fact.supersedes) save.supersedes = fact.supersedes;
+  if (exact) {
+    // Exact repeats leave tiers, dates, labels, source and scopes untouched. The new session
+    // still produces triage.decided with relation_to, but no retirement and no replacement id.
+    return { draft, decision, fact: { ...structuredClone(exact), source: fact.source }, save, unchanged: true };
+  }
   return { draft, decision, fact, save };
+}
+
+/** Narrow deterministic match: the same person's stated position, only its numeric value changed. */
+function samePosition(a: string, b: string): boolean {
+  const position = /\b(?:long|short|holds?|holding|position)\b/i;
+  if (!position.test(a) || !position.test(b) || !/\d/.test(a) || !/\d/.test(b)) return false;
+  const shape = (s: string) => normalizeStatement(s.replace(/\b(?:now|currently)\b/gi, "").replace(/\d[\d,.]*/g, " NUMBER "));
+  return normalizeStatement(a) !== normalizeStatement(b) && shape(a) === shape(b);
 }
 
 /** A stored fact's source as the server checks it: a client and a session id. Anything else keeps the draft's. */
@@ -681,16 +719,16 @@ function listWords(words: string[]): string {
 // number it gives is made up for the simulation and the logs say so.
 
 const DEAL_TERMS =
-  /\b(?:falcon|nimbus|loi|letter of intent|term sheet|multiples?|ebitda|valuation|purchase price|exclusivity|due diligence|data room|break fee|earn-?out|synerg(?:y|ies)|accretion|board materials|indication of interest|ioi)\b/i;
+  /\b(?:loi|letter of intent|term sheet|multiples?|ebitda|valuation|purchase price|exclusivity|due diligence|data room|break fee|earn-?out|synerg(?:y|ies)|accretion|board materials|indication of interest|ioi)\b/i;
 /** Ways a deal line names the deal without naming it. Only counts in an item with deal terms. */
 const INDIRECT = /\b(?:target|buyers?|sellers?|acquirers?|bidders?|counterpart(?:y|ies))\b/i;
 const PUBLIC_NEWS = /\b(?:press release|announced|reported|according to|reuters|bloomberg|wsj|publicly|public filing|10-k|10-q|earnings call|quarterly results|stock (?:rose|fell))\b/i;
-/** Fake-world topics, first match wins, each used only when the group exists. */
-const TOPICS: Array<[RegExp, string]> = [
-  [PUBLIC_NEWS, "market/public"],
-  [/\b(?:sector note|sector|coverage|research note|freight brokers?|3pls?|asset-light)\b/i, "research/logistics"],
-  [/\b(?:positions?|basket|trades?|traded|bought|sold|long|short|p&l|pnl|desk)\b/i, "desk/trading"],
-  [/\b(?:offsite|office|monitor|terminal|sso|lunch|attestations?|portal|dentist|holiday|calendar|admin|ai tools)\b/i, "firm/ops"],
+/** Topic categories, resolved against this server's group list rather than a particular fixture. */
+const TOPICS: Array<[RegExp, RegExp]> = [
+  [PUBLIC_NEWS, /^market\//],
+  [/\b(?:sector note|sector|coverage|research note|freight brokers?|3pls?|asset-light|asset management|asset managers?)\b/i, /^research\//],
+  [/\b(?:positions?|basket|trades?|traded|bought|sold|long|short|p&l|pnl|desk)\b/i, /^desk\//],
+  [/\b(?:offsite|office|monitor|terminal|sso|lunch|attestations?|portal|dentist|holiday|calendar|admin|ai tools)\b/i, /^firm\//],
 ];
 const DEAL_GROUP = /^deal\//;
 const KEEP_SIGNAL =
@@ -829,7 +867,12 @@ function financeAnswer(q: Question, s: FakeState): Answer | undefined {
     if (itemDeal) return answer(itemDeal, 0.65);
     // An indirect reference: a guess below GROUP_CONFIDENT, so it waits in inbox.
     if (s.itemTerms && hits(INDIRECT, forms)) return answer(dealGroup ?? GROUP_UNSURE, 0.5);
-    for (const [re, group] of TOPICS) if (has(group) && hits(re, forms)) return answer(group, 0.8);
+    for (const [re, category] of TOPICS) {
+      const matches = s.groups.filter((g) => category.test(g.id) && has(g.id));
+      // A broad topic cannot distinguish two desks or research teams. Keep that ambiguity in
+      // inbox unless names in the draft selected a group above.
+      if (matches.length === 1 && hits(re, forms)) return answer(matches[0].id, 0.8);
+    }
     return answer(GROUP_UNSURE, 0.5);
   }
   if ((kind === "rel" || kind === "relto") && q.type === "choice") {

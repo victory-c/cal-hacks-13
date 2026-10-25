@@ -31,6 +31,10 @@ export const EVENT_TYPES = [
   "agent.step",
   "agent.inbox",
   "fact.filed",
+  "item.captured",
+  "scope.build",
+  "scope.changed",
+  "group.created",
 ] as const satisfies readonly CanonEventType[];
 
 // The typecheck fails here when the contract gains an event type the list above lacks.
@@ -192,6 +196,10 @@ export function reduce(state: State, e: CanonEvent): State {
     case "agent.step":
     case "agent.inbox":
     case "fact.filed":
+    case "item.captured":
+    case "scope.build":
+    case "scope.changed":
+    case "group.created":
       return state;
 
     default:

@@ -64,7 +64,7 @@ describe("ClaudeJudge", () => {
         assert.deepEqual(answers, [
           { id: "keep", type: "noul", p: 0.85 },
           { id: "folder", type: "choice", choice: "career/projects", p: 0.6 },
-          { id: "quality", type: "score", value: 5 }, // missing → midpoint
+          { id: "quality", type: "score", value: 5, unavailable: true }, // missing → midpoint
         ]);
         assert.equal(warnings.length, 1);
         assert.match(warnings[0], /claude: no usable answer for quality/);

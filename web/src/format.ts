@@ -1,4 +1,4 @@
-// Pure formatters for the dashboard and the resume viewer. No DOM, so they run under node:test.
+// Pure formatters for the dashboard. No DOM, so they run under node:test.
 // Every number on screen goes through here so the labels stay honest: a missing value is "—",
 // never 0, and token counts are always presented as estimates by the caller ("est.").
 

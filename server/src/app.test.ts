@@ -178,16 +178,17 @@ describe("server over HTTP", () => {
     };
     const mismatch = await api("/api/sessions", { method: "POST", json: { ...mine, principal: "leo" }, token: "tok-dan" });
     assert.equal(mismatch.status, 403, "naming someone else's principal is rejected");
-    assert.match(((await mismatch.json()) as { error: string }).error, /captures for "dan"/);
+    assert.match(((await mismatch.json()) as { error: string }).error, /must match the token/);
 
     assert.equal((await api("/api/sessions", { method: "POST", json: mine, token: "tok-dan" })).status, 200);
     const stored = (await (await api(`/api/sessions/${mine.id}`, { token: "tok-maya" })).json()) as CapturedSession;
     assert.equal(stored.principal, "dan", "a missing principal is filled in from the client's grant");
     assert.equal(stored.kind, "note", "kind survives the round trip");
 
-    // An operator client (the hook's CANON_PRINCIPAL, the ingest CLI's author) names the principal itself.
+    // Operator capture tokens cannot impersonate an author; use the trusted ingest path.
     const memo: CapturedSession = { ...session, id: "ses_e2e000db", principal: "dan", kind: "memo", external: true };
-    assert.equal((await api("/api/sessions", { method: "POST", json: memo, token: "tok-cc" })).status, 200);
+    assert.equal((await api("/api/sessions", { method: "POST", json: memo, token: "tok-cc" })).status, 403);
+    assert.equal((await api("/api/sessions", { method: "POST", json: memo, token: "tok-dist" })).status, 200);
     const storedMemo = (await (await api(`/api/sessions/${memo.id}`, { token: "tok-dist" })).json()) as CapturedSession;
     assert.equal(storedMemo.principal, "dan");
     assert.equal(storedMemo.kind, "memo");

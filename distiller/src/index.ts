@@ -36,9 +36,16 @@ log(`distiller worker: engine ${distiller.name}, judge ${judge.name}${judge.name
 
 const stop = subscribeEvents(url + ROUTES.events, (event) => void handler(event), {
   headers: { authorization: `Bearer ${token}` },
-  onOpen: () => log(`connected to ${url}${ROUTES.events}`),
+  onOpen: () => {
+    log(`connected to ${url}${ROUTES.events}`);
+    void handler.recover();
+  },
   onError: (err) => warn(`event stream: ${errorMessage(err)}; reconnecting`),
 });
+// Recovery is also retried while an existing SSE connection remains open after a transient
+// archive error; the server's receipts make this cheap and it never replays completed sessions.
+const recoveryTimer = setInterval(() => void handler.recover(), 30_000);
+recoveryTimer.unref();
 
 let stopping = false;
 async function shutdown(signal: string): Promise<void> {
@@ -46,6 +53,7 @@ async function shutdown(signal: string): Promise<void> {
   stopping = true;
   log(`${signal}: stopping, finishing in-flight sessions`);
   stop();
+  clearInterval(recoveryTimer);
   await handler.settle();
   process.exit(0);
 }

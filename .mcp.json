@@ -1,0 +1,11 @@
+{
+  "mcpServers": {
+    "canon": {
+      "type": "http",
+      "url": "${CANON_URL:-http://localhost:4100}/mcp",
+      "headers": {
+        "Authorization": "Bearer ${CANON_PERSON_TOKEN:-dev-claude-code}"
+      }
+    }
+  }
+}

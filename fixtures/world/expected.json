@@ -114,6 +114,13 @@
         "kf_expenses",
         "kf_office_closed"
       ]
+    },
+    "itm_voicemail": {
+      "quarantine": false,
+      "facts": [
+        "kf_vm_counsel_call",
+        "kf_vm_terminal"
+      ]
     }
   },
   "facts": {
@@ -513,6 +520,28 @@
         "November 2"
       ],
       "fact_id": "fct_570022"
+    },
+    "kf_vm_counsel_call": {
+      "group": "inbox",
+      "labels": [],
+      "announced": false,
+      "statement": "Ari asked for a call with Hollis Grant LLP first thing Monday",
+      "key": [
+        "Hollis Grant LLP"
+      ],
+      "fact_id": "fct_570023",
+      "file_to": "deal/stonewall"
+    },
+    "kf_vm_terminal": {
+      "group": "inbox",
+      "labels": [],
+      "announced": false,
+      "statement": "The renewal for the research data terminal is due next month",
+      "key": [
+        "research data terminal"
+      ],
+      "fact_id": "fct_570024",
+      "file_to": "firm/ops"
     }
   },
   "leak_markers": {

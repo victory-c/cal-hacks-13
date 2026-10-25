@@ -125,7 +125,7 @@ describe("scopes REST surface, scope builder and handoff (A2, A4+A6, A7+A16)", (
     }
   });
 
-  test("GET /api/groups: moderators and internal clients read it; a member gets the neutral 403", async () => {
+  test("GET /api/groups: moderators and internal clients read it; a member sees only scoped groups", async () => {
     const maya = await api("/api/groups", { token: "tok-maya" });
     assert.equal(maya.status, 200);
     const { groups } = await body<{ groups: Group[] }>(maya);
@@ -134,8 +134,10 @@ describe("scopes REST surface, scope builder and handoff (A2, A4+A6, A7+A16)", (
     assert.equal((await api("/api/groups", { token: "tok-dist" })).status, 200, "triage reads the groups");
 
     const dan = await api("/api/groups", { token: "tok-dan" });
-    assert.equal(dan.status, 403);
-    assert.deepEqual(await dan.json(), MODERATORS_ONLY);
+    assert.equal(dan.status, 200);
+    const scoped = await dan.json() as { groups: Array<Record<string, unknown>> };
+    const visible = new Set(running.world.scopes.get("dan")!.fact_ids.map((id) => running.store.getFact(id)?.folder));
+    assert.ok(scoped.groups.every((group) => visible.has(String(group.id)) && !("aliases" in group) && !("description" in group)));
   });
 
   test("moderator routes return one identical 403 to members, whether the target exists or not", async () => {

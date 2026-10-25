@@ -122,6 +122,45 @@ const scopeUpdated = (principal: string, change: { added?: string[]; removed?: s
 });
 
 describe("dispatcher: an agent runs inside its scope (B2)", () => {
+  test("the seeded desk-assistant dispatches through the event handler and saves its owner's scoped output", async () => {
+    const agent = "desk-assistant";
+    const desk = fakeFact("fct_11110001", "Dollar Bill is long 200,000 TMC shares", { folder: "desk/dollar-bill", author: "dollar-bill" });
+    const { client, calls } = fakeServer({ [agent]: [desk] }, {
+      getScopeRule: async (principal) => ({ principal, task: "Summarize my trading positions", exclude: { groups: ["deal/stonewall"], labels: [] }, set_by: "dollar-bill", updated_at: nowIso() }),
+    });
+    const runner = planThenWrite();
+    const dispatcher = make(client, runner);
+    const { judge } = judgeSaying(0.9);
+    const handler = createDispatchHandler({ dispatcher, client, judge });
+    await quiet(async () => {
+      await handler({ type: "dispatch.requested", at: nowIso(), id: "dispatch_seeded_desk", request: { agent, by: "dollar-bill" } });
+      await handler.settle();
+      await dispatcher.settle();
+    });
+    const run = dispatcher.list()[0];
+    assert.equal(run.agent, agent);
+    assert.equal(run.state, "done");
+    assert.equal(run.created_by, "dollar-bill");
+    assert.equal(runner.steps.length, 2);
+    assert.ok(calls.reads.every((principal) => principal === agent));
+    assert.equal(calls.sessions[0].principal, "dollar-bill");
+    assert.equal(calls.sessions[0].client, "dispatcher");
+    for (const bad of ["../desk-assistant", "/desk-assistant", "desk/assistant", "desk\\assistant", "desk assistant", ".", ".."])
+      await assert.rejects(dispatcher.dispatch({ agent: bad, by: "dollar-bill" }), /not an agent id/);
+  });
+
+  test("a per-run task is used for the brief and steps while reads stay inside the existing agent scope", async () => {
+    const { client, calls } = fakeServer({ [PRIYA]: [note] });
+    const runner = planThenWrite();
+    const dispatcher = make(client, runner);
+    const run = await dispatcher.dispatch({ agent: PRIYA, by: "priya", task: "Summarize the latest sector note in one paragraph" });
+    await quiet(() => dispatcher.settle());
+    assert.equal(run.task, "Summarize the latest sector note in one paragraph");
+    assert.ok(calls.handoff.every((body) => body.task === run.task));
+    assert.ok(runner.steps.every((step) => step.task === run.task));
+    assert.ok(calls.reads.every((principal) => principal === PRIYA));
+  });
+
   test("the sandbox holds exactly the scope's facts as fact files; the brief comes from the handoff as the agent; outputs become the creator's memory", async () => {
     const { client, calls } = fakeServer({ [PRIYA]: [note, news] });
     const seen: string[][] = [];

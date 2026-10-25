@@ -157,6 +157,7 @@ export function buildSession({ payload = {}, messages = [], hookEvent, git = {},
       hook_event: event,
     }),
     kind: KIND,
+    external: false,
   };
   if (event === "SessionEnd") session.ended_at = new Date().toISOString();
   if (firstUser) session.title = makeTitle(firstUser.content);

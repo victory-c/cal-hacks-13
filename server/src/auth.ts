@@ -55,7 +55,8 @@ export function loadGrants(): Grant[] {
     const ok =
       typeof g === "object" && g !== null && typeof g.client === "string" && isStringArray(g.read) && isStringArray(g.write);
     if (!ok) throw new Error(`CANON_GRANTS_FILE ${path}: entry ${i} must be { client: string, read: string[], write: string[] }`);
-    return { client: g.client, read: g.read, write: g.write } as Grant;
+    if (g.principal !== undefined && (typeof g.principal !== "string" || !/^[a-z][a-z0-9_-]*$/.test(g.principal))) throw new Error(`CANON_GRANTS_FILE ${path}: entry ${i} has an invalid principal`);
+    return { client: g.client, read: g.read, write: g.write, ...(typeof g.principal === "string" ? { principal: g.principal } : {}) } as Grant;
   });
 }
 

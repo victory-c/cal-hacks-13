@@ -37,7 +37,7 @@ Droid is the agent runtime, not a chatbot wrapper. It runs **headless, on our tr
 folder Bullwark built for it that holds the agent's scope and nothing else:
 
 ```
-[sandbox-exec -p <profile>] droid exec --auto low -o stream-json --cwd $TMPDIR/canon-agents/<run_id> -m claude-sonnet-5-5 "<step prompt>"
+[sandbox-exec -p <profile>] droid exec --auto low -o stream-json --cwd $TMPDIR/canon-agents/<run_id> [--model <supported-account-model>] "<step prompt>"
 ```
 
 | Flag | Why (Factory's docs, `docs.factory.ai/cli/droid-exec/overview`) |
@@ -45,7 +45,7 @@ folder Bullwark built for it that holds the agent's scope and nothing else:
 | `--auto low` | "the lowest level that allows creating and editing project files. It blocks system changes, package installs, remote writes, and production changes." Without it a run is read-only. It does **not** confine reads (see below). |
 | `-o stream-json` | "one JSON event per line as the run progresses": `system`, `message`, `tool_call` (`toolName`), `tool_result`, `completion` (text + usage). Each becomes an `agent.step` on the agent's lane; usage becomes real token counts. |
 | `--cwd <abs path>` | "Execute from a specific working directory (use an absolute path)." We also spawn the process there. |
-| `-m <id>` | Model id. `DISPATCH_DROID_MODEL` overrides; default `claude-sonnet-5-5`. |
+| `-m <id>` | Model id. Only passed when `DISPATCH_DROID_MODEL` is set; otherwise Factory uses its account default. |
 | `FACTORY_API_KEY` | From the environment. Bullwark's secrets and settings (`ANTHROPIC_API_KEY`, `JEV_API_KEY`, every `CANON_*`, …) and every value that points into the repo or the data dir are removed from Droid's environment. |
 
 All the flags live in one constant, `DROID_FLAGS` in `runners/droid.ts`. The stream-json event
@@ -84,7 +84,7 @@ inspection, directory listing, process and environment inspection" and do not sa
 - Droid's environment carries no Bullwark secret and no path into the repo or the data dir
   (`npm_*`, `INIT_CWD`, `PWD`, `NODE_OPTIONS`, `PATH` entries under `node_modules/.bin`, …).
 - On macOS (`DISPATCH_OS_SANDBOX=auto`, the default), Droid runs under `sandbox-exec` with a profile
-  that denies reading or writing the repo, the data dir and every other run's folder; its own
+  that denies reading or writing the repo, the data dir, operator home and every other run's folder; its own
   folder is carved back out. A test proves the repo and another agent's facts read as `EPERM`.
 - The worker's own file work runs outside Droid's OS sandbox, so it never follows a link the agent
   left: fact files, `facts/README.md`, `brief.md` and `LOCKED` are created exclusively with
@@ -180,8 +180,8 @@ Live folders of runs cut short by a crash stay in `$TMPDIR/canon-agents/` (same 
 
 ## Runtimes
 
-`DISPATCH_RUNTIME` wins; unset, it is `droid` when the `droid` binary is on PATH and
-`FACTORY_API_KEY` is set, else `claude` when `ANTHROPIC_API_KEY` is set, else `fake`. Picked once
+`DISPATCH_RUNTIME` wins; unset, it is `droid` when the `droid` binary is on PATH,
+`FACTORY_API_KEY` is set and macOS Seatbelt is usable, else `claude` when `ANTHROPIC_API_KEY` is set, else `fake`. Picked once
 at start and logged. A failing runtime is a failed run, never a silent switch to another.
 
 | Runtime | Real? | Needs | Notes |
@@ -199,8 +199,7 @@ fake judge with routing's own simulated answers (word overlap between the new fa
 `CANON_URL` · `CANON_TOKEN_DISPATCHER` (dev default `dev-dispatcher`; the server needs
 `dispatcher=dev-dispatcher` in `CANON_CLIENT_TOKENS`, lane A's line: add it to your own `.env`
 until lane A ships it with the scope routes) · `DISPATCH_RUNTIME` · `DISPATCH_MAX_STEPS` (default 4,
-per folder) · `DISPATCH_STEP_TIMEOUT_MS` (default 300000) · `DISPATCH_DROID_MODEL` (default
-`claude-sonnet-5-5`) · `DISPATCH_SANDBOX_DIR` (default `$TMPDIR/canon-agents`; refused inside the
+per folder) · `DISPATCH_STEP_TIMEOUT_MS` (default 300000) · `DISPATCH_DROID_MODEL` (unset: Factory account default) · `DISPATCH_SANDBOX_DIR` (default `$TMPDIR/canon-agents`; refused inside the
 repo or the data dir) · `DISPATCH_OS_SANDBOX` (`auto` | `on` | `off`, default `auto`) ·
 `FACTORY_API_KEY` · `ANTHROPIC_API_KEY` · `JUDGE_PROVIDER`.
 
@@ -217,15 +216,14 @@ so; events are dropped. The worker keeps running.
 
 ## Limits and open questions
 
-- **Droid confinement.** `--auto low` blocks system changes and remote writes, but the docs do not
-  say Droid's reads stay inside `--cwd`. What we have: a sandbox outside the repo and the data
-  dir, a scrubbed environment, and on macOS a `sandbox-exec` profile that denies the repo, the
-  data dir and other runs' folders. What is still open: **without `sandbox-exec`** (Linux, or
-  `DISPATCH_OS_SANDBOX=off`, or a shell that is itself sandboxed so it cannot nest) Droid can
-  still read the repo and other live runs by absolute path; even with it, the rest of the home
-  folder (`~/.ssh`, other projects) is readable. The worker logs which boundary it runs with at
-  start. Production: one OS user or container per run, with only the sandbox mounted. Ask at the
-  Factory booth whether Droid has its own path allowlist.
+- **Droid confinement.** `createRunner` refuses real Droid dispatch without usable macOS
+  Seatbelt. The preview uses `DISPATCH_RUNTIME=claude`, whose four tools enforce folder access
+  in code, while `DISTILLER=droid` keeps the real Factory extraction path. On macOS the Droid
+  profile denies the repository, data directory, operator home and other runs; only this run
+  and the pinned executable are carved back out. The child receives a run-local HOME, no
+  Bullwark or unrelated credential environment variables, no built-in skills and only
+  Read/LS/Grep/Glob/Create/Edit tools. Linux production Droid dispatch needs per-run OS/container
+  isolation before enabling it. `--cwd` and `--auto low` alone do not establish isolation.
 - **Windows.** Folder modes are ignored there, so `LOCKED` and the read-only record do not stop a
   late write, and the tests that plant symlinks or use a shell-script fake `droid` are skipped
   unless the user can create symlinks (admin or Developer Mode). Run real Droid agents for the demo
@@ -249,4 +247,7 @@ so; events are dropped. The worker keeps running.
   worker also kills live groups when it exits, but not when it is itself `SIGKILL`ed.
 - **Mid-run messages.** We use steps (a new `droid exec` per step) rather than `--session-id`
   continuation, so the inbox lands between runs either way (PRD open question).
-- **Field names.** Confirm the stream-json fields and the model id with one real run.
+- **Factory validation.** Pinned CLI 0.249.0 `exec --help` verifies the flags. Its catalog does
+  not include `claude-sonnet-5-5`, so an unset model uses the account default. The dispatcher
+  stream mapper and confinement are tested with a fake CLI; a fresh live agent run is still
+  required before claiming live Factory dispatch.

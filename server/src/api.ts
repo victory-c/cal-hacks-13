@@ -1,7 +1,7 @@
 // REST handlers: the capture clients and the distiller write here, the dashboard reads here.
 // Each function validates its input and throws HttpError; the router does the HTTP plumbing.
 
-import { FACT_ID_RE, SESSION_ID_RE, SOURCE_KINDS, TIERS, canWrite, grantFor, validateFact } from "@canon/shared";
+import { FACT_ID_RE, INTERNAL_CLIENTS, SESSION_ID_RE, SOURCE_KINDS, TIERS, canWrite, grantFor, validateFact } from "@canon/shared";
 import type {
   CapturedSession,
   Fact,
@@ -26,6 +26,7 @@ import type { EventBus } from "./events.ts";
 import { HttpError, isRecord } from "./http.ts";
 import type { Retriever } from "./retrieval/index.ts";
 import type { FileStore } from "./store.ts";
+import type { ScopeState } from "./scopes.ts";
 
 export interface ApiDeps {
   store: FileStore;
@@ -34,6 +35,7 @@ export interface ApiDeps {
   judge: Judge;
   retriever: Retriever;
   startedAt: number;
+  world?: ScopeState;
 }
 
 const ROLES: readonly MessageRole[] = ["user", "assistant", "system", "tool"];
@@ -52,29 +54,23 @@ export function grants(deps: ApiDeps): GrantsResponse {
 /** POST /api/sessions: cold archive upsert by the original capturing client. */
 export async function postSession(deps: ApiDeps, client: string, body: unknown): Promise<PostSessionResponse> {
   const session = parseSession(body);
-  if (session.client !== client) {
-    throw new HttpError(403, `body.client is "${session.client}" but the token belongs to "${client}"`);
-  }
-  // Only the client that first captured a session may update it.
-  const existing = await deps.store.getSession(session.id);
-  if (existing && existing.client !== client) {
-    throw new HttpError(403, `${client} cannot update session ${session.id}`);
-  }
-  // The principal becomes each distilled fact's author and the author's facts join their scope,
-  // so a per-person client (its grant names a principal) is bound to its own: a mismatch is
-  // rejected, a missing one is filled in. Operator and internal clients (ingest, dispatcher)
-  // may set it — e.g. the dispatcher posts an agent's outputs with principal = the agent's creator.
   const own = grantFor(deps.grants, client)?.principal;
   if (own !== undefined) {
-    if (session.principal !== undefined && session.principal !== own) {
-      throw new HttpError(403, `body.principal is "${session.principal}" but client "${client}" captures for "${own}"`);
-    }
-    session.principal = own;
+    const owner = deps.world?.principals.get(own);
+    const capturePrincipal = owner?.kind === "agent" ? owner.created_by : own;
+    if (session.principal !== undefined && session.principal !== capturePrincipal) throw new HttpError(403, "body.principal must match the token's principal");
+    session.principal = capturePrincipal;
+  } else {
+    if (session.client !== client && client !== "ingest" && !(INTERNAL_CLIENTS as readonly string[]).includes(client)) throw new HttpError(403, `body.client is "${session.client}" but the token belongs to "${client}"`);
+    if (session.principal !== undefined && client !== "ingest" && !(INTERNAL_CLIENTS as readonly string[]).includes(client)) throw new HttpError(403, "this capture token cannot name a principal");
   }
+  if (session.principal !== undefined && deps.world && !deps.world.principals.has(session.principal)) throw new HttpError(404, "no such principal");
+  const existing = await deps.store.getSession(session.id);
+  if (existing && (own !== undefined ? existing.principal !== session.principal : existing.client !== client || existing.principal !== session.principal)) throw new HttpError(403, "session belongs to another capture owner");
   const { updated } = await deps.store.putSession(session);
   deps.bus.emit({
     type: "session.captured",
-    session: { id: session.id, client, title: session.title, messages: session.messages.length, ended: !!session.ended_at },
+    session: { id: session.id, client: session.client, title: session.title, messages: session.messages.length, ended: !!session.ended_at },
   });
   return { id: session.id, updated };
 }
@@ -158,6 +154,7 @@ function parseDecision(raw: unknown, fact: Fact, where: string): SaveDecision {
   if (typeof judge !== "string" || !(JUDGES as readonly string[]).includes(judge)) throw new HttpError(400, `${where}.judge must be ${JUDGES.join("|")}`);
   const clean: SaveDecision = { tier: fact.tier, folder: fact.folder, action: action as SaveAction, keep_p: keep_p as number, folder_p: folder_p as number, judge: judge as JudgeName };
   if (typeof supersedes === "string") clean.supersedes = supersedes;
+  if (isRecord(raw.triage)) clean.triage = structuredClone(raw.triage) as unknown as SaveDecision["triage"];
   return clean;
 }
 

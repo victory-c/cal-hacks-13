@@ -7,10 +7,24 @@ and are imported from `@canon/shared`.
 
 ## Implementation status
 
-This document defines the target finance contract. The current scaffold still uses folder-based
-facts, grants and session capture; package READMEs and `shared/src/types/` describe those implemented
-shapes. The preview team login protects access to that scaffold; it does not establish a moderator
-or member principal. Provider adapters can run without the planned scope builder or agent APIs.
+The integrated server now implements principal-bound REST, MCP and SSE over the file store.
+`GET /api/me`, scoped facts and groups, add/edit/retire/refile, people and rules, quarantine,
+agent creation/dispatch, handoffs and audit are connected to the moderator and member clients.
+People, rules, scopes, agent telemetry, quarantine and audit survive a clean restart. Missing
+judge answers fail closed for scope admission and exclusions.
+
+The shared preview login selects a **synthetic demo identity** and keeps its Canon token on the
+server. The common team password permits selecting any demo identity; this is team demo access,
+not individual employee authentication. Machine clients use their own person-bound bearer token.
+The same `CANON_PERSON_TOKEN` serves capture, the before-prompt hook and `.mcp.json`. Sponsor keys
+and internal worker tokens stay on the host.
+
+Both new pages default to live Canon, with `?data=mock` explicitly selecting labelled fixtures.
+Agents run on demand; automatic schedules, document-type preferences, live Stop and metadata
+editing are not implemented by the dispatcher. The live UI must not promise those controls.
+The Docker preview uses the Claude dispatcher because Linux Droid execution has no configured
+OS sandbox; Factory remains available for real extraction. A live provider check and an offline
+regression suite measure different things; neither establishes the full 360-cell benchmark.
 
 ## Five rules
 

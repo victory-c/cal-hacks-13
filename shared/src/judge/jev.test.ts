@@ -51,7 +51,7 @@ describe("JevJudge", () => {
         { id: "keep:0", type: "noul", p: 0.93 },
         { id: "group:0", type: "choice", choice: "deal/falcon", p: 0.7, distribution: { unsure: 0.1, "deal/falcon": 0.7, "market/public": 0.2 } },
         { id: "quality", type: "score", value: 10 }, // level index 9.5 of 0…9, clamped into [min, max]
-        { id: "enough", type: "noul", p: 0.5 }, // missing → neutral default
+        { id: "enough", type: "noul", p: 0.5, unavailable: true }, // missing → neutral default
       ]);
       assert.equal(warnings.length, 1);
       assert.match(warnings[0], /jev: no usable answer for enough/);
@@ -72,7 +72,7 @@ describe("JevJudge", () => {
     try {
       const { result, warnings } = await captureWarnings(() => new JevJudge({ apiKey: "k", url }).ask("s", [many]));
       assert.equal(sent, 255);
-      assert.deepEqual(result, [{ id: "relto:0", type: "choice", choice: "none", p: 0.5 }]);
+      assert.deepEqual(result, [{ id: "relto:0", type: "choice", choice: "none", p: 0.5, unavailable: true }]);
       assert.ok(warnings.some((w) => /only the first 255 options sent for relto:0/.test(w)));
     } finally {
       await close();

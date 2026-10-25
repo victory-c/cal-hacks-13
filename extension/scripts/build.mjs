@@ -75,7 +75,7 @@ const builds = [
   {
     ...common,
     format: "iife",
-    entryPoints: ["chatgpt", "claude", "gemini"].map((site) => join(root, `src/content/${site}.ts`)),
+    entryPoints: ["chatgpt"].map((site) => join(root, `src/content/${site}.ts`)),
     plugins: [contractOnly],
   },
 ];

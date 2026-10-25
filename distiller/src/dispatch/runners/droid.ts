@@ -36,6 +36,7 @@
 
 import { spawn, spawnSync } from "node:child_process";
 import { existsSync } from "node:fs";
+import { homedir } from "node:os";
 import { delimiter, dirname, isAbsolute, relative, resolve, sep } from "node:path";
 
 import { env } from "@canon/shared";
@@ -54,14 +55,13 @@ export const DROID_FLAGS = {
   model: "-m",
 } as const;
 
-export const DEFAULT_DROID_MODEL = "claude-sonnet-5-5";
 const KILL_GRACE_MS = 2000;
 /** After SIGKILL, how long to wait for droid to be gone before settling anyway. */
 const CLOSE_WAIT_MS = 3000;
 const SANDBOX_EXEC = "/usr/bin/sandbox-exec";
 
 /** Bullwark's secrets and settings (CANON_*) the agent never needs. Droid gets FACTORY_API_KEY and the plain environment. */
-const SCRUBBED_ENV = /^(ANTHROPIC_API_KEY|JEV_API_KEY|CANON_\w+|MOSS_PROJECT_KEY|MOSS_PROJECT_ID)$/;
+const SCRUBBED_ENV = /^(ANTHROPIC_API_KEY|JEV_API_KEY|CANON_\w+|MOSS_PROJECT_KEY|MOSS_PROJECT_ID)$|(?:TOKEN|SECRET|PASSWORD|COOKIE|CREDENTIAL|API_KEY)/i;
 
 /** Process groups of droid steps still running, killed if the worker exits underneath them. */
 const liveGroups = new Set<number>();
@@ -85,7 +85,7 @@ export function agentEnv(dir: string, base: NodeJS.ProcessEnv = process.env, hid
   const inside = (p: string) => hidden.some((h) => p === h || p.startsWith(h + sep));
   const out: NodeJS.ProcessEnv = {};
   for (const [k, v] of Object.entries(base)) {
-    if (v === undefined || SCRUBBED_ENV.test(k)) continue;
+    if (v === undefined || (k !== "FACTORY_API_KEY" && SCRUBBED_ENV.test(k))) continue;
     if (k === "PATH") {
       out.PATH = v
         .split(delimiter)
@@ -97,6 +97,10 @@ export function agentEnv(dir: string, base: NodeJS.ProcessEnv = process.env, hid
     out[k] = v;
   }
   out.PWD = dir;
+  // Prevent automatic discovery of the operator's Factory config, MCP servers and cached
+  // credentials. The only provider credential in this child is its explicit Factory API key.
+  out.HOME = dir;
+  out.USERPROFILE = dir;
   return out;
 }
 
@@ -110,9 +114,9 @@ export function seatbeltProfile(denied: readonly string[], allowed: readonly str
 }
 
 /** For one step: the repo, the data dir and every other run's folder are denied; this run's folder is not. */
-export function stepProfile(dir: string): string {
+export function stepProfile(dir: string, executable?: string): string {
   const own = realPath(dir);
-  return seatbeltProfile([...storeRoots(), dirname(own)], [own]);
+  return seatbeltProfile([...storeRoots(), realPath(homedir()), dirname(own)], [own, ...(executable ? [realPath(executable)] : [])]);
 }
 
 export type OsSandbox = "seatbelt" | "none";
@@ -135,7 +139,7 @@ export class DroidRunner implements Runner {
   readonly name = "droid" as const;
   readonly simulated = false;
   readonly osSandbox: OsSandbox;
-  private readonly model: string;
+  private readonly model: string | undefined;
   private readonly bin: string;
 
   constructor(opts: { model?: string; osSandbox?: OsSandbox } = {}) {
@@ -143,7 +147,9 @@ export class DroidRunner implements Runner {
     const bin = onPath("droid");
     if (!bin) throw new Error("DroidRunner: the droid binary is not on PATH (install: https://app.factory.ai/cli), or set DISPATCH_RUNTIME=claude|fake.");
     this.bin = bin;
-    this.model = opts.model ?? env("DISPATCH_DROID_MODEL", DEFAULT_DROID_MODEL);
+    // The pinned 0.249.0 CLI does not list claude-sonnet-5-5. Let Factory select the account's
+    // supported default unless the operator explicitly supplies a catalog id.
+    this.model = opts.model ?? env("DISPATCH_DROID_MODEL");
     this.osSandbox = opts.osSandbox ?? resolveOsSandbox();
     log(
       this.osSandbox === "seatbelt"
@@ -153,12 +159,12 @@ export class DroidRunner implements Runner {
   }
 
   args(req: StepRequest): string[] {
-    return [DROID_FLAGS.subcommand, ...DROID_FLAGS.autonomy, ...DROID_FLAGS.output, DROID_FLAGS.cwd, req.dir, DROID_FLAGS.model, this.model, req.prompt];
+    return [DROID_FLAGS.subcommand, ...DROID_FLAGS.autonomy, ...DROID_FLAGS.output, "--disable-builtin-skills", "--only-tools", "Read,LS,Grep,Glob,Create,Edit", DROID_FLAGS.cwd, req.dir, ...(this.model ? [DROID_FLAGS.model, this.model] : []), req.prompt];
   }
 
   /** What is actually spawned: droid itself, or droid under sandbox-exec. */
   command(req: StepRequest): { file: string; args: string[] } {
-    if (this.osSandbox === "seatbelt") return { file: SANDBOX_EXEC, args: ["-p", stepProfile(req.dir), this.bin, ...this.args(req)] };
+    if (this.osSandbox === "seatbelt") return { file: SANDBOX_EXEC, args: ["-p", stepProfile(req.dir, this.bin), this.bin, ...this.args(req)] };
     return { file: this.bin, args: this.args(req) };
   }
 

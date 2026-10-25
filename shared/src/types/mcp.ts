@@ -39,7 +39,8 @@ export interface ContextOutput {
   enough: boolean;
   missing?: string;
   /** How many candidates retrieval produced before Jev filtered them. */
-  candidates: number;
+  candidates?: number;
+  profile?: string;
 }
 
 export interface SearchInput {
@@ -72,6 +73,7 @@ export interface SaveOutput {
 export interface WhoamiOutput {
   client: ClientId;
   principal?: string;
+  created_by?: string;
   name?: string;
   tier?: "moderator" | "member";
   /** The task from their scope rule. */

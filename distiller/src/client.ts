@@ -27,9 +27,12 @@ export interface CanonClient {
   /** GET /api/groups, checked by parseGroups(): a body it cannot use throws. */
   getGroups(): Promise<Group[]>;
   /** POST /api/quarantine. Resolves to the new QuarantineItem's id when the server says it. */
-  postQuarantine(body: PostQuarantineBody): Promise<string | undefined>;
+  postQuarantine(body: PostQuarantineBody): Promise<string | { id?: string; event_emitted: boolean } | undefined>;
   /** POST /api/events. Rejects any type outside RELAYED_EVENTS before sending. */
   publishEvent(event: RelayedEvent): Promise<void>;
+  /** Durable recovery on new servers; optional for older servers and offline clients. */
+  pendingSessions?(): Promise<CapturedSession[]>;
+  markDistilled?(id: string, fingerprint: string): Promise<void>;
 }
 
 export class CanonApiError extends Error {
@@ -80,6 +83,10 @@ export function createClient(opts: { baseUrl: string; token: string }): CanonCli
 
   return {
     getSession: (id) => call<CapturedSession>("GET", `${ROUTES.sessions}/${encodeURIComponent(id)}`),
+    pendingSessions: async () => (await call<{ sessions: CapturedSession[] }>("GET", `${ROUTES.sessions}?pending=1`)).sessions,
+    async markDistilled(id, fingerprint) {
+      await call<unknown>("POST", `${ROUTES.sessions}/${encodeURIComponent(id)}/distilled`, { fingerprint }, true);
+    },
     async listFacts(query = {}) {
       const qs = new URLSearchParams();
       if (query.folder) qs.set("folder", query.folder);
@@ -92,7 +99,9 @@ export function createClient(opts: { baseUrl: string; token: string }): CanonCli
     getGroups: async () => parseGroups(await call<unknown>("GET", ROUTES.groups), `GET ${ROUTES.groups}`),
     async postQuarantine(body) {
       // PostQuarantineResponse is the QuarantineItem; { item } and an empty 200 are accepted too.
-      return itemId(await call<unknown>("POST", ROUTES.quarantine, body, true));
+      const result = await call<unknown>("POST", ROUTES.quarantine, body, true);
+      const id = itemId(result);
+      return isRecord(result) && result.event_emitted === true ? { id, event_emitted: true } : id;
     },
     async publishEvent(event) {
       if (!(RELAYED_EVENTS as readonly string[]).includes(event?.type)) {

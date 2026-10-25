@@ -16,10 +16,11 @@ export type Question =
   /** A number in [min, max]. */
   | { id: string; type: "score"; text: string; min: number; max: number };
 
-export type Answer =
+/** Unavailable distinguishes a malformed/missing provider reply from a genuine neutral score. */
+export type Answer = { unavailable?: true } & (
   | { id: string; type: "noul"; p: number }
   | { id: string; type: "choice"; choice: string; p: number; distribution?: Record<string, number> }
-  | { id: string; type: "score"; value: number };
+  | { id: string; type: "score"; value: number });
 
 export interface Judge {
   readonly name: JudgeName;

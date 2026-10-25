@@ -9,6 +9,7 @@ import { fileURLToPath } from "node:url";
 
 import { dataDir, factPath, loadEnv, parseFactFile, serializeFactFile } from "@canon/shared";
 
+import { sessionFingerprint } from "./store.ts";
 import { loadDemoWorld } from "./world.ts";
 import type { WorldMoment } from "./world.ts";
 
@@ -37,8 +38,11 @@ export async function seedDataDir(target: string, fixtures: string | null = FIXT
     else result.skipped++;
   }
   for (const session of demo.sessions) {
-    if (await writeIfMissing(join(target, "sessions", `${session.id}.json`), JSON.stringify(session, null, 2) + "\n")) result.sessions++;
-    else result.skipped++;
+    if (await writeIfMissing(join(target, "sessions", `${session.id}.json`), JSON.stringify(session, null, 2) + "\n")) {
+      result.sessions++;
+      // Answer-key facts already materialize this exact fixture revision; never re-extract it.
+      await writeIfMissing(join(target, "receipts", `${session.id}.json`), JSON.stringify({ fingerprint: sessionFingerprint(session) }) + "\n");
+    } else result.skipped++;
   }
   return result;
 }

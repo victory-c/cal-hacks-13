@@ -93,6 +93,11 @@ describe("loadGrants", () => {
       await writeFile(good, JSON.stringify([{ client: "hermes", read: ["projects"], write: [] }]));
       await withEnv({ CANON_GRANTS_FILE: good }, () => assert.deepEqual(loadGrants(), [{ client: "hermes", read: ["projects"], write: [] }]));
 
+      await writeFile(good, JSON.stringify([{ client: "alice-hook", read: [], write: [], principal: "alice" }]));
+      await withEnv({ CANON_GRANTS_FILE: good }, () => assert.deepEqual(loadGrants(), [{ client: "alice-hook", read: [], write: [], principal: "alice" }]));
+      await writeFile(good, JSON.stringify([{ client: "alice-hook", read: [], write: [], principal: "../admin" }]));
+      await withEnv({ CANON_GRANTS_FILE: good }, () => assert.throws(() => loadGrants(), /invalid principal/));
+
       const bad = join(dir, "bad.json");
       await writeFile(bad, JSON.stringify([{ client: "hermes", read: "projects" }]));
       await withEnv({ CANON_GRANTS_FILE: bad }, () => assert.throws(() => loadGrants(), /entry 0 must be/));

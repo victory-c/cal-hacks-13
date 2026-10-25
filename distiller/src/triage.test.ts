@@ -65,6 +65,48 @@ function stripped(s: CapturedSession): CapturedSession {
 }
 
 describe("triage", () => {
+  test("repeated drafts keep the stored identity and do not create retirement churn", async () => {
+    const stored = fakeFact("fct_aaaa0001", "The offsite is Nov 14", { folder: "firm/ops", author: "dan" });
+    const result = await triage(input([draft(stored.statement), draft(stored.statement)], { existing: [stored] }), scripted());
+    assert.deepEqual(result.drafts.map((d) => d.fact?.id), [stored.id, stored.id]);
+    assert.ok(result.drafts.every((d) => d.unchanged));
+    assert.deepEqual(triagedFacts(result), []);
+    const fresh = await triage(input([draft(stored.statement), draft(stored.statement)]), scripted());
+    assert.equal(triagedFacts(fresh).length, 1, "duplicates in one writer response are filed once");
+  });
+
+  test("a paraphrased merge keeps the original author and never grants the repeating author ownership", async () => {
+    const old = fakeFact("fct_aaaa0001", "The offsite is Nov 14", { folder: "firm/ops", author: "priya" });
+    const result = await triage(input([draft("The team offsite will happen November 14")], { existing: [old] }), scripted({
+      "rel:0": { choice: "same", p: 0.9 }, "relto:0": { choice: old.id, p: 0.9 },
+    }));
+    assert.equal(result.drafts[0].save?.action, "merge");
+    assert.equal(result.drafts[0].fact?.author, "priya");
+  });
+
+  test("a clear own-position update replaces only the same author's same-subject position", async () => {
+    const old = fakeFact("fct_aaaa0001", "Dan is long 180,000 TMC shares", { folder: "firm/ops", author: "dan" });
+    const result = await triage(input([draft("Dan is now long 200,000 TMC shares")], { existing: [old] }), scripted());
+    assert.equal(result.drafts[0].save?.action, "supersede");
+    assert.equal(result.drafts[0].fact?.supersedes, old.id);
+    const other = await triage(input([draft("Dan is now long 200,000 TMC shares")], { existing: [{ ...old, author: "priya" }] }), scripted());
+    assert.equal(other.drafts[0].save?.action, "add");
+    const different = await triage(input([draft("Dan is now long 200,000 XYZ shares")], { existing: [old] }), scripted());
+    assert.equal(different.drafts[0].save?.action, "add");
+  });
+
+  test("the simulated judge files the active Stonewall world's desk and research groups", async () => {
+    const active: Group[] = [
+      { id: "desk/dollar-bill", description: "Dollar Bill's own positions", aliases: [] },
+      { id: "research/asset-managers", description: "Asset management sector", aliases: [] },
+      { id: "deal/stonewall", description: "Project Stonewall", aliases: ["Project Stonewall"] },
+    ];
+    const result = await triage(input([draft("Dollar Bill is long 200,000 TMC shares"), draft("The asset management sector note ships Friday")], {
+      groups: active, session: { ...session, external: false, title: "Work notes", messages: [{ role: "user", content: "Desk positions and sector coverage" }] },
+    }), financeFakeJudge());
+    assert.deepEqual(result.drafts.map((d) => d.fact?.folder), ["desk/dollar-bill", "research/asset-managers"]);
+  });
+
   test("an agent run is judged on its outputs only; the dispatcher's own task prompt and title are left out", async () => {
     const run: CapturedSession = {
       id: "ses_0000a9e1",
@@ -509,7 +551,8 @@ describe("triage", () => {
     const [dupe, inboxDupe] = result.drafts;
     assert.equal(dupe.save?.action, "merge");
     assert.equal(dupe.decision.relation, "same");
-    assert.equal(dupe.fact?.supersedes, "fct_aaaa0001");
+    assert.equal(dupe.fact?.id, "fct_aaaa0001");
+    assert.equal(dupe.unchanged, true);
     assert.equal(dupe.decision.outcome, "fact");
     assert.equal(dupe.fact?.folder, "deal/falcon", "a moderator's filing holds when the item is distilled again");
     assert.equal(inboxDupe.decision.outcome, "inbox");
@@ -526,7 +569,8 @@ describe("triage", () => {
     assert.equal(t.decision.outcome, "fact");
     assert.equal(t.fact?.folder, "market/public", "a moderator's filing holds");
     assert.equal(t.save?.action, "merge");
-    assert.equal(t.fact?.supersedes, "fct_aaaa0001");
+    assert.equal(t.fact?.id, "fct_aaaa0001");
+    assert.equal(t.unchanged, true);
     assert.equal(t.fact?.detail, undefined, "the draft's Falcon detail is not written into market/public");
     assert.ok(!JSON.stringify(t.fact).includes("Falcon"), JSON.stringify(t.fact));
     assert.equal(t.fact?.statement, stored.statement);
@@ -568,7 +612,8 @@ describe("triage", () => {
     assert.equal(t.decision.outcome, "fact");
     assert.equal(t.fact?.folder, "deal/falcon", "the cold fact's group holds; the copy never reaches market/public");
     assert.equal(t.save?.action, "merge");
-    assert.equal(t.fact?.supersedes, "fct_aaaa0001");
+    assert.equal(t.fact?.id, "fct_aaaa0001");
+    assert.equal(t.unchanged, true);
     assert.deepEqual(t.fact?.labels, ["nimbus"], "and its labels, so an exclusion still removes it");
     // A cold fact in inbox keeps its copy in inbox.
     const waiting = fakeFact("fct_aaaa0002", "Lunch moved to Friday", { folder: INBOX, tier: "cold" });
@@ -596,13 +641,15 @@ describe("triage", () => {
     assert.ok(relto?.type === "choice");
     assert.deepEqual(relto.options, ["none", "fct_aaaa0002", "fct_aaaa0003"]);
     const [dupe] = result.drafts;
-    assert.equal(dupe.fact?.supersedes, "fct_aaaa0002", "the live copy is retired, so no second live copy is left standing");
+    assert.equal(dupe.fact?.id, "fct_aaaa0002", "the live copy keeps its identity; it is not retired again");
+    assert.equal(dupe.unchanged, true);
     assert.deepEqual(dupe.fact?.labels, ["loi"]);
 
     // With only a retired copy left, a word-for-word repeat still follows its group.
     const only = (await triage(input([draft("Falcon LOI goes to the board by Oct 28")], { existing: [retired, { ...liveCopy, statement: "Falcon LOI goes to the board by Nov 4" }] }), scripted({ "group:0": { choice: "market/public", p: 0.95 } }))).drafts[0];
     assert.equal(only.fact?.folder, "deal/falcon");
-    assert.equal(only.fact?.supersedes, "fct_aaaa0001");
+    assert.equal(only.fact?.id, "fct_aaaa0001");
+    assert.equal(only.fact?.tier, "cold", "a repeat never revives retired history");
   });
 
   test("a merge or supersede keeps every label of the fact it retires, asked about or not", async () => {

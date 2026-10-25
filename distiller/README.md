@@ -21,10 +21,11 @@ SSE session.captured ─▶ GET /api/sessions/:id ─▶ engine.distill(item, { 
 Distills when `session.ended` is true, or on every capture with `DISTILL_LIVE=1` (debounced 3 s
 per session). Idempotent on the session id plus a hash of what it distills (messages, principal,
 kind, external), fetched each time: an unchanged re-send is a no-op, and a corrected memo that
-keeps its id and message count is distilled again. A `session.captured` stamped more
-than 5 s before the worker started is the server's SSE replay and is skipped (logged `replayed,
-skipping`), so a `tsx watch` restart does not re-distill the last 100 events. One bad session is
-logged and skipped; the loop never dies.
+keeps its id and message count is distilled again. Old SSE replay is skipped. On connection, reconnect and every 30 s, the worker also reads
+`GET /api/sessions?pending=1` for ended captures missed during an outage. It acknowledges each
+successful content fingerprint with `POST /api/sessions/:id/distilled`; receipts survive server
+and worker restarts. Extraction or triage failures remain pending and are retried, without switching
+providers. A failed item is logged and does not stop the stream.
 
 | File | What |
 |---|---|
@@ -69,7 +70,7 @@ logged error, not a silent downgrade.
 
 | Engine | Real? | Needs | Where it plugs in |
 |---|---|---|---|
-| `droid` | Official Factory SDK + pinned CLI, headless, in the Claude writer's schema and checks; never silently downgrades. Picked only by `DISTILLER=droid`: Droid's main job is running dispatched agents (B2). Not yet run against a real Factory key. | `FACTORY_API_KEY` | `src/engines/droid.ts` |
+| `droid` | Official Factory SDK + pinned CLI, headless, in the Claude writer's schema and checks; never silently downgrades. Picked only by `DISTILLER=droid`: Droid's main job is running dispatched agents (B2). Live extraction was validated in the provider activation run; the dispatcher has its own gate. | `FACTORY_API_KEY` | `src/engines/droid.ts` |
 | `claude` | Yes. The fact writer: `claude-sonnet-5-5`, one strict `emit_facts` tool (statement, group from the item's group list or null, labels, happened, detail), at most 16 facts, raw Messages API over `fetch` (no SDK dependency). | `ANTHROPIC_API_KEY` | `src/engines/claude.ts` |
 | `heuristic` | **No, simulated.** Keyword sentences (deal words such as agreed, proposed, LOI, EBITDA, and prices or multiples written as numbers), the speaker named in third person, `happened` from an ISO date in the sentence, a group when the sentence names exactly one group's aliases, paragraphs aimed at an AI left out, max 8. | nothing | `src/engines/heuristic.ts` |
 
@@ -176,8 +177,12 @@ is filed in that fact's group, so a moderator's filing holds when the same item 
 again; a duplicate of an inbox fact stays in inbox. When several stored facts share the statement,
 a live hot one wins, then a live cold one, then a retired one. Only the statements are compared, so
 the merged fact writes back the stored fact's content: its statement, `detail`, `author` and
-`source` (the session that supplied that content). The
-draft's own detail never rides into that group unchecked (a public close in `market/public` cannot
+`source` (the session that supplied that content). An exact repeat keeps the stored fact id, tier, dates and labels and sends no fact write: it never
+creates another retirement or churns living scopes. Repeated drafts within one writer response are
+filed once. A paraphrased merge keeps the original author. A same-author position update with
+exactly the same subject and units and only a changed number supersedes that author's earlier
+position; a different author, security, group or older date never matches this deterministic rule.
+The draft's own detail never rides into that group unchecked (a public close in `market/public` cannot
 pick up Falcon terms from a memo's detail), and a new author never makes the stored content their
 own fact. The `reason` says when the draft's detail or author was not taken; `triage.decided`
 records the repeat (its `session_id` and `relation_to`).
@@ -199,7 +204,8 @@ the group rule for the fact `relto` names. The
 **What the worker files.** Facts go to `POST /api/facts` with `decision.triage` set. Then the
 quarantine item (`POST /api/quarantine`), then the events (`POST /api/events`): one
 `triage.decided` per draft, including archive-only and quarantined ones, and one
-`quarantine.flagged` per quarantined item, carrying the id the server gave back. An item with no
+`quarantine.flagged` per quarantined item, carrying the id the server gave back. When the server
+reports `event_emitted: true`, the worker does not relay that event again. An item with no
 drafts still gets the `inject` question. A route that exists but fails (a 5xx, a timeout, a
 dropped connection) loses nothing: the quarantine item and events it did not take are held and
 retried with backoff (5 s doubling to a minute), on the next capture (a re-post of the same one
@@ -218,12 +224,12 @@ not a group path, or `new` / `unsure` as an id): `groupsKnown` is false.
 **Offline judge (simulated).** With no keys `createJudge()` returns the fake judge, and
 `triageJudge()` swaps in `financeFakeJudge()`: a few regexes with finance sense, not a model,
 reading the same folded text as the alias check. A draft that names a group's alias picks it
-(0.9). Falcon, Nimbus, LOI, term sheet, multiple, EBITDA and similar pick the first `deal/` group
+(0.9). LOI, term sheet, multiple, EBITDA and similar pick the first `deal/` group
 (0.7), and so does a plain line from an item that names a `deal/` group (0.65). An indirect
 reference (the target, the buyer, the seller, …) from an item with deal terms is a low-confidence
 deal pick (0.5), so it waits in inbox. Public news, research, trading and office lines pick
-`market/public`, `research/logistics`, `desk/trading` and `firm/ops` (0.8) when those groups
-exist; anything else is unsure. A label applies when the draft says it. "ignore your
+the one existing `market/`, `research/`, `desk/` or `firm/` group (0.8); multiple groups
+in a category remain ambiguous and wait in inbox; anything else is unsure. A label applies when the draft says it. "ignore your
 instructions", "AI assistant" and similar read as injection, and so does "forward … to" in an item
 from outside the firm. The probabilities it gives are made up for the simulation; logs and the
 CLI say "simulated".

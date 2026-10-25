@@ -12,9 +12,14 @@ export type DistillEngine = "droid" | "claude" | "heuristic";
 
 interface Base {
   at: string;
+  event_id?: number;
 }
 
 export type CanonEvent =
+  | (Base & { type: "group.created"; group: { id: string; name: string; description: string } })
+  | (Base & { type: "item.captured"; item_id: string; kind: string; source: string; author: string })
+  | (Base & { type: "scope.build"; principal: string; build_id: string; stage: "exclusions" | "candidates" | "judged" | "done"; ms: number; remaining: number; counts?: Record<string, number> })
+  | (Base & { type: "scope.changed"; principal: string; added: string[]; removed: string[] })
   | (Base & {
       type: "server.started";
       facts: number;
