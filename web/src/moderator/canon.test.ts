@@ -24,17 +24,16 @@ test("member and moderator dispatch their agent's stored task", async (t) => {
   assert.deepEqual(posted, [{ task: "Compare public manager earnings" }, { task: "Compare public manager earnings" }]);
 });
 
-test("cookie clients omit bearer headers and keep existing agent exclusion barriers on edits", async (t) => {
+test("cookie clients omit bearer headers and ask Canon to preserve hidden agent barriers on edits", async (t) => {
   const posted: unknown[] = [];
   t.mock.method(globalThis, "fetch", async (_path: string, options: RequestInit) => {
     assert.equal(options.credentials, "same-origin");
     assert.equal((options.headers as Record<string, string>).authorization, undefined);
-    if (options.method === "GET") return Response.json({ exclude: { groups: ["deal/*"], labels: ["taylor-mason"], text: "old" } });
     posted.push(JSON.parse(options.body as string));
     return Response.json({ build_id: "bld_1234" });
   });
   await new CanonClient("https://preview.example", "").updateAgent("research-analyst", { name: "Fixed name", task: "Revised task", exclusions: { groups: [], labels: [], text: ["firm operations"] }, docs: [], schedule: "Only when I press Run" });
-  assert.deepEqual(posted, [{ task: "Revised task", exclusions: { groups: ["deal/*"], labels: ["taylor-mason"], text: ["firm operations"] } }]);
+  assert.deepEqual(posted, [{ task: "Revised task", preserve_exclusions: true }]);
 });
 
 test("a canonical save event is displayed from the current authorized snapshot, never its old payload", async (t) => {

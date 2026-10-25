@@ -1,15 +1,18 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
-import { copyFileSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { copyFileSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import net from "node:net";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 
+import { HOOK_SCRIPTS, checkAuthor, checkHookWiring, checkMcpJson, checkPersonToken, parseClientTokens, parseDotEnv } from "./doctor.mjs";
+
 // Runs the real scripts/doctor.mjs from an isolated copy of the repo root, so the working
 // checkout's .env is never read or touched.
 const doctor = join(dirname(fileURLToPath(import.meta.url)), "doctor.mjs");
+const repoRoot = join(dirname(fileURLToPath(import.meta.url)), "..");
 
 function isolatedRoot(dotenv) {
   const root = mkdtempSync(join(tmpdir(), "doctor-"));
@@ -77,3 +80,38 @@ test("busy-port warning follows the shell override, not the .env port", async ()
 function pick({ server, web }) {
   return { server, web };
 }
+
+test("dotenv and client-token parsing match the runtime formats", () => {
+  assert.deepEqual(parseDotEnv('# comment\r\nA=1\r\nB="x # y"\r\nC=v # tail\r\nexport D=yes\r\n'), { A: "1", B: "x # y", C: "v", D: "yes" });
+  assert.deepEqual([...parseClientTokens(" a=1, b = 2 ,=3,c=,d,, e=5=6")], [["1", "a"], ["2", "b"], ["5=6", "e"]]);
+});
+
+test("the person-token check validates identity without echoing the token", () => {
+  const principals = [{ id: "dollar-bill", kind: "person" }, { id: "agt_x", kind: "agent" }];
+  const ok = checkPersonToken({ personToken: "secret-person", clientTokens: "dollar-bill=secret-person", principals });
+  assert.equal(ok.level, "ok");
+  assert.doesNotMatch(ok.message, /secret-person/);
+  assert.equal(checkPersonToken({ personToken: "bad", clientTokens: "dollar-bill=secret-person", principals }).level, "FAIL");
+  assert.equal(checkPersonToken({ personToken: "agent", clientTokens: "agt_x=agent", principals }).level, "FAIL");
+  assert.equal(checkPersonToken({ personToken: "", clientTokens: "", principals }), null);
+  assert.equal(checkAuthor({ personToken: "", principal: "" }).level, "warn");
+  assert.equal(checkAuthor({ personToken: "set", principal: "" }), null);
+});
+
+test("the committed MCP and hook wiring pass; malformed or credential-holding variants fail", () => {
+  const mcp = readFileSync(join(repoRoot, ".mcp.json"), "utf8");
+  assert.equal(checkMcpJson(mcp).level, "ok");
+  assert.equal(checkMcpJson(undefined).level, "FAIL");
+  assert.equal(checkMcpJson("{broken").level, "FAIL");
+  const literal = { mcpServers: { canon: { type: "http", url: "http://localhost:4100/mcp", headers: { Authorization: "Bearer literal-secret" } } } };
+  const result = checkMcpJson(JSON.stringify(literal));
+  assert.equal(result.level, "FAIL");
+  assert.doesNotMatch(result.message, /literal-secret/);
+
+  const settings = JSON.parse(readFileSync(join(repoRoot, ".claude", "settings.json"), "utf8"));
+  assert.deepEqual(checkHookWiring(settings).map((item) => item.level), ["ok", "ok", "ok"]);
+  assert.deepEqual(Object.keys(HOOK_SCRIPTS), ["Stop", "SessionEnd", "UserPromptSubmit"]);
+  const missing = structuredClone(settings);
+  delete missing.hooks.UserPromptSubmit;
+  assert.equal(checkHookWiring(missing)[2].level, "FAIL");
+});

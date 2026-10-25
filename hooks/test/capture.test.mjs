@@ -10,11 +10,13 @@ import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { test } from "node:test";
 
-import { KIND, MESSAGE_MAX, buildSession, gitInfo, makeTitle, normalizePrincipal, parseTranscript, readDotEnv, sessionIdFor, stripHarness } from "../claude-code/lib.mjs";
-import { capturePath, commandFor, mergeSettings, snippet, writeSettings } from "../claude-code/install.mjs";
+import { KIND, MEMORY_PREFIX, MESSAGE_MAX, buildSession, formatContext, gitCommonEnvPath, gitInfo, makeTitle, normalizePrincipal, parseTranscript, readDotEnv, resolveEnv, sessionIdFor, stripHarness } from "../claude-code/lib.mjs";
+import { HOOK_SCRIPTS, capturePath, commandFor, commandsFor, mcpAddCommand, mergeSettings, projectCommands, snippet, writeSettings } from "../claude-code/install.mjs";
 
 const HOOKS_DIR = resolve(dirname(fileURLToPath(import.meta.url)), "..");
+const REPO_DIR = resolve(HOOKS_DIR, "..");
 const CAPTURE = join(HOOKS_DIR, "claude-code", "canon-capture.mjs");
+const CONTEXT = join(HOOKS_DIR, "claude-code", "canon-context.mjs");
 const INSTALL = join(HOOKS_DIR, "claude-code", "install.mjs");
 const TRANSCRIPT = join(HOOKS_DIR, "fixtures", "transcript.jsonl");
 const PAYLOAD = JSON.parse(readFileSync(join(HOOKS_DIR, "fixtures", "stop-payload.json"), "utf8"));
@@ -56,6 +58,17 @@ test("parseTranscript summarises tools per turn and skips tool_result/isMeta/sid
   assert.doesNotMatch(all, /SIDECHAIN/, "isSidechain line leaked");
   assert.doesNotMatch(all, /turn_duration/, "system line leaked");
   assert.doesNotMatch(all, /INJECTED_MEMORY/, "injected memory must not be captured as a new fact");
+});
+
+test("parseTranscript drops inlined hook memory without dropping the user's adjacent prompt", () => {
+  const memory = formatContext({ facts: [{ id: "f1", statement: "The desk is long 180,000 TMC shares", folder: "desk/dollar-bill" }] });
+  assert.ok(memory.startsWith(MEMORY_PREFIX));
+  const transcript = [
+    JSON.stringify({ type: "user", message: { content: [{ type: "text", text: memory }, { type: "text", text: "What is our position?" }] } }),
+    JSON.stringify({ type: "user", message: { content: `<system-reminder>worktree</system-reminder>\n\n${memory}` } }),
+    JSON.stringify({ type: "assistant", message: { content: [{ type: "text", text: "I checked the position." }] } }),
+  ].join("\n");
+  assert.deepEqual(parseTranscript(transcript).map((message) => message.content), ["What is our position?", "I checked the position."]);
 });
 
 test("parseTranscript joins text blocks, drops thinking, survives bad lines", () => {
@@ -226,6 +239,23 @@ test("readDotEnv parses the flat .env format and ignores noise", () => {
     EMPTY: "",
   });
   assert.deepEqual(readDotEnv(join(dir, "missing.env")), {});
+});
+
+test("resolveEnv is shared by both hooks and falls back from a worktree to the common checkout", () => {
+  const root = mkdtempSync(join(tmpdir(), "canon-resolve-"));
+  const explicit = join(root, "explicit");
+  const common = join(root, "main");
+  writeFileSync(join(root, "unused"), "");
+  writeFileSync(join(root, "common.env"), "CANON_PERSON_TOKEN=from-common\nCANON_URL=http://common:4100\n");
+  writeFileSync(join(root, "explicit.env"), "CANON_PERSON_TOKEN=from-explicit\nCANON_URL=http://file:4100\n");
+
+  assert.deepEqual(
+    resolveEnv(["CANON_URL", "CANON_PERSON_TOKEN", "CANON_PRINCIPAL"], { CANON_URL: "http://process:4100" }, { checkoutEnv: join(root, "missing.env"), commonEnv: join(root, "common.env") }),
+    { CANON_URL: "http://process:4100", CANON_PERSON_TOKEN: "from-common", CANON_PRINCIPAL: "" },
+  );
+  assert.deepEqual(resolveEnv(["CANON_URL", "CANON_PERSON_TOKEN"], { CANON_REPO_ROOT: root }, { checkoutEnv: join(root, "missing.env"), commonEnv: join(root, "common.env") }), { CANON_URL: "http://common:4100", CANON_PERSON_TOKEN: "from-common" }, "a missing explicit root falls through");
+  assert.equal(gitCommonEnvPath(explicit, () => join(common, ".git")), resolve(common, ".env"));
+  assert.equal(gitCommonEnvPath(explicit, () => { throw new Error("no git"); }), undefined);
 });
 
 test("gitInfo never throws: {} outside a repo, an object inside one", () => {
@@ -450,14 +480,16 @@ test("e2e: exits 0 within 5s when CANON_URL points at a closed port", async () =
 
 // ---------- install.mjs ----------
 
-test("install snippet points at the real absolute path for Stop and SessionEnd", async () => {
+test("install snippet points at the real absolute paths for capture and prompt context", async () => {
   const s = snippet();
-  assert.deepEqual(Object.keys(s.hooks), ["Stop", "SessionEnd"]);
-  for (const ev of ["Stop", "SessionEnd"]) {
+  assert.deepEqual(Object.keys(s.hooks), ["Stop", "SessionEnd", "UserPromptSubmit"]);
+  assert.deepEqual(HOOK_SCRIPTS, { Stop: "canon-capture.mjs", SessionEnd: "canon-capture.mjs", UserPromptSubmit: "canon-context.mjs" });
+  for (const ev of Object.keys(HOOK_SCRIPTS)) {
     const [group] = s.hooks[ev];
     assert.equal(group.hooks[0].type, "command");
-    assert.ok(group.hooks[0].command.includes(CAPTURE), group.hooks[0].command);
+    assert.ok(group.hooks[0].command.includes(ev === "UserPromptSubmit" ? CONTEXT : CAPTURE), group.hooks[0].command);
     assert.ok(group.hooks[0].command.startsWith("node "));
+    assert.equal(group.hooks[0].timeout, 15);
   }
   assert.ok(existsSync(capturePath()));
   assert.equal(commandFor("/plain/path.mjs"), "node /plain/path.mjs");
@@ -498,6 +530,8 @@ test("install --write merges into settings.json, keeps other hooks, backs up, is
   assert.deepEqual(merged.hooks.Stop[0], other);
   assert.ok(merged.hooks.Stop[1].hooks[0].command.includes(CAPTURE));
   assert.equal(merged.hooks.SessionEnd.length, 1);
+  assert.equal(merged.hooks.UserPromptSubmit.length, 1);
+  assert.ok(merged.hooks.UserPromptSubmit[0].hooks[0].command.includes(CONTEXT));
 
   const second = await run();
   assert.equal(second.code, 0);
@@ -511,8 +545,39 @@ test("install --write merges into settings.json, keeps other hooks, backs up, is
   assert.equal(existsSync(`${fresh}.bak`), false, "no backup for a new file");
 
   // Pure merge: replaces an older Canon entry instead of duplicating it.
-  const stale = { hooks: { Stop: [{ hooks: [{ type: "command", command: "node /old/path/canon-capture.mjs" }] }] } };
-  const replaced = mergeSettings(stale, "/new/canon-capture.mjs");
+  const stale = { hooks: { Stop: [{ hooks: [{ type: "command", command: "node /old/path/canon-capture.mjs" }] }], UserPromptSubmit: [{ hooks: [{ type: "command", command: "node /old/path/canon-context.mjs" }] }] } };
+  const replaced = mergeSettings(stale, commandsFor("/new"));
   assert.equal(replaced.hooks.Stop.length, 1);
   assert.equal(replaced.hooks.Stop[0].hooks[0].command, "node /new/canon-capture.mjs");
+  assert.equal(replaced.hooks.UserPromptSubmit[0].hooks[0].command, "node /new/canon-context.mjs");
+});
+
+test("committed project hooks and the installer agree; MCP commands are safe in POSIX and PowerShell", () => {
+  const settings = JSON.parse(readFileSync(join(REPO_DIR, ".claude", "settings.json"), "utf8"));
+  const commands = projectCommands();
+  for (const [event, script] of Object.entries(HOOK_SCRIPTS)) {
+    const hook = settings.hooks[event][0].hooks[0];
+    assert.equal(hook.command, commands[event]);
+    assert.equal(hook.command, `node "\${CLAUDE_PROJECT_DIR}/hooks/claude-code/${script}"`);
+    assert.equal(hook.timeout, 15);
+  }
+  assert.equal(mcpAddCommand(), 'claude mcp add --transport http canon --scope user "http://localhost:4100/mcp" --header "Authorization: Bearer ${CANON_PERSON_TOKEN}"');
+  assert.equal(mcpAddCommand({ shell: "powershell" }), 'claude mcp add --transport http canon --scope user "http://localhost:4100/mcp" --header "Authorization: Bearer $env:CANON_PERSON_TOKEN"');
+});
+
+test("install --mcp prints both shell forms without exposing a configured token by default", async () => {
+  const root = mkdtempSync(join(tmpdir(), "canon-mcp-install-"));
+  writeFileSync(join(root, ".env"), "CANON_URL=http://canon.test:4100\nCANON_PERSON_TOKEN=secret-person-token\n");
+  const result = await new Promise((done) => {
+    const clean = Object.fromEntries(Object.entries(process.env).filter(([key]) => !key.startsWith("CANON_")));
+    const child = spawn(process.execPath, [INSTALL, "--mcp"], { env: { ...clean, CANON_REPO_ROOT: root }, stdio: ["ignore", "pipe", "pipe"] });
+    let stdout = "";
+    child.stdout.on("data", (chunk) => (stdout += chunk));
+    child.on("close", (code) => done({ code, stdout }));
+  });
+  assert.equal(result.code, 0);
+  assert.match(result.stdout, /POSIX:[\s\S]*\$\{CANON_PERSON_TOKEN\}/);
+  assert.match(result.stdout, /PowerShell:[\s\S]*\$env:CANON_PERSON_TOKEN/);
+  assert.doesNotMatch(result.stdout, /secret-person-token/);
+  assert.match(result.stdout, /http:\/\/canon\.test:4100\/mcp/);
 });

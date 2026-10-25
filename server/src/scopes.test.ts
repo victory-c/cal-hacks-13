@@ -193,7 +193,8 @@ describe("scopes REST surface, scope builder and handoff (A2, A4+A6, A7+A16)", (
 
     const own = await api("/api/scope-rules/agt_leodesk", { token: "tok-leo" });
     assert.equal(own.status, 200, "the creator reads their agent's rule");
-    assert.equal((await body<ScopeRule>(own)).set_by, "leo");
+    const original = await body<ScopeRule>(own);
+    assert.equal(original.set_by, "leo");
 
     const other = await api("/api/scope-rules/agt_leodesk", { token: "tok-priya" });
     assert.equal(other.status, 403, "another member does not");
@@ -208,6 +209,30 @@ describe("scopes REST surface, scope builder and handoff (A2, A4+A6, A7+A16)", (
     });
     assert.equal(put.status, 403, "internal clients never write rules");
     assert.deepEqual(await put.json(), MODERATORS_ONLY);
+
+    const moderated = await api("/api/scope-rules/agt_leodesk", {
+      method: "PUT",
+      token: "tok-maya",
+      json: { task: original.task, exclude: { groups: ["deal"], labels: ["nimbus"], text: "moderator-only wall" } },
+    });
+    assert.equal(moderated.status, 200);
+    const hidden = await body<Record<string, unknown>>(await api("/api/scope-rules/agt_leodesk", { token: "tok-leo" }));
+    assert.equal("exclude" in hidden, false, "a creator never reads moderator-set exclusions");
+    assert.equal(hidden.task, original.task);
+
+    const edited = await api("/api/principals/agt_leodesk/rule", {
+      method: "PUT",
+      token: "tok-leo",
+      json: { task: "Answer public desk questions", preserve_exclusions: true },
+    });
+    assert.equal(edited.status, 200);
+    const after = await body<ScopeRule>(await api("/api/scope-rules/agt_leodesk", { token: "tok-maya" }));
+    assert.equal(after.task, "Answer public desk questions");
+    assert.deepEqual(after.exclude, { groups: ["deal"], labels: ["nimbus"], text: "moderator-only wall" });
+    assert.equal(after.set_by, "maya", "task edits do not relabel moderator barriers as member-set");
+    assert.equal((await api("/api/principals/agt_leodesk/rule", { method: "PUT", token: "tok-leo", json: { task: "erase wall", exclusions: { groups: [], labels: [] }, preserve_exclusions: true } })).status, 400);
+
+    await api("/api/scope-rules/agt_leodesk", { method: "PUT", token: "tok-maya", json: original });
 
     assert.equal((await api("/api/scope-rules/ghost", { token: "tok-maya" })).status, 404, "a moderator may learn a rule is missing");
   });
@@ -280,7 +305,10 @@ describe("scopes REST surface, scope builder and handoff (A2, A4+A6, A7+A16)", (
     assert.ok(events.some((e) => e.type === "audit.logged" && e.entry.kind === "scope.built" && e.entry.principal === "noor"));
 
     assert.equal((await api("/api/principals", { method: "POST", token: "tok-maya", json: { id: "noor", name: "Noor", tier: "member", rule: { task: "x", exclude: { groups: [], labels: [] } } } })).status, 409);
-    assert.equal((await api("/api/principals", { method: "POST", token: "tok-maya", json: { id: "sam", name: "Sam", tier: "member" } })).status, 400, "a member needs a rule");
+    const pending = await api("/api/principals", { method: "POST", token: "tok-maya", json: { id: "sam", name: "Sam", tier: "member" } });
+    assert.equal(pending.status, 200, "a member may be added before Compliance defines their task");
+    assert.equal(running.world.rules.has("sam"), false, "no invented default task or exclusions");
+    assert.equal(running.world.scopes.has("sam"), false, "no rule means no readable memory");
     assert.equal((await api("/api/principals", { method: "POST", token: "tok-maya", json: { id: "agt_x", name: "X", tier: "member", rule: { task: "x", exclude: { groups: [], labels: [] } } } })).status, 400, "people never use agt_");
 
     const tier = await api("/api/principals/noor/tier", { method: "POST", token: "tok-maya", json: { tier: "moderator" } });

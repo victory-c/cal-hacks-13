@@ -51,9 +51,9 @@ nothing, because the action itself is public knowledge). `404` = not found or no
 | --- | --- | --- |
 | `GET /api/me` | anyone | Your principal: id, name, tier, and your task (never your exclusions) |
 | `GET /api/principals` | moderator | People and agents with tier or creator |
-| `POST /api/principals` | moderator | Add a person `{ name, tier }` |
+| `POST /api/principals` | moderator | Add a person `{ name, tier, rule? }`. Without a rule, the member has no scope or readable memory until Compliance sets one |
 | `POST /api/principals/:id/tier` | moderator | Promote or demote `{ tier }` |
-| `PUT /api/principals/:id/rule` | moderator; members for their own agents | Set a scope rule `{ task, exclusions }`; starts a build and returns `{ build_id }` |
+| `PUT /api/principals/:id/rule` | moderator; members for their own agents | Moderators set `{ task, exclusions }`. An agent's creator sends `{ task, preserve_exclusions: true }`; Canon preserves hidden moderator barriers and their setter. Starts a build and returns `{ build_id }` |
 | `GET /api/principals/:id/scope` | moderator; members for themselves and their agents | The scope: rule and fact ids |
 | `GET /api/facts` | anyone | Facts visible to you, filterable by `group`, `label`, `q` |
 | `PATCH /api/facts/:id` · `POST /api/facts/:id/retire` | anyone, inside their scope | Edit the statement, or retire to cold storage |
@@ -82,7 +82,9 @@ AgentRun   { id, creator, name, status: "running" | "restarting" | "done" | "fai
 ```
 
 Moderator-set exclusions are visible only to moderators. A member's own `ScopeRule` comes back with
-`exclusions` omitted; for agents they create, they see only the exclusions they added themselves.
+`exclusions` omitted. For an agent they created, creator-set exclusions remain visible; after a
+moderator changes the rule, the creator sees the task but not the exclusions and can only edit that
+task through `preserve_exclusions: true`.
 
 ## Events (SSE on `GET /events`)
 
@@ -101,8 +103,9 @@ Each event is `event: <type>` plus JSON with `type`, `at` and the fields below. 
 | `agent.started` · `agent.step` · `agent.inbox` · `agent.restarted` · `agent.finished` | agent id, run fields | all | own agents |
 | `context.served` | handoff id, principal, kept count, tokens_est, timings | all | own agents |
 
-Counts in `scope.build` are counts *within the requester's view*: for a member's agent, candidates come
-from the member's own scope, so no count reveals anything outside it.
+Intermediate `scope.build` counts are redacted to zero for members. The `done` event reports only the
+final size of the member's or owned agent's scope, so model-side candidate and exclusion decisions do
+not become an existence oracle.
 
 ## Changing the contract
 

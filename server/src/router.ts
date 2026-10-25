@@ -59,10 +59,12 @@ export function createRouter(deps: RouterDeps): Handler {
     } catch {
       url = undefined;
     }
-    const path = url?.pathname ?? String(req.url);
+    // An unparseable target is never logged or echoed: an absolute-form URL still carries its
+    // query string, and /events takes the bearer token there (?token=).
+    const path = url?.pathname ?? "<unparseable url>";
     res.on("finish", () => log(`${method} ${path} ${res.statusCode} ${Math.round(performance.now() - t0)}ms`));
     applyCors(res);
-    if (!url) return sendJson(res, 400, { error: `bad request URL ${JSON.stringify(req.url)}` });
+    if (!url) return sendJson(res, 400, { error: "bad request URL" });
 
     try {
       if (method === "OPTIONS" && (path.startsWith("/api/") || path === ROUTES.mcp)) {
@@ -303,7 +305,9 @@ function principalEvents(deps: RouterDeps, principal: string): EventFilter {
       case "scope.updated": case "scope.changed": return event.principal === principal || ownsAgent(event.principal);
       case "scope.stage": case "scope.build": {
         if (event.principal !== principal && !ownsAgent(event.principal)) return false;
-        const size = deps.world.scopes.get(event.principal)?.fact_ids.length ?? 0;
+        // Intermediate counts are measured against Canon's private candidate universe. A member
+        // may see timing/progress for their own build, but only the final in-scope size.
+        const size = event.stage === "done" ? deps.world.scopes.get(event.principal)?.fact_ids.length ?? 0 : 0;
         return { ...event, remaining: size, ...(event.type === "scope.build" ? { counts: { remaining: size } } : {}) };
       }
       case "principal.changed": return event.principal.created_by === principal;

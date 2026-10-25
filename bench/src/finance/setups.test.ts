@@ -174,6 +174,6 @@ describe("finance context formatting", () => {
     ]);
     assert.match(out, /^Pinned profile: Ben Kim/);
     assert.match(out, /- A thing happened \[market\/public, 2026-10-23\]\n {2}line one\n {2}line two/);
-    assert.equal(formatFinanceContext(null, []), "Stored facts: none.");
+    assert.equal(formatFinanceContext(null, []), "No additional working context.");
   });
 });

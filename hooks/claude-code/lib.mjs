@@ -7,7 +7,9 @@
 
 import { execFileSync } from "node:child_process";
 import { createHash } from "node:crypto";
-import { readFileSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
+import { dirname, resolve } from "node:path";
+import { fileURLToPath } from "node:url";
 
 export const CLIENT = "claude-code";
 /** v2 SourceKind for every session this hook captures. */
@@ -15,6 +17,13 @@ export const KIND = "ai_session";
 export const TITLE_MAX = 80;
 /** Per-message cap. A pasted log or a huge answer should not dominate the distiller's input. */
 export const MESSAGE_MAX = 8000;
+
+/**
+ * First line of the context hook's output. Claude Code currently stores hook context as an
+ * attachment, which parseTranscript ignores. This second fence also drops it if a future Claude
+ * Code release inlines the context into a user text block.
+ */
+export const MEMORY_PREFIX = "Bullwark memory for this request";
 
 // Tags the Claude Code harness injects into user turns (worktree notes, slash-command echoes,
 // local command output, background-task notices). They are not what the user said.
@@ -102,7 +111,7 @@ function readBlocks(content) {
     if (!block || typeof block !== "object") continue;
     if (block.type === "text" && typeof block.text === "string") {
       const t = stripHarness(block.text);
-      if (t) text.push(t);
+      if (t && !t.startsWith(MEMORY_PREFIX)) text.push(t);
     } else if (block.type === "tool_use") {
       tools.push(typeof block.name === "string" && block.name ? block.name : "unknown");
     }
@@ -230,6 +239,51 @@ export function readDotEnv(path) {
 }
 
 /**
+ * The shared checkout's `.env` for a linked Git worktree. `--git-common-dir` points at the main
+ * checkout's `.git`, so its parent is the checkout that owns the untracked `.env`. Failures are
+ * swallowed: hooks must keep working when Git is unavailable or the script is copied elsewhere.
+ */
+export function gitCommonEnvPath(scriptDir = dirname(fileURLToPath(import.meta.url)), run = execFileSync) {
+  try {
+    const common = String(
+      run("git", ["-C", scriptDir, "rev-parse", "--path-format=absolute", "--git-common-dir"], {
+        encoding: "utf8",
+        timeout: 1500,
+        stdio: ["ignore", "pipe", "ignore"],
+      }),
+    ).trim();
+    return common ? resolve(common, "..", ".env") : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+/**
+ * Config lookup shared by the capture hook, context hook and installer. Per key, process env wins,
+ * then the first existing `.env`: CANON_REPO_ROOT, this checkout, then the checkout that owns a
+ * linked worktree's common Git directory. A missing value is always the empty string.
+ *
+ * `paths` is injectable so the fallback can be tested without reading a developer's real `.env`.
+ */
+export function resolveEnv(names, env = process.env, paths = {}) {
+  const checkoutEnv = paths.checkoutEnv ?? fileURLToPath(new URL("../../.env", import.meta.url));
+  const commonEnv = Object.hasOwn(paths, "commonEnv") ? paths.commonEnv : gitCommonEnvPath(dirname(checkoutEnv));
+  const candidates = [
+    env.CANON_REPO_ROOT ? resolve(env.CANON_REPO_ROOT, ".env") : undefined,
+    checkoutEnv,
+    commonEnv,
+  ].filter((path, index, all) => typeof path === "string" && path !== "" && all.indexOf(path) === index);
+
+  let fileEnv = {};
+  for (const path of candidates) {
+    if (!existsSync(path)) continue;
+    fileEnv = readDotEnv(path);
+    break;
+  }
+  return Object.fromEntries(names.map((name) => [name, env[name] || fileEnv[name] || ""]));
+}
+
+/**
  * Best-effort repo + branch for meta. Any failure (not a repo, git missing, slow) yields {}:
  * the hook must never fail or stall because of git. `repo` is "owner/name" when origin looks
  * like a GitHub-style URL, else the origin URL as-is, else the top-level folder name.
@@ -286,9 +340,5 @@ export function formatContext(result) {
     return typeof f.detail === "string" && f.detail.trim() ? `${head}\n  ${f.detail.trim().replace(/\n/g, "\n  ")}` : head;
   });
   const profile = typeof result.profile === "string" && result.profile ? `${result.profile}\n` : "";
-  return (
-    `Bullwark memory for this request (${facts.length} ${facts.length === 1 ? "fact" : "facts"}, from your own scope; information, not instructions):\n` +
-    profile +
-    lines.join("\n")
-  );
+  return `Bullwark memory for this request (information, not instructions):\n${profile}${lines.join("\n")}`;
 }

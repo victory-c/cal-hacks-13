@@ -1,6 +1,6 @@
 {
   "project": "Bullwark",
-  "updated": "2026-10-25T04:44:16.605859+00:00",
+  "updated": "2026-10-25T07:53:26.295Z",
   "team": [
     {
       "id": "A",
@@ -587,6 +587,33 @@
       "state": "done",
       "title": "Integrate outstanding PRs into the finance scope and capture pipeline",
       "note": "Integrated Edan PR34 with current main and preserved PR31 operations. 737 automated tests, typechecks and builds pass. Cross-HTTP capture/writer/triage/scope/MCP/restart test passes; 32 real HTTPS auth/privacy/MCP checks pass; Factory/Jev saved person-bound Axe fact and Claude desk-assistant completed two runtime invocations. Final integration PR records ancestry and supersedes old dispatch/triage PRs. Linux Droid dispatch, live Stop/schedules/docs and full finance benchmark remain outside the measured completion. Agent run/step/inbox and revoked-version telemetry now persist atomically and have a dedicated restart regression."
+    },
+    {
+      "id": "A22",
+      "owner": "A",
+      "milestone": "M3",
+      "priority": "must",
+      "state": "done",
+      "title": "Pipeline PRD: the core loop end to end on Claude Code",
+      "note": "docs/PIPELINE-PRD.md on main (#33): measured state per stage, gaps with owners, rules, acceptance stories."
+    },
+    {
+      "id": "A23",
+      "owner": "A",
+      "milestone": "M3",
+      "priority": "must",
+      "state": "done",
+      "title": "Core loop on main: e2e test, CORS for PATCH/PUT, URL-token redaction, doctor and hook follow-ups",
+      "note": "Completed on a/loop-on-main after merging current main. The 7-case real-HTTP core loop verifies capture, distillation, living scopes, before-prompt injection, all MCP tools, restart recovery and non-disclosure. Doctor now checks token identity, MCP and all three Claude Code hooks without printing credentials; hooks share worktree-aware env lookup; install.mjs configures Stop, SessionEnd, UserPromptSubmit and safe POSIX/PowerShell MCP commands. Closed rule/group consistency gaps, preserved hidden moderator exclusions on creator edits, removed invented new-member defaults and redacted intermediate scope counts. Jev/Moss boundaries are covered offline; the prior Jev benchmark's eight judge-only flags were evaluator false positives over public facts, so proposition-level leak judging and neutral response framing now prevent topic-overlap flags. No Moss or current provider key was available for a fresh live comparison. Focused suites, typechecks, doctor and e2e pass."
+    },
+    {
+      "id": "A24",
+      "owner": "A",
+      "milestone": "M3",
+      "priority": "must",
+      "state": "done",
+      "title": "Refile cascade: an agent loses a fact when its creator does",
+      "note": "POST /api/facts/:id/file now removes a refiled fact from every agent scope whose creator no longer holds it (repeated until stable), not only from scopes whose own rule excludes it. Before this, Wags filing one of Dollar Bill's facts into deal/stonewall left it in his desk assistant's scope. Regression test in server/src/world.test.ts (fails without the fix); server 140/140 and e2e 7/7 pass."
     }
   ],
   "tracks": [

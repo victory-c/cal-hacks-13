@@ -106,11 +106,10 @@ a 10 s watchdog ends the process no matter what. Missing transcript or 0 message
 ## Install
 
 **Already installed for this repo.** `.claude/settings.json` (committed) wires `Stop` and
-`SessionEnd` to `node "${CLAUDE_PROJECT_DIR}/hooks/claude-code/canon-capture.mjs"`, so every
-Claude Code session in any clone or worktree of Bullwark posts to your local server. Nothing outside
-the repo is touched. With no server running the hook exits silently in milliseconds. Set
-`CANON_CAPTURE=0` in your environment to opt out. Start a **new** session after pulling: Claude
-Code reads hooks at session start.
+`SessionEnd` to `canon-capture.mjs`, and `UserPromptSubmit` to `canon-context.mjs`, all through
+`${CLAUDE_PROJECT_DIR}`. Every clone and worktree therefore uses its own hook code. With no server
+running the hooks exit silently; `CANON_CAPTURE=0` and `CANON_CONTEXT=0` opt out independently.
+Start a **new** Claude Code session after pulling because hooks are read at session start.
 
 To capture **every** project on your machine (the real product), install at user scope:
 
@@ -118,18 +117,21 @@ To capture **every** project on your machine (the real product), install at user
 node hooks/claude-code/install.mjs              # print the hooks JSON with this checkout's absolute path
 node hooks/claude-code/install.mjs --write      # merge into ~/.claude/settings.json (backup .bak, other hooks kept)
 node hooks/claude-code/install.mjs --project    # rewrite the repo's .claude/settings.json (only if you change it)
+node hooks/claude-code/install.mjs --mcp        # print safe POSIX and PowerShell MCP setup commands
 ```
 
 `claude-code/settings.snippet.json` is the same snippet with a placeholder path, for pasting by
 hand. Re-running replaces the old Bullwark entry. Don't install both user and project scope, or a
 Bullwark-repo session posts twice (harmless upsert, wasted work).
 
-Config resolution, per key (`CANON_URL`, `CANON_PERSON_TOKEN`, `CANON_TOKEN_CLAUDE_CODE`, `CANON_TOKEN_INGEST`, `CANON_PRINCIPAL`): process
-env → `.env` at `CANON_REPO_ROOT` → `.env` in this checkout (`../../.env` from the script).
+Config resolution is shared by both hooks and the installer. Per key, it is process env → `.env`
+at `CANON_REPO_ROOT` → `.env` in this checkout → the main checkout's `.env` when this is a linked
+Git worktree. The worktree lookup uses Git's common directory and times out after 1.5 seconds.
 `CANON_URL` defaults to `http://localhost:4100`.
 `CANON_TOKEN_CLAUDE_CODE` defaults to `dev-claude-code`, the same dev value the server accepts
 when it has no `.env` (`server/src/auth.ts`), so a fresh clone captures with no setup; set a
-real token in `.env` to override it.
+real token in `.env` to override it. The committed `.mcp.json` uses the same `CANON_PERSON_TOKEN`
+for `canon_context`, `canon_search`, `canon_save` and `canon_whoami`.
 
 ## Test and smoke
 

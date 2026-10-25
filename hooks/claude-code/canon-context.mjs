@@ -14,10 +14,7 @@
 // context, and only when there is some; on any failure the prompt goes through untouched, and
 // stderr gets one short line when CANON_DEBUG=1.
 
-import { existsSync } from "node:fs";
-import { resolve } from "node:path";
-import { fileURLToPath } from "node:url";
-import { formatContext, readDotEnv } from "./lib.mjs";
+import { formatContext, resolveEnv } from "./lib.mjs";
 
 const DEFAULT_URL = "http://localhost:4100";
 // A live handoff is two judge calls; leave room for them, but never hold a prompt for long.
@@ -75,17 +72,8 @@ async function main() {
  * (CANON_REPO_ROOT when set, else the checkout this script lives in), as in canon-capture.mjs.
  */
 function resolveConfig() {
-  const candidates = [];
-  if (process.env.CANON_REPO_ROOT) candidates.push(resolve(process.env.CANON_REPO_ROOT, ".env"));
-  candidates.push(fileURLToPath(new URL("../../.env", import.meta.url)));
-  let fileEnv = {};
-  for (const path of candidates) {
-    if (existsSync(path)) {
-      fileEnv = readDotEnv(path);
-      break;
-    }
-  }
-  const pick = (name) => process.env[name] || fileEnv[name] || "";
+  const config = resolveEnv(["CANON_URL", "CANON_PERSON_TOKEN", "CANON_CONTEXT_BUDGET"]);
+  const pick = (name) => config[name];
   const budget = Number(pick("CANON_CONTEXT_BUDGET"));
   return { url: pick("CANON_URL") || DEFAULT_URL, token: pick("CANON_PERSON_TOKEN"), budget: Number.isFinite(budget) && budget > 0 ? budget : undefined };
 }

@@ -16,7 +16,9 @@ export class HttpError extends Error {
 /** The server is localhost-only and the dashboard (another port) has no token, so CORS is open. */
 export const CORS_HEADERS: Record<string, string> = {
   "Access-Control-Allow-Origin": "*",
-  "Access-Control-Allow-Methods": "GET, POST, DELETE, OPTIONS",
+  // PATCH (edit a fact, rename an agent) and PUT (a scope rule) are what the console sends from
+  // its own origin; a preflight that omits them makes the browser drop the request before it leaves.
+  "Access-Control-Allow-Methods": "GET, POST, PUT, PATCH, DELETE, OPTIONS",
   "Access-Control-Allow-Headers": "Authorization, Content-Type, Accept, Mcp-Session-Id, Mcp-Protocol-Version, Last-Event-ID",
   "Access-Control-Max-Age": "86400",
 };

@@ -466,15 +466,24 @@ export async function refileFact(deps: ScopesDeps, callerId: string, factId: str
   });
   deps.bus.emit({ type: "fact.filed", fact_id: saved.id, from: fact.folder, group: saved.folder, labels: saved.labels ?? [] });
 
-  // Leave every scope whose rule now excludes it (every scope, for the moderators-only inbox).
-  for (const scope of deps.world.scopes.values()) {
-    const i = scope.fact_ids.indexOf(saved.id);
-    if (i === -1) continue;
-    const rule = deps.world.rules.get(scope.principal);
-    if (!folderAllows([INBOX], saved.folder) && rule && allowedByRule(rule, saved)) continue;
-    scope.fact_ids.splice(i, 1);
-    logAudit(deps, { kind: "fact.left_scope", actor: callerId, principal: scope.principal, fact_ids: [saved.id], detail: `${saved.id} was filed to ${saved.folder} and left ${scope.principal}'s scope.` });
-    deps.bus.emit({ type: "scope.updated", principal: scope.principal, reason: "fact_filed", added: [], removed: [saved.id], size: scope.fact_ids.length });
+  // Leave every scope whose rule now excludes it (every scope, for the moderators-only inbox), and
+  // every agent scope whose creator no longer holds it. Repeat until nothing changes, so a creator's
+  // loss reaches their agents whatever order the scopes are visited in.
+  for (let changed = true; changed; ) {
+    changed = false;
+    for (const scope of deps.world.scopes.values()) {
+      const i = scope.fact_ids.indexOf(saved.id);
+      if (i === -1) continue;
+      const rule = deps.world.rules.get(scope.principal);
+      const principal = deps.world.principals.get(scope.principal);
+      const ruleKeeps = !folderAllows([INBOX], saved.folder) && rule !== undefined && allowedByRule(rule, saved);
+      if (ruleKeeps && (principal?.kind !== "agent" || creatorHolds(deps, principal, saved.id))) continue;
+      scope.fact_ids.splice(i, 1);
+      changed = true;
+      const why = ruleKeeps ? `its creator ${principal?.created_by ?? "?"} lost it` : `it was filed to ${saved.folder}`;
+      logAudit(deps, { kind: "fact.left_scope", actor: callerId, principal: scope.principal, fact_ids: [saved.id], detail: `${saved.id} left ${scope.principal}'s scope: ${why}.` });
+      deps.bus.emit({ type: "scope.updated", principal: scope.principal, reason: "fact_filed", added: [], removed: [saved.id], size: scope.fact_ids.length });
+    }
   }
   // Then it joins the scopes it now fits, with the checks a new fact gets.
   await onFactSaved(deps, saved);
@@ -554,13 +563,16 @@ export async function onFactSaved(deps: ScopesDeps, fact: Fact): Promise<void> {
 
   for (const c of members) if (passes(c)) joinScope(deps, c, fact);
   for (const c of agents) {
-    const creator = c.principal.created_by !== undefined ? deps.world.principals.get(c.principal.created_by) : undefined;
-    const creatorHolds =
-      creator?.kind === "person" && creator.tier === "moderator"
-        ? true // a moderator creator sees every hot fact and has no scope record
-        : c.principal.created_by !== undefined && (deps.world.scopes.get(c.principal.created_by)?.fact_ids.includes(fact.id) ?? false);
-    if (creatorHolds && passes(c)) joinScope(deps, c, fact); // members joined above, so a creator's gain reaches their agents in the same pass
+    if (creatorHolds(deps, c.principal, fact.id) && passes(c)) joinScope(deps, c, fact); // members joined above, so a creator's gain reaches their agents in the same pass
   }
+}
+
+/** Whether an agent's creator currently holds the fact; an agent without a known creator holds nothing. */
+function creatorHolds(deps: ScopesDeps, agent: Principal, factId: string): boolean {
+  if (agent.created_by === undefined) return false;
+  const creator = deps.world.principals.get(agent.created_by);
+  if (creator?.kind === "person" && creator.tier === "moderator") return true; // a moderator creator sees every hot fact and has no scope record
+  return deps.world.scopes.get(agent.created_by)?.fact_ids.includes(factId) ?? false;
 }
 
 function joinScope(deps: ScopesDeps, c: LiveCheck, fact: Fact): void {
@@ -640,7 +652,7 @@ export function pinnedProfile(deps: ScopesDeps, who: Principal): string {
   const role = who.kind === "agent" ? `an agent created by ${who.created_by ?? "unknown"}` : who.tier === "moderator" ? "a moderator" : "a member";
   return (
     `${who.name} (${who.id}), ${role}. Standing task: ${(rule?.task ?? "none set").replace(/[.\s]+$/, "")}. ` +
-    `Any facts handed over with this profile are the complete stored context for this request; work from them and the request alone.`
+    `Use the supplied facts and the request as ordinary working context. Answer naturally; do not describe how the context was assembled or imply that other stored material exists.`
   );
 }
 
@@ -805,11 +817,36 @@ export async function handleScopesRoute(
     const group: Group = { id: gid, display: body.name.trim(), description: typeof body.description === "string" ? body.description : "" };
     state.groups.push(group);
     // A newly created bucket is private until Compliance explicitly edits a rule to admit it.
+    const updatedRules = new Set<string>();
+    const updatedAt = nowIso();
     for (const [principal, rule] of state.rules) {
       const owner = state.principals.get(principal);
       if (owner?.kind === "agent" && state.principals.get(owner.created_by ?? "")?.tier !== "moderator") continue; // the creator's cap already excludes it; do not put hidden group names in a member-editable agent rule
       if (rule.exclude.groups.includes(gid)) continue;
-      state.rules.set(principal, { ...rule, exclude: { ...rule.exclude, groups: [...rule.exclude.groups, gid] }, updated_at: nowIso() });
+      state.rules.set(principal, { ...rule, exclude: { ...rule.exclude, groups: [...rule.exclude.groups, gid] }, updated_at: updatedAt });
+      updatedRules.add(principal);
+      logAudit(deps, { kind: "scope.rule_changed", actor: callerId, principal, detail: `New group ${gid} starts closed; the rule now excludes it.` });
+    }
+    // Closing a new group is a pure code-level narrowing. Apply it synchronously to every fixed
+    // scope (including child agents capped by a member) so no stale fact can be served between the
+    // group response and a later rebuild. This needs no model call and therefore cannot fail open.
+    for (const [principal, scope] of state.scopes) {
+      const removed = scope.fact_ids.filter((factId) => {
+        const fact = deps.store.getFact(factId);
+        return fact !== undefined && folderAllows([gid], fact.folder);
+      });
+      if (removed.length === 0 && !updatedRules.has(principal)) continue;
+      const removedSet = new Set(removed);
+      state.scopes.set(principal, {
+        ...scope,
+        fact_ids: scope.fact_ids.filter((factId) => !removedSet.has(factId)),
+        built_at: updatedAt,
+        ...(updatedRules.has(principal) ? { rule_updated_at: updatedAt } : {}),
+      });
+      if (removed.length > 0) {
+        logAudit(deps, { kind: "fact.left_scope", actor: callerId, principal, fact_ids: removed, detail: `${removed.length} fact(s) left when new group ${gid} was closed.` });
+      }
+      deps.bus.emit({ type: "scope.updated", principal, reason: "rule_changed", added: [], removed, size: scope.fact_ids.length - removed.length });
     }
     deps.bus.emit({ type: "group.created", group: { id: group.id, name: group.display ?? group.id, description: group.description } });
     return await reply(res, 200, { ...group, name: group.display }), true;
@@ -861,12 +898,29 @@ export async function handleScopesRoute(
       if (!isModerator && !isCreator && !isInternal) return await reply(res, 403, MODERATORS_ONLY), true;
       const rule = state.rules.get(target);
       if (!rule) throw new HttpError(404, `no scope rule for "${target}"`);
+      if (isCreator && !isModerator && !isInternal && rule.set_by !== callerId) {
+        const { exclude: _hidden, ...visible } = rule;
+        return await reply(res, 200, visible), true;
+      }
       return await reply(res, 200, rule), true;
     }
     if (!isModerator && !isCreator) return await reply(res, 403, MODERATORS_ONLY), true;
     if (method === "PUT") {
       if (!targetPrincipal) throw new HttpError(404, `no principal "${target}"`);
-      const rule = parseRuleBody(await readJsonBody(req), target, callerId);
+      const input = await readJsonBody(req);
+      let rule: ScopeRule;
+      if (isCreator && !isModerator) {
+        const existing = state.rules.get(target);
+        if (!existing) throw new HttpError(404, `no scope rule for "${target}"`);
+        if (!isRecord(input) || input.preserve_exclusions !== true || input.exclude !== undefined || input.exclusions !== undefined) {
+          throw new HttpError(400, "a creator rule edit must send { task, preserve_exclusions: true }");
+        }
+        // The member can edit the task, but moderator-set barriers stay byte-for-byte intact and
+        // retain their setter identity. Otherwise a task edit would expose or erase a hidden wall.
+        rule = parseRuleBody({ task: input.task, exclude: existing.exclude }, target, existing.set_by);
+      } else {
+        rule = parseRuleBody(input, target, callerId);
+      }
       const { scope, added, removed } = await buildScope(deps, targetPrincipal, rule, callerId);
       state.rules.set(target, rule);
       logAudit(deps, {
@@ -1045,16 +1099,15 @@ async function addPerson(deps: ScopesDeps, callerId: string, body: unknown): Pro
   if (!isRecord(body)) throw new HttpError(400, "body must be an AddPersonBody object");
   const { name, tier } = body;
   const personId = body.id ?? (typeof name === "string" ? name.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "") : undefined);
-  const rule = body.rule ?? (tier === "member" && body.id === undefined ? { task: "Use public market information for assigned work", exclude: { groups: ["deal"], labels: [] } } : undefined);
+  const rule = body.rule;
   if (typeof personId !== "string" || !PERSON_ID_RE.test(personId)) throw new HttpError(400, `id must match ${PERSON_ID_RE} (people go by first name)`);
   if (personId.startsWith("agt_")) throw new HttpError(400, "people never use the agt_ prefix");
   if (deps.world.principals.has(personId)) throw new HttpError(409, `principal "${personId}" already exists`);
   if (typeof name !== "string" || name.trim() === "") throw new HttpError(400, "name must be a non-empty string");
   if (typeof tier !== "string" || !(PRINCIPAL_TIERS as readonly string[]).includes(tier)) throw new HttpError(400, `tier must be ${PRINCIPAL_TIERS.join("|")}`);
-  if (tier === "member" && rule === undefined) throw new HttpError(400, "a member needs a rule ({ task, exclude }); moderators see everything and need none");
 
   const principal: Principal = { id: personId, kind: "person", name: name.trim(), tier: tier as PrincipalTier };
-  if (tier === "member") {
+  if (tier === "member" && rule !== undefined) {
     const clean = parseRuleBody(rule, personId, callerId, "body.rule");
     await buildScope(deps, principal, clean, callerId);
     deps.world.rules.set(personId, clean);
@@ -1063,7 +1116,7 @@ async function addPerson(deps: ScopesDeps, callerId: string, body: unknown): Pro
   logAudit(deps, { kind: "person.added", actor: callerId, principal: personId, detail: `${principal.name} added as a ${tier}.` });
   deps.bus.emit({ type: "principal.changed", principal, change: "added", by: callerId });
 
-  if (tier === "member") {
+  if (tier === "member" && rule !== undefined) {
     const scope = deps.world.scopes.get(personId)!;
     deps.bus.emit({ type: "scope.updated", principal: personId, reason: "built", added: [...scope.fact_ids], removed: [], size: scope.fact_ids.length });
   }
