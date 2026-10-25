@@ -1,0 +1,16 @@
+{
+  "name": "@canon/e2e",
+  "version": "0.1.0",
+  "private": true,
+  "description": "End-to-end test of the Claude Code loop on the offline providers: real server, real distiller handler, real hook scripts. Lane A.",
+  "type": "module",
+  "scripts": {
+    "typecheck": "tsc --noEmit -p .",
+    "test": "node --import tsx --test \"src/**/*.test.ts\""
+  },
+  "dependencies": {
+    "@canon/distiller": "*",
+    "@canon/server": "*",
+    "@canon/shared": "*"
+  }
+}
