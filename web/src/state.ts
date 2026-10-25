@@ -27,6 +27,7 @@ export const EVENT_TYPES = [
   "handoff.served",
   "audit.logged",
   "dispatch.requested",
+  "dispatch.stop_requested",
   "agent.run",
   "agent.step",
   "agent.inbox",
@@ -192,6 +193,7 @@ export function reduce(state: State, e: CanonEvent): State {
     case "handoff.served":
     case "audit.logged":
     case "dispatch.requested":
+    case "dispatch.stop_requested":
     case "agent.run":
     case "agent.step":
     case "agent.inbox":

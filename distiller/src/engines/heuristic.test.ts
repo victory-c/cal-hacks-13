@@ -4,6 +4,12 @@ import { describe, test } from "node:test";
 
 import type { CapturedSession, Group, GroupsResponse } from "@canon/shared";
 import { HeuristicDistiller, asDay, attribute, isoDayIn, principalName, senderName } from "./heuristic.ts";
+
+test("resolved multi-word display names replace identifiers in owned session facts", async () => {
+  const result = await new HeuristicDistiller().distill({ id: "ses_aa1122", client: "claude-code", principal: "dollar-bill", external: false, started_at: "2026-10-24T12:00:00Z", messages: [{ role: "user", content: "I proposed a $41.50 price per share." }] }, { principalName: "Dollar Bill" });
+  assert.equal(result.drafts.length, 1);
+  assert.match(result.drafts[0].statement, /^Dollar Bill proposed/);
+});
 import { loadFixture } from "../test-helpers.ts";
 
 function world(name: string): CapturedSession {

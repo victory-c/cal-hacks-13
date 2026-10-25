@@ -131,6 +131,7 @@ export class ScopeState {
   readonly agentRuns = new Map<string, Record<string, unknown>>();
   readonly agentSteps = new Map<string, Array<Record<string, unknown>>>();
   readonly agentInbox = new Map<string, Array<Record<string, unknown>>>();
+  readonly agentStops = new Map<string, number>();
   readonly firm = "Axe Capital";
 
   constructor(world: WorldFixtures = loadWorldFixtures(), private readonly dir?: string) {
@@ -156,18 +157,20 @@ export class ScopeState {
         steps: Array<[string, Array<Record<string, unknown>>]>;
         inbox: Array<[string, Array<Record<string, unknown>>]>;
         invalid_versions: Array<[string, number]>;
+        stops?: Array<[string, number]>;
       };
       for (const [agent, run] of telemetry.runs) if (this.principals.get(agent)?.kind === "agent") this.agentRuns.set(agent, run);
       for (const [runId, steps] of telemetry.steps) this.agentSteps.set(runId, steps);
       for (const [runId, inbox] of telemetry.inbox) this.agentInbox.set(runId, inbox);
       for (const [runId, version] of telemetry.invalid_versions) this.invalidRunVersions.set(runId, version);
+      for (const [agent, generation] of telemetry.stops ?? []) this.agentStops.set(agent, generation);
     }
   }
 
   /** One queue for snapshots and append-only audit. A failed write remains visible to callers. */
   flush(): Promise<void> {
     if (!this.dir) return Promise.resolve();
-    const snapshot = structuredClone({ principals: [...this.principals.values()], rules: [...this.rules.values()], scopes: [...this.scopes.values()], groups: this.groups, items: [...this.quarantine.values()], audit: this.audit, agents: { runs: [...this.agentRuns], steps: [...this.agentSteps], inbox: [...this.agentInbox], invalid_versions: [...this.invalidRunVersions] } });
+    const snapshot = structuredClone({ principals: [...this.principals.values()], rules: [...this.rules.values()], scopes: [...this.scopes.values()], groups: this.groups, items: [...this.quarantine.values()], audit: this.audit, agents: { runs: [...this.agentRuns], steps: [...this.agentSteps], inbox: [...this.agentInbox], invalid_versions: [...this.invalidRunVersions], stops: [...this.agentStops] } });
     const dir = join(this.dir, "world");
     this.writes = this.writes.then(async () => {
       await mkdir(dir, { recursive: true });
@@ -1059,7 +1062,7 @@ export async function handleScopesRoute(
     if (!agent || agent.kind !== "agent") throw new HttpError(404, `no agent "${body.agent}"`);
     if (body.by !== callerId) throw new HttpError(403, `body.by must be the caller ("${callerId}")`);
     const dispatchId = id("dsp");
-    deps.bus.emit({ type: "dispatch.requested", id: dispatchId, request: { agent: agent.id, by: callerId, ...(typeof body.task === "string" ? { task: body.task } : {}) } });
+    deps.bus.emit({ type: "dispatch.requested", id: dispatchId, request: { agent: agent.id, by: callerId, stop_generation: state.agentStops.get(agent.id) ?? 0, ...(typeof body.task === "string" ? { task: body.task } : {}) } });
     return await reply(res, 200, { id: dispatchId }), true;
   }
 
@@ -1074,9 +1077,10 @@ export async function handleScopesRoute(
     }
     if (event.at !== undefined && typeof event.at !== "string") throw new HttpError(400, "event.at must be an ISO 8601 string");
     if (event.type === "agent.run" && isRecord(event.run)) {
+      if (Number(event.run.stop_generation ?? 0) < (state.agentStops.get(String(event.run.agent)) ?? 0) && event.run.state !== "cancelled") return await reply(res, 200, { ok: true, ignored: true }), true;
       const minVersion = state.invalidRunVersions.get(String(event.run.id));
       if (minVersion !== undefined) {
-        if (typeof event.run.restarts !== "number" || event.run.restarts < minVersion) return await reply(res, 200, { ok: true, ignored: true }), true;
+        if (event.run.state !== "cancelled" && (typeof event.run.restarts !== "number" || event.run.restarts < minVersion)) return await reply(res, 200, { ok: true, ignored: true }), true;
         state.invalidRunVersions.delete(String(event.run.id));
       }
     }

@@ -23,6 +23,7 @@ import type { Answer, Fact, InboxItem, Judge, Question, RunState } from "@canon/
 
 /** What routing needs to know about a run. The dispatcher's registry produces these. */
 export interface RoutableRun {
+  stop_generation?: number;
   run_id: string;
   /** The agent's principal id. */
   agent: string;

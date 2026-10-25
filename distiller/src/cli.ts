@@ -60,7 +60,8 @@ async function main(argv: string[]): Promise<number> {
   // The writer gets the same list triage files against (none: no draft carries a group). Its
   // group is a hint in the drafts; triage decides.
   const t0 = performance.now();
-  const result = await distiller.distill(session, { groups: groups.value ?? [] });
+  const principalName = client && session.principal ? await client.principalName?.(session.principal) : undefined;
+  const result = await distiller.distill(session, { groups: groups.value ?? [], ...(principalName ? { principalName } : {}) });
   const distillMs = Math.round(performance.now() - t0);
   const t1 = performance.now();
   const triaged = await triage({ session, drafts: result.drafts, existing, groups: groups.value ?? [], groupsKnown: groups.value !== undefined }, judge);

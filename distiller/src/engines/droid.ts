@@ -57,7 +57,7 @@ export class DroidDistiller implements Distiller {
       });
       const tools = await session.listTools();
       await session.updateSettings({ disabledToolIds: tools.map((tool) => tool.id) });
-      const prompt = `${SYSTEM}\n\n${DATA_NOTE}\n\n${groupList(ids)}\n\n${transcript(captured, this.timeZone)}`;
+      const prompt = `${SYSTEM}\n\n${DATA_NOTE}\n\n${groupList(ids)}\n\n${transcript(captured, this.timeZone, opts.principalName)}`;
       const schema = emitFacts(ids).input_schema;
       let result: DroidResult | undefined;
       for await (const message of session.stream(prompt, { outputFormat: { type: OutputFormatType.JsonSchema, schema } })) {

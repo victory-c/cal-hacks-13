@@ -29,6 +29,8 @@ export interface AgentRun {
   /** Times the run was restarted from the plan step in a fresh folder because its scope narrowed. */
   restarts: number;
   started_at: string;
+  /** Durable Stop generation observed when this invocation was requested. */
+  stop_generation?: number;
   ended_at?: string;
   /** cancelled / failed: why, in one line. Never names facts outside the agent's scope. */
   reason?: string;
@@ -74,6 +76,8 @@ export interface InboxItem {
 
 /** Someone asked for an agent profile to run (POST /api/dispatch). */
 export interface DispatchRequest {
+  /** Server-stamped generation at request time; a queued request predating Stop cannot start. */
+  stop_generation?: number;
   /** Optional task for this invocation; authorization still comes from the fixed scope. */
   task?: string;
   /** The agent's principal id. */

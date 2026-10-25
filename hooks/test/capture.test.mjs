@@ -268,12 +268,17 @@ test("gitInfo never throws: {} outside a repo, an object inside one", () => {
 
 // ---------- end to end: canon-capture.mjs as a child process ----------
 
+// An empty .env the hook finds first unless a test names its own CANON_REPO_ROOT, so a developer's
+// real .env (a CANON_PERSON_TOKEN, say) never leaks into a test that did not ask for one.
+const EMPTY_ROOT = mkdtempSync(join(tmpdir(), "canon-empty-env-"));
+writeFileSync(join(EMPTY_ROOT, ".env"), "# intentionally empty\n");
+
 /** Runs the hook exactly as Claude Code does: payload on stdin, env, exit code back. */
 function runHook(payload, env) {
   return new Promise((done) => {
     const clean = Object.fromEntries(Object.entries(process.env).filter(([k]) => !k.startsWith("CANON_")));
     const started = Date.now();
-    const child = spawn(process.execPath, [CAPTURE], { env: { ...clean, ...env }, stdio: ["pipe", "pipe", "pipe"] });
+    const child = spawn(process.execPath, [CAPTURE], { env: { ...clean, CANON_REPO_ROOT: EMPTY_ROOT, ...env }, stdio: ["pipe", "pipe", "pipe"] });
     let stdout = "";
     let stderr = "";
     child.stdout.on("data", (d) => (stdout += d));

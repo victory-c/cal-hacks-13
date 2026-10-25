@@ -37,6 +37,8 @@ export interface DispatchClient {
   getScopeRule(principal: string): Promise<ScopeRule | null>;
   /** GET /api/scopes/:principal/facts: every fact in the principal's scope. null when the route is missing: no facts. */
   getScopeFacts(principal: string): Promise<Fact[] | null>;
+  /** Durable cancellation, also checked when the SSE replay no longer contains Stop. */
+  getStopGeneration?(agent: string): Promise<number>;
   /** POST /api/handoff as the agent's principal (the brief's facts). null when the route is missing. */
   handoff(body: HandoffBody): Promise<HandoffResult | null>;
   /** POST /api/events. A missing route drops the event (the dispatcher logs it locally). */
@@ -113,6 +115,11 @@ export function createDispatchClient(opts: { baseUrl: string; token: string }): 
 
   return {
     simulated: false,
+    async getStopGeneration(agent) {
+      const r = await call<{ generation: number }>("GET", `${ROUTES.agents}/${id(agent)}/control`, `${ROUTES.agents}/:agent/control`);
+      if (r === UNAVAILABLE || !Number.isSafeInteger(r.generation) || r.generation < 0) throw new Error("Could not verify the agent's Stop control");
+      return r.generation;
+    },
     async getScopeRule(principal) {
       const r = await call<ScopeRule>("GET", `${ROUTES.scopeRules}/${id(principal)}`, `${ROUTES.scopeRules}/:principal`);
       return r === UNAVAILABLE || !r ? null : r;

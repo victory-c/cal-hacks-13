@@ -416,7 +416,7 @@ function decideDraft(draft: DraftFact, i: number, got: Map<string, Answer>, ctx:
     // A person's explicit position update with exactly the same subject and units is a new
     // value for their own position, even when a probabilistic relation answer is indecisive.
     // Never match another author, another group, a different subject, or an older dated claim.
-    const own = ctx.ownPositionFacts.filter((f) => f.author === ctx.author && f.folder === pick && samePosition(draft.statement, f.statement) &&
+    const own = ctx.ownPositionFacts.filter((f) => f.author === ctx.author && f.folder === pick && samePosition(draft.statement, f.statement, ctx.author!, pick) &&
       !(draft.happened && f.happened && draft.happened < f.happened));
     if (own.length === 1) {
       relation = "replaces";
@@ -545,11 +545,25 @@ function decideDraft(draft: DraftFact, i: number, got: Map<string, Answer>, ctx:
 }
 
 /** Narrow deterministic match: the same person's stated position, only its numeric value changed. */
-function samePosition(a: string, b: string): boolean {
+function samePosition(a: string, b: string, author: string, group: string): boolean {
   const position = /\b(?:long|short|holds?|holding|position)\b/i;
   if (!position.test(a) || !position.test(b) || !/\d/.test(a) || !/\d/.test(b)) return false;
   const shape = (s: string) => normalizeStatement(s.replace(/\b(?:now|currently)\b/gi, "").replace(/\d[\d,.]*/g, " NUMBER "));
-  return normalizeStatement(a) !== normalizeStatement(b) && shape(a) === shape(b);
+  if (normalizeStatement(a) !== normalizeStatement(b) && shape(a) === shape(b)) return true;
+  // The demo seed says "The desk is long … at an average cost …", while the writer
+  // names its owner. Only that owner's desk can treat these subjects as equivalent.
+  // Require an explicit current update and a complete ticker/share-position sentence;
+  // trade deltas, recommendations and claims about another person must not retire it.
+  if (group !== `desk/${author}` || !/\b(?:now|currently)\b/i.test(a)) return false;
+  const parse = (s: string) => {
+    const m = /^(.+?)\s+is\s+(?:(?:now|currently)\s+)?(long|short)\s+(\d[\d,]*(?:\.\d+)?)\s+([a-z][a-z0-9.-]{0,14})\s+shares?(?:\s+at\s+an?\s+average\s+cost\s+of\s+\$\d[\d,]*(?:\.\d+)?)?[.!]?$/i.exec(s.trim());
+    if (!m) return undefined;
+    const subject = m[1].toLowerCase();
+    if (subject !== "the desk" && subject !== author.replace(/[-_]/g, " ").toLowerCase()) return undefined;
+    return { side: m[2].toLowerCase(), quantity: Number(m[3].replace(/,/g, "")), ticker: m[4].toUpperCase() };
+  };
+  const current = parse(a), previous = parse(b);
+  return !!current && !!previous && current.side === previous.side && current.ticker === previous.ticker && current.quantity !== previous.quantity;
 }
 
 /** A stored fact's source as the server checks it: a client and a session id. Anything else keeps the draft's. */

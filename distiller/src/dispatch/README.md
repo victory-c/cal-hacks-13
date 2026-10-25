@@ -48,10 +48,7 @@ folder Bullwark built for it that holds the agent's scope and nothing else:
 | `-m <id>` | Model id. Only passed when `DISPATCH_DROID_MODEL` is set; otherwise Factory uses its account default. |
 | `FACTORY_API_KEY` | From the environment. Bullwark's secrets and settings (`ANTHROPIC_API_KEY`, `JEV_API_KEY`, every `CANON_*`, …) and every value that points into the repo or the data dir are removed from Droid's environment. |
 
-All the flags live in one constant, `DROID_FLAGS` in `runners/droid.ts`. The stream-json event
-*types* and `toolName` come from the docs; the other field names are not documented, so the
-parser reads them defensively and the file is marked **UNVERIFIED** until we run a real
-`droid exec` at the booth (tests put a fake `droid` on PATH). Droid leads its own process group. A
+All the flags live in one constant, `DROID_FLAGS` in `runners/droid.ts`. The stream-json parser reads optional fields defensively. The pinned CLI’s current file-editing tool is `ApplyPatch`, discovered through `droid exec --list-tools`; older `Create`/`Edit` selectors left the account default model read-only. The executable is resolved to its canonical path so npm’s `.bin` symlink does not fail the macOS sandbox read check. See the live acceptance evidence in `docs/B_LANE_WRAPUP.md` (from the repository root). Droid leads its own process group. A
 non-zero exit, a timeout (`DISPATCH_STEP_TIMEOUT_MS`, default 300 s), a cancel or a narrowed scope
 kills the **whole group** (SIGTERM, then SIGKILL after 2 s), so the shells and scripts its tools
 started die with it, and the step settles only after Droid has exited: a folder is never locked
@@ -186,7 +183,7 @@ at start and logged. A failing runtime is a failed run, never a silent switch to
 
 | Runtime | Real? | Needs | Notes |
 |---|---|---|---|
-| `droid` | Yes, but not yet run against a real `droid` (tests use a fake `droid` on PATH) | `droid` on PATH, `FACTORY_API_KEY` | The Factory track. Steps stream from stream-json. |
+| `droid` | Yes: a real macOS Seatbelt finance-agent run completed two steps and saved its note; tests also use a fake CLI | `droid` on PATH, `FACTORY_API_KEY` | The Factory track. Steps stream from stream-json. |
 | `claude` | Yes | `ANTHROPIC_API_KEY` | Fallback if the 11:00 gate (blocker Q1) fails. `claude-sonnet-5-5` tool loop, raw fetch, four tools confined by code (writes only under out/), no shell, no network. |
 | `fake` | **No, simulated** | nothing | Writes `out/plan.md`, then `out/result.md` from the fact files. |
 
@@ -222,7 +219,7 @@ so; events are dropped. The worker keeps running.
   profile denies the repository, data directory, operator home and other runs; only this run
   and the pinned executable are carved back out. The child receives a run-local HOME, no
   Bullwark or unrelated credential environment variables, no built-in skills and only
-  Read/LS/Grep/Glob/Create/Edit tools. Linux production Droid dispatch needs per-run OS/container
+  Read/LS/Grep/Glob/ApplyPatch tools. Linux production Droid dispatch needs per-run OS/container
   isolation before enabling it. `--cwd` and `--auto low` alone do not establish isolation.
 - **Windows.** Folder modes are ignored there, so `LOCKED` and the read-only record do not stop a
   late write, and the tests that plant symlinks or use a shell-script fake `droid` are skipped
@@ -249,5 +246,24 @@ so; events are dropped. The worker keeps running.
   continuation, so the inbox lands between runs either way (PRD open question).
 - **Factory validation.** Pinned CLI 0.249.0 `exec --help` verifies the flags. Its catalog does
   not include `claude-sonnet-5-5`, so an unset model uses the account default. The dispatcher
-  stream mapper and confinement are tested with a fake CLI; a fresh live agent run is still
-  required before claiming live Factory dispatch.
+  stream mapper and confinement are tested with a fake CLI. A real macOS Seatbelt run completed
+  a sourced finance note in two invocations; see `docs/B_LANE_WRAPUP.md`. Linux isolation and
+  Python execution are not established by that check.
+
+## User-requested Stop
+
+`POST /api/agents/:id/stop` is authorized for the creator or Compliance. Canon persists and
+increments an agent’s Stop generation, then emits `dispatch.stop_requested`. The handler cancels
+active runs and dispatches still waiting for their rule. Each dispatch request carries the
+generation observed by the server, so an old queued request cannot start after a Stop.
+
+The HTTP client reads `/api/agents/:id/control` before dispatch and on every scope check.
+Reconnect resync catches missed Stop events, and an old-generation output session is rejected
+by the server. Cancellation kills the runtime/process group and locks the folder. A later Run
+observes the current generation and is allowed. The UI waits for cancellation telemetry before
+showing Stopped. This does not retract an output already accepted before Stop.
+
+`node --import tsx --test scripts/agent-control.test.mjs` (at the root) exercises actual HTTP/SSE
+rule changes during a running step, restart with revoked facts absent, Stop, missed events,
+pending dispatch, a stale queued request, output rejection and persisted controls. Its runner
+and judge are explicitly simulated; live provider evidence is recorded separately.

@@ -254,7 +254,9 @@ describe("the Claude Code loop, end to end on the offline providers (PIPELINE-PR
       assert.equal(f.source.client, "claude-code");
     }
     assert.ok(deskFacts.some((f) => f.statement.includes("20,000 TMC shares at $41.50") && f.statement.includes("long 200,000 TMC")), deskFacts.map((f) => f.statement).join("\n"));
-    assert.ok(deskFacts.some((f) => /^Plan: trim the TMC position by 25,000/.test(f.statement)), deskFacts.map((f) => f.statement).join("\n"));
+    // The offline writer attributes by the server-resolved display name (B28), never the raw id.
+    assert.ok(deskFacts.some((f) => /^Dollar Bill: Plan: trim the TMC position by 25,000/.test(f.statement)), deskFacts.map((f) => f.statement).join("\n"));
+    assert.ok(deskFacts.every((f) => !f.statement.includes("dollar-bill")), deskFacts.map((f) => f.statement).join("\n"));
 
     const rumors = facts.filter((f) => f.source.session === rumorSessionId);
     assert.equal(rumors.length, 1, `one draft from the rumor session\n${logs.join("\n")}`);

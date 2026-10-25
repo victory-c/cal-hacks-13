@@ -20,7 +20,7 @@ The same `CANON_PERSON_TOKEN` serves capture, the before-prompt hook and `.mcp.j
 and internal worker tokens stay on the host.
 
 Both new pages default to live Canon, with `?data=mock` explicitly selecting labelled fixtures.
-Agents run on demand; automatic schedules, document-type preferences, live Stop and metadata
+Agents run on demand; automatic schedules, document-type preferences and metadata
 editing are not implemented by the dispatcher. The live UI must not promise those controls.
 The Docker preview uses the Claude dispatcher because Linux Droid execution has no configured
 OS sandbox; Factory remains available for real extraction. A live provider check and an offline
@@ -63,6 +63,8 @@ nothing, because the action itself is public knowledge). `404` = not found or no
 | `GET /api/quarantine` · `POST /api/quarantine/:id/release` | moderator | Held items; release one |
 | `GET /api/agents` · `POST /api/agents` | anyone (members see only their own) | List, or create `{ name, task, exclusions }` inside your own scope; returns `{ id, build_id }` |
 | `POST /api/agents/:id/run` | the creator or a moderator | Start a run `{ task }` |
+| `POST /api/agents/:id/stop` | the creator or a moderator | Persist a cancellation generation and request Stop; returns `{ status: "stop_requested", generation }`. The lane becomes Stopped after worker cancellation telemetry. |
+| `GET /api/agents/:id/control` | internal worker | Read `{ generation }`; dispatcher checks on scope reads and reconnect, so missed Stop events cannot authorize another step or save. |
 | `GET /api/handoffs?principal=` · `GET /api/handoffs/:id` | moderator; members for their own agents | Handoff records |
 | `GET /api/audit?principal=&group=&since=` | moderator | "Who knew what, when" |
 | `GET /health` | anyone | Counts and which providers are real or simulated |
@@ -102,10 +104,16 @@ Each event is `event: <type>` plus JSON with `type`, `at` and the fields below. 
 | `principal.added` · `principal.tier` | principal | all | — |
 | `agent.started` · `agent.step` · `agent.inbox` · `agent.restarted` · `agent.finished` | agent id, run fields | all | own agents |
 | `context.served` | handoff id, principal, kept count, tokens_est, timings | all | own agents |
+| `dispatch.stop_requested` | agent, by, generation | all | — (members refresh from authorized agent telemetry) |
 
 Intermediate `scope.build` counts are redacted to zero for members. The `done` event reports only the
 final size of the member's or owned agent's scope, so model-side candidate and exclusion decisions do
 not become an existence oracle.
+
+Stop is additive to the shared event contract. Internal worker events and output sessions carry
+the run's `stop_generation`; a stale generation cannot publish a new active run or save outputs.
+Cancellation telemetry remains accepted so the UI can show completion. Worker cancellation also
+covers a request still loading its rule. A later Run observes the new generation and may proceed.
 
 ## Changing the contract
 

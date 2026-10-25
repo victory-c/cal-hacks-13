@@ -42,10 +42,10 @@ expose the unauthenticated static development port as a public deployment.
 | Memory | Grouped facts with provenance/date; keyword, group, source and date filters; edit and retire; moderator filing of one or many facts and group creation. Filing preserves existing labels. Creating a group while editing a fact keeps the unsaved statement. |
 | Capture | Add a memo, chat excerpt, email, transcript or note. Members capture as themselves; Compliance can attribute an item. Canon's real archive/triage/writer handles it. |
 | Quarantine and inbox | Compliance sees held items, releases them, and files unplaced facts. Members see neither queue. |
-| Agents | Create an agent from the member's scope, edit its task and own exclusions, delete it, and run on demand. Live steps, returned result text and file names come from the dispatcher. Revoked scopes withdraw old run traces and the dispatcher restarts when required. |
+| Agents | Create an agent from the member's scope, edit its task and own exclusions, delete it, run on demand, or Stop an active run. Stop requests cancellation; Stopped appears after the dispatcher reports it. Live steps, returned result text and file names come from the dispatcher. Revoked scopes withdraw old run traces and the dispatcher restarts when required. |
 | Handoffs and audit | Compliance sees actual candidates, relevance decisions, estimated tokens and measured timings from Canon, plus the audit filtered by person/group. |
 
-**Live limits:** renaming existing agents, Stop, document-type selection and schedules are not
+**Live limits:** renaming existing agents, document-type selection and schedules are not
 implemented by the dispatcher. Those controls are hidden/disabled in live mode. The mock exposes
 and labels its simulated versions. File names are reported from real runtime steps; the UI does
 not pretend to download arbitrary sandbox files.

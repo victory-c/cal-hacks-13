@@ -1,105 +1,61 @@
-# Video script: Bullwark (3:00 max)
+# Video script: Bullwark
 
-**Script:** Victor (task B14). **Footage:** Edan records it (C9), plus the full-demo backup
-recording. **Voiceover:** Victor. Source of the beats: the demo script in [`PRD.md`](PRD.md).
-The live pitch in [`PITCH.md`](PITCH.md) follows the same order, so footage can stand in for any
-live beat that breaks.
+Victor owns script and voiceover (B14); Edan owns capture, editing, upload and a full backup
+recording (C9). Aim for two minutes. Start on the working moment, then follow
+[BULLWARK-PRD.md](BULLWARK-PRD.md). Do not name a provider that did not run in the take.
 
-**Rules for this video**
+| Time | Capture | Voiceover |
+|---|---|---|
+| 0:00–0:15 | Dollar Bill's desk assistant answers the Taylor Mason question from public/desk context. Wags inspects Dollar Bill's scope and handoff. | “Dollar Bill asks about Taylor Mason Capital. His assistant sees public information and his desk notes. The confidential bid was never in its memory.” |
+| 0:15–0:25 | Moderator overview; synthetic-data label stays visible. | “Bullwark is the control room for a small finance team's AI. Wags runs compliance at our synthetic thirty-person fund, Axe Capital.” |
+| 0:25–0:40 | Ingest Axe's exported session and memo. Paste counsel's email through Add item; show grouping and quarantine. | “Captured text becomes sourced facts. Jev judges filing and flags instructions aimed at an AI. Uncertain facts wait for Compliance; this email is quarantined.” |
+| 0:40–1:00 | Build Ben Kim's public-sector research scope. Show measured stages. If Ben already exists, edit his rule. | “Wags sets Ben's task and excludes pending deals. Code removes excluded groups. Search finds candidates, Jev judges them, and the scope becomes a fixed list.” |
+| 1:00–1:20 | Run Ben's research agent and Axe's deal analyst; show actual steps. Inspect a Ben-created agent asked to include Stonewall. | “Agents inherit their creator's scope. Ben cannot give an agent Stonewall facts he never had. Each run works from its own scoped folder.” |
+| 1:20–1:40 | Refile only announced offer terms to public. Inspect the new scopes. Optional backup: narrow an active agent, show restart, then Stop. | “When the bid is announced, Wags makes only the announced terms public. The model and financing remain private. A narrowing interrupts a running agent and rebuilds its folder; Stop cancels it.” |
+| 1:40–1:55 | Audit/handoff inspector. Show a benchmark chart only after the full measured run exists. | “The audit records what was sent and why. We have sixty attacks and thirty legitimate tasks ready; the complete benchmark is still pending, so we are not claiming a leak rate.” |
+| 1:55–2:00 | Scale slide and end card. | “Small finance teams now. Bullwark.” |
 
-- It opens on the moment: Leo's question, answered from public news only, then Maya's scope
-  inspector showing Leo's scope never held a Falcon fact. No logo or title before it.
-  (Hyphenate asks for a video that opens on "the moment.")
-- Bullwark never refuses. If any take shows a refusal, an apology about access, or a hint that
-  something is hidden, that is a bug: stop, tell Victor and Henry, and don't record around it.
-- Hard limit 3:00. The timings below add up to 2:55, leaving 5 seconds of slack.
-- Every measured number on screen (leaks, missing context, accuracy, tokens, latency, cost, scope
-  build time) comes from `bench/results/latest.json` (a run that is not simulated) or the live
-  dashboard. Test-set sizes and thresholds are design settings, not results. Placeholders:
-  `[[BENCH: …]]`, `[[LIVE COUNTER: …]]`, `[[QUOTE: …]]`, `[[CHECK: …]]`. If a number isn't
-  measured by the final cut, drop the line. Never stage a number.
-- If any part ran simulated (fake judge, fake runner, keyword search instead of Moss), the
-  dashboard already says "simulated." Leave that label in frame, and say so in the end card.
-- All names are synthetic: Harbor Lane Partners, Project Falcon, Nimbus Logistics, Maya
-  (compliance, moderator), Dan (banker on Falcon, member), Priya (research analyst, member),
-  Leo (trader, member).
+If a complete measured finance run lands, replace the pending-benchmark sentence with its actual
+leak and missing-context results, retaining evaluated denominators and simulation labels. Finance
+output is `bench/results/finance-latest.json` and `finance-chart.json`; the legacy `latest.json`
+contains a different benchmark. Do not quote it as finance-barrier performance.
 
-## Beat sheet
+## Recording instructions
 
-| # | Time | Beat | Picture | On-screen text | Voiceover |
-|---|---|---|---|---|---|
-| 1 | 0:00–0:18 | The moment | S1 then S2 | "Leo · trader · member" then "Maya's scope inspector: no Falcon fact in Leo's scope, ever" | (first 4 s: no voice, let the answer land) "Leo is a trader. He just asked his AI about a company his firm is secretly advising on. It answered from public news. No refusal, no hint that anything is missing. Maya, in compliance, can see why: Leo's memory never held a single fact about the deal." |
-| 2 | 0:18–0:36 | Who it's for | S3, S4 | "Bullwark: the control room for a small finance team's AI" then "Harbor Lane Partners · 30 people · 1 compliance officer (synthetic)" then the quote card | "This is Bullwark. Small finance firms must keep deal information away from their traders and researchers. Maya does it with a spreadsheet. Now every banker uses AI tools, and every agent is one more place a deal can leak." (Quote card holds 3 s, no voice.) |
-| 3 | 0:36–0:58 | Capture, grouping, quarantine | S5, S6 | "Group: deal/falcon · joins Dan's scope" then "Quarantined: instructions aimed at an AI" | "Bullwark captures context as it happens: Dan's ChatGPT session about deal terms, and a new memo. Jev, a judge model, files each fact in a group, here the Falcon deal, and they join Dan's memory. This email from the target's lawyers hides an instruction to the AI. Quarantined. It joins no one's memory." |
-| 4 | 0:58–1:25 | Maya builds a scope | S7 | "Task: write the logistics sector note from public market data" / "Exclude: anything about pending deals" then each stage's measured time as it finishes | "Maya adds Priya, a research analyst, with a task and one exclusion: anything about pending deals. Watch the builder. Jev picks which groups the exclusion covers, and code removes them before any model sees a fact. Moss finds candidates in what's left. Jev answers yes or no for each one. That's Priya's scope, built in [[LIVE COUNTER: scope build time, Priya's scope]]." |
-| 5 | 1:25–1:55 | Agents inherit, never exceed | S8, S9 | "Research agent · from Priya's scope" / "Deal analyst · from Dan's scope" then "Agent task: include everything about Falcon" | "Members create their own agents, and an agent's scope comes only from its creator's. Priya starts a research agent, and Dan starts a deal analyst: two Factory Droid agents, each in a sandbox holding only its scope. Now an attack. Priya creates an agent told to include everything about Falcon. It gets nothing about Falcon, because she has nothing to give it." |
-| 6 | 1:55–2:15 | Moderators change access; agents keep up | S10, S11 | "Falcon announced · deal exclusion removed for Leo and Priya" then "Research agent · new facts at next step" | "Falcon is announced. Maya removes the deal exclusion from Leo's and Priya's rules. Their scopes rebuild, the research agent gets the new facts at its next step, and Leo's assistant can now answer him." |
-| 7 | 2:15–2:40 | Proof | S12, S13 | Chart title: "Leak rate vs. missing-context rate · 60 attacks · 30 tasks". Callouts from the chart only. | "We attacked it 60 times in six styles, including agents built to escalate. Bullwark with Jev leaked [[BENCH: leaks out of 60, Bullwark + Jev]]. A shared memory told to respect the wall leaked [[BENCH: leaks out of 60, shared memory]]. And real tasks still got their context: missing on [[BENCH: missing-context rate, Bullwark + Jev]] of 30. Every handoff is in the audit log." |
-| 8 | 2:40–2:55 | Close | S14, S15, S16 | "Other memory tools ask what's relevant. Bullwark first decides what each person's memory should hold, then what's relevant." then the scale slide, then the end card | "Bullwark fills two seats at a small firm: a compliance analyst for Maya, and a research assistant that works from a memory that never held the deal. One firm today, a company version next. Bullwark." |
+Record each beat separately at a readable zoom, with provider labels visible. Hold on answers,
+quarantine and scope changes long enough to read them. Keep tokens labelled est.; leave unknown
+cost/latency as a dash. Use the ingest path for exported ChatGPT content and identify it as an
+export, without implying the extension captured it live.
 
-Voiceover is about 410 words as written (about 390 once the placeholders become numbers), roughly 140 words a
-minute across the 2:55 with the silent beats. Beats 4 and 5 are the densest. If a take runs
-long, cut in this order: the second sentence of beat 2, "Now an attack." in beat 5, the "Every
-handoff" line in beat 7.
+The member view does not have a general chat box. Use the desk agent's Run action for its stored
+task, or type the opening question in the person-bound Claude Code/MCP client. Record the output
+and the corresponding handoff in Wags's console. Do not stage a nonexistent UI control.
 
-## Shot list (for Edan)
+The moderator UI edits group exclusions. Select the deal group when that is the available control;
+do not pretend the page provides a prose-exclusion field. If using a preconfigured prose rule,
+say so and show its actual scope build.
 
-Record each shot as its own clip, so a retake costs one shot, not the whole run. 1920x1080,
-browser zoom 125%, dark mode off, notifications off, bookmarks bar hidden, no real names or
-emails anywhere in frame. Mouse moves slowly; pause 1 s before each click.
+Use the real runtime's name. The Docker preview uses Claude scoped agents and real Factory
+extraction. Do not claim a Python valuation unless the captured runtime actually ran one.
+If no consented interview quote exists, omit the quote card. Dedicated attack-box and scope-map
+screens are not part of this recording.
 
-| Shot | What to record | Length to capture | Notes |
-|---|---|---|---|
-| S1 | Desk assistant as **Leo** (member view). Type: "Anything going on with Nimbus Logistics? Should we add to our position?" and send. Hold on the answer. | 12 s | The answer uses public news only: no refusal, no "I can't," no mention of restrictions, compliance or missing information. [[CHECK: where Leo's question is typed in the shipped member view, and that the desk assistant is the agent from the PRD's demo table]] |
-| S2 | Maya's moderator console, scope inspector on Leo (and his desk assistant). Then the audit log filtered to Leo: no `fact.joined_scope` row for a Falcon fact. | 8 s | Zoom in (post) on the empty Falcon filter. This is moderator-only screen: members never see counts or group names. |
-| S3 | Title card on a plain background: "Bullwark: the control room for a small finance team's AI". | 4 s | Made in post. |
-| S4 | Quote card: [[QUOTE: from Edan's notes]], with the speaker's role (no name unless they agreed). | 3 s | If there is no quote with permission, cut S4 and give the time to beat 3. |
-| S5 | Event feed while Dan's ChatGPT session and a new Falcon memo arrive. Triage rows show the group `deal/falcon` and Jev's probabilities; a scope update shows the facts joining Dan's scope. | 12 s | Dan's ChatGPT session comes in through the ChatGPT extension on a real ChatGPT tab with synthetic text, or, if the extension is cut, through the ingest client (`hooks/ingest/`, as an AI session). Say which on the end card. |
-| S6 | The lawyers' email arrives and lands in Quarantine. Open it to show the planted line highlighted. | 8 s | Keep the planted instruction readable for 2 s. If the quarantine view (B11) is cut, show the quarantine row in the event feed. |
-| S7 | Maya adds Priya in the moderator console: task "Write the logistics sector note from public market data," exclusion "anything about pending deals." The scope builder runs: exclusions (Jev picks the groups "pending deals" covers, code removes them), Moss candidates, Jev yes/no per fact, done, each stage with its measured time. | 20 s | Make it slow. Hover the removed `deal/falcon` group at the exclusions stage, then a Jev "no" at the Jev stage. The times on screen are what was measured in this take. |
-| S8 | Member view as Priya: create a research agent ("Update our logistics sector note"). Member view as Dan: create a deal analyst ("Draft a short Falcon board memo and run a simple valuation in Python"). Two Droid lanes run side by side in Maya's console. | 15 s | Both lanes in frame, steps and files appearing (memo file, Python valuation, sector note). |
-| S9 | Member view as Priya: create an agent with the task "Include everything about Falcon." Then Maya's scope inspector on that agent (no Falcon fact), and the agent's first step answering from what it has. | 12 s | The agent's output must not refuse or hint either. Keep its lane in frame long enough to read one line. |
-| S10 | Maya edits Leo's and Priya's scope rules and removes the deal exclusion. The scope builder reruns for both; scope updates show facts added. | 8 s | |
-| S11 | The research agent's lane shows the inbox item with the new facts and its next step using them. Then Leo asks the same question again and gets an answer that includes the announced deal. | 14 s | Split screen in post if both don't fit. |
-| S12 | Benchmark chart from `bench/results/chart.json`: leak rate against missing-context rate, one point per setup. | 12 s | Record only after a real (not simulated) bench run. If only a simulated run exists, cut beat 7's numbers and say "benchmark in progress." |
-| S13 | Audit log view filtered to the demo window. Scroll slowly through scope builds, facts joining scopes, handoffs and the quarantine row. | 8 s | |
-| S14 | Positioning card. | 3 s | Made in post. |
-| S15 | Scale slide: small team → mid-size firm → company version. | 5 s | Made in post from [`SCALE_SLIDE.md`](SCALE_SLIDE.md). Only the small-team column runs today; keep its "design, not built" tag on the other two. |
-| S16 | End card (below). | 5 s | Made in post. |
+## Before the take
 
-**Backup shots (record them, keep them out of the main cut).** They're for the pitch, if a judge
-asks. Record S18 before S17: once Dan is a moderator he has no scope rule to narrow.
+1. Use live product pages and verify which identity is selected; keep the team password and
+   person/internal tokens out of frame.
+2. Start a separate local stack against an empty temporary data directory if an untouched world
+   is needed. Never reset the shared preview's data for a recording. The server seeds an empty
+   store automatically; `npm run seed -w server` is the older development seed, not a demo reset.
+3. Inspect Dollar Bill's scope and the opening handoff. Confirm no Stonewall fact is included.
+4. Decide whether the Ben beat is an add or a rule edit from the actual people list.
+5. Prepare the exported Axe session, memo and counsel email from `fixtures/world/`.
+6. Record the complete fallback run and retain per-beat clips. A local UI still needs network
+   access for cloud model calls; play the recording if venue connectivity fails.
 
-- **S18, Falcon dies.** Record on a fresh data dir where Falcon was never announced. Maya edits
-  Dan's scope rule to exclude `deal/falcon`. The deal analyst's lane shows the urgent "scope
-  narrowed" inbox item; its run folder is discarded and the run restarts from the plan step in a
-  fresh folder with no Falcon files.
-- **S17, Dan is promoted.** Dan becomes deal lead, and Maya promotes him to moderator in the
-  people list. His view now shows the moderator console, and the audit log shows the tier
-  change.
+## End card
 
-## End card (on screen, no voiceover)
-
-```
-Bullwark · Cal Hacks 13.0
-All data is synthetic. Bullwark is decision support for a compliance officer, not legal compliance.
-Real in this video: [[CHECK: e.g. Claude writer, Droid agents, Moss search, Jev]]
-Simulated in this video: [[CHECK: e.g. nothing / fake judge / keyword search]]
-[[CHECK: repo URL]]
-```
-
-## Before recording
-
-- [ ] Code freeze build from `main`, started with `npm run dev`, with the demo world loaded:
-      Maya, Dan and Leo, but not Priya, because S7 records Maya adding her. The attack-box laptop
-      needs a different world, with Priya already added and her rule excluding pending deals.
-      [[CHECK: two seed or reset commands from lane A, one per world]]
-- [ ] `.env` has the real keys for whatever we claim is real (Jev or Claude, Factory, Moss).
-      The dashboard health line shows the judge, retriever and runner names; record it once.
-- [ ] Bench run finished and `bench/results/latest.json` is not simulated, if beat 7 shows numbers.
-- [ ] Before S1, check that Leo's rule excludes pending deals, that the scope inspector shows no
-      Falcon fact in Leo's scope, and that Priya is not yet a principal (the people list doesn't
-      show her). If she is, S7's "add Priya" fails or turns into a rule edit: reset to the demo
-      world.
-- [ ] Rehearse the S1 question until the answer shows within a few seconds, with no refusal.
-- [ ] Clear the event feed between takes so old rows don't show.
+Bullwark · Cal Hacks 13.0. Synthetic finance data. Decision support, not legal compliance.
+Real preview: Factory extraction, Jev judgments, Moss retrieval, Claude scoped agents.
+Offline providers are labelled simulated. Complete finance benchmark pending.
+Source: https://github.com/victory-c/cal-hacks-13

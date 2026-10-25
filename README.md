@@ -102,20 +102,22 @@ the work. Keep credentials in `.env`; share keys directly between teammates.
 
 ## Sponsor tracks and integration evidence
 
-- **Anthropic:** Claude fact writing and briefs are the product plan. Existing Claude adapters
-  are in `distiller/src/engines/claude.ts`, `shared/src/judge/claude.ts` and `bench/src/responder.ts`.
-- **Factory:** the target is Droid running every agent in a sandbox folder holding only its scope,
-  with visible steps and inbox updates. The scaffold now has an optional headless SDK distiller
-  (`distiller/src/engines/droid.ts`) that proposes structured facts with tools disabled. Scoped
-  finance-agent dispatch is separate pending work.
-- **Moss:** scope builds and in-scope handoff search are planned. `server/src/retrieval/moss.ts` now implements
-  local hybrid retrieval over hot facts with folder metadata prefilters and canonical-ID checks.
-  Scope-based group, label and fact-ID filtering remains pending; keyword retrieval is the offline fallback.
+- **Anthropic:** Claude writes facts and scoped briefs and runs the preview's agents through
+  code-confined tools. A Claude judge is available as the Jev fallback.
+- **Factory:** the real headless SDK extractor (`distiller/src/engines/droid.ts`) proposes
+  structured facts with tools disabled. The separate CLI dispatcher runs scoped agents on
+  supported macOS isolation; Linux Droid isolation remains unverified. The Docker preview
+  uses Claude agent runs, with visible steps, live routing and Stop.
+- **Moss:** `server/src/retrieval/moss.ts` implements local hybrid retrieval for scope builds and
+  in-scope handoffs. Folder prefilters and canonical fact-ID checks constrain returned candidates.
+  Keyword retrieval is the labelled offline fallback.
 - **Jev:** `shared/src/judge/jev.ts` provides the adapter behind `judge()`. It uses TypeSafe's
   documented keyed questions and answers at `https://api.typesafe.ai/v1/systemone` by default. Live
-  requests passed; this does not validate the planned scope pipeline.
+  requests and integrated finance-scope checks passed.
 - **Hyphenate and Microsoft:** proof will come from the finance demo, audit trail and measured
   leak, missing-context, accuracy, token, latency and cost results. Existing scaffold results
-  alone do not measure information barriers.
+  alone do not measure information barriers. The full finance run is still pending.
+
+Current evidence and remaining human handoffs: [lane B wrap-up](docs/B_LANE_WRAPUP.md).
 
 The demo uses synthetic data. Quote measured runs only and label simulated behavior.

@@ -88,7 +88,7 @@ export class CanonClient implements MemberApi {
     await this.call("POST", `/api/agents/${encodeURIComponent(id)}/run`, { task: agent.task });
   }
 
-  /** PROPOSED: POST /api/agents/:id/stop. */
+  /** Requests cancellation; current agent telemetry reports when it has stopped. */
   async stopAgent(id: string): Promise<void> {
     await this.call("POST", `/api/agents/${encodeURIComponent(id)}/stop`);
   }

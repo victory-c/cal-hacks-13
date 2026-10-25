@@ -114,13 +114,15 @@ export class FileStore {
    * caller's ownership rule: when the id already exists, the stored session is passed to it and
    * a false answer throws SessionOwnerError and writes nothing. Writes for one id run one at a
    * time, so the rule and the write are atomic even for concurrent first writes.
+   * `beforeWrite` checks volatile controls after the queue and ownership checks, before writing.
    */
-  async putSession(session: CapturedSession, mayReplace?: (existing: CapturedSession) => boolean): Promise<{ updated: boolean }> {
+  async putSession(session: CapturedSession, mayReplace?: (existing: CapturedSession) => boolean, beforeWrite?: () => void): Promise<{ updated: boolean }> {
     assertSessionId(session.id);
     return this.withSessionLock(session.id, async () => {
       // The file on disk is the authority, also for a store that has not run loadAll().
       const existing = mayReplace ? await this.getSession(session.id) : undefined;
       if (existing && !mayReplace?.(existing)) throw new SessionOwnerError(session.id);
+      beforeWrite?.(); // Re-check volatile controls after any earlier queued write has settled.
       const updated = existing !== undefined || this.sessionIds.has(session.id);
       await writeAtomic(this.sessionFile(session.id), JSON.stringify(session, null, 2) + "\n");
       this.sessionIds.add(session.id);

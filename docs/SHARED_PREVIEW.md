@@ -76,3 +76,10 @@ launchctl bootout gui/$(id -u)/com.bullwark.preview-tunnel
 A new isolated Vultr sponsor VM remains blocked by account review. The user is seeking onsite
 Vultr/MLH assistance. No Vultr resource was created and no support email was sent. Do not reuse
 Hermes or another existing server. See [VULTR_DEPLOYMENT.md](VULTR_DEPLOYMENT.md).
+
+## Lane B follow-up branch
+
+The local follow-up in `docs/B_LANE_WRAPUP.md` adds live Stop and writer display-name resolution.
+Its API, dispatcher and browser bundles must be deployed together after review. The earlier
+preview evidence above describes the previously deployed integration; these local changes have
+not been installed into the shared running preview during this task.
