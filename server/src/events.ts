@@ -11,7 +11,8 @@ import type { CanonEvent } from "@canon/shared";
 /** A CanonEvent whose `at` may be left out; emit() stamps it. */
 export type EventInput = CanonEvent extends infer E ? (E extends { at: string } ? Omit<E, "at"> & { at?: string } : never) : never;
 
-type Listener = (e: CanonEvent) => void;
+/** `id` is the ring id stamped when the event was emitted: nested emits keep their own ids. */
+type Listener = (e: CanonEvent, id: number) => void;
 /** True when a subscriber may see this event, false when not, or a redacted copy to send instead. */
 export type EventFilter = (e: CanonEvent) => boolean | CanonEvent;
 
@@ -31,11 +32,12 @@ export class EventBus {
 
   emit(input: EventInput): CanonEvent {
     const event = { ...input, at: input.at ?? nowIso() } as CanonEvent;
-    this.ring.push({ id: ++this.seq, event });
+    const id = ++this.seq;
+    this.ring.push({ id, event });
     if (this.ring.length > this.limit) this.ring.shift();
     for (const fn of this.listeners) {
       try {
-        fn(event);
+        fn(event, id);
       } catch (err) {
         // One bad listener must not stop the others or the caller.
         console.warn(`[events] listener threw on ${event.type}: ${err instanceof Error ? err.message : String(err)}`);
@@ -82,9 +84,11 @@ export class EventBus {
     res.write(": canon events\n\n");
     this.writeReplay(res, filter);
     // Live events after the replay carry the same monotonically increasing id.
-    const unsubscribe = this.subscribe((e) => {
+    // The id came with the event: a listener that emits while handling one (a living-scope join
+    // inside fact.saved) must not make the outer frame carry the inner id.
+    const unsubscribe = this.subscribe((e, id) => {
       const v = viewOf(filter, e);
-      if (v) res.write(formatSseEvent(v, String(this.seq)));
+      if (v) res.write(formatSseEvent(v, String(id)));
     });
     const heartbeat = setInterval(() => res.write(": ping\n\n"), HEARTBEAT_MS);
     heartbeat.unref();

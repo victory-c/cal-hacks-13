@@ -11,6 +11,7 @@ import { EventBus } from "./events.ts";
 import { runContext, runSave, runSearch, runWhoami } from "./mcp.ts";
 import type { McpDeps } from "./mcp.ts";
 import { KeywordRetriever } from "./retrieval/keyword.ts";
+import { FALCON_TEST_GRANTS, ScopeState, loadWorldFixtures } from "./scopes.ts";
 import { FileStore } from "./store.ts";
 
 const grant: Grant = { client: "claude-code", read: ["projects", "career"], write: ["projects"] };
@@ -52,7 +53,8 @@ describe("MCP tool bodies", () => {
     const bus = new EventBus();
     events = [];
     bus.subscribe((e) => events.push(e));
-    deps = { client: "claude-code", grant, store, retriever, bus, judge: judgeWith({}, 0) };
+    // The Falcon test world and its per-person grants, so person-class calls (dan) resolve to a principal.
+    deps = { client: "claude-code", grant, store, retriever, bus, judge: judgeWith({}, 0), world: new ScopeState(loadWorldFixtures()), grants: [grant, ...FALCON_TEST_GRANTS] };
   });
   after(async () => {
     console.info = originalInfo;

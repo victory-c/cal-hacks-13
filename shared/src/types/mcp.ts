@@ -1,5 +1,8 @@
-// The four MCP tools the server exposes. Every call is scoped to the client token's folders.
-// Mirrors the "MCP tools" table in CLAUDE.md — change both together.
+// The four MCP tools the server exposes. What a call may see depends on the token's class
+// (docs/PIPELINE-PRD.md §4.2): a per-person or per-agent token reads its own scope through the
+// same handoff the Claude Code hook uses; an operator token without a principal (claude-code,
+// chatgpt) keeps the scaffold's folder grants. Mirrors the "MCP tools" table in CLAUDE.md —
+// change both together.
 
 import type { ClientId, Fact, FactSource, Folder } from "./fact.ts";
 
@@ -35,16 +38,25 @@ export interface ContextOutput {
   /** Estimated tokens of the slice handed over (see tokens.ts; label it "est." in UIs). */
   tokens: number;
   latency_ms: number;
-  /** Jev's "enough to answer?" verdict. When false, `missing` says what to ask the user for. */
+  /**
+   * Operator tokens: Jev's "enough to answer?" verdict, with `missing` saying what to ask for.
+   * Person and agent tokens: true when at least one fact was handed over; `missing` is never set
+   * (a hint about what the memory lacks is an existence signal).
+   */
   enough: boolean;
   missing?: string;
-  /** How many candidates retrieval produced before Jev filtered them. */
-  candidates: number;
+  /** Operator tokens only: how many candidates retrieval produced before Jev filtered them. */
+  candidates?: number;
+  /** Person and agent tokens: the pinned profile (name, tier, task), as on every handoff. */
+  profile?: string;
 }
 
 export interface SearchInput {
   query: string;
-  /** Narrow to these folders (still intersected with the client's grants). */
+  /**
+   * Narrow to these folders. For a person they narrow within the scope and anything else is
+   * ignored silently; for an operator token they are intersected with the client's grants.
+   */
   folders?: Folder[];
 }
 
@@ -65,15 +77,17 @@ export interface SaveOutput {
 }
 
 /**
- * Scopes: a member's whoami shows who they are and their task, never their exclusions, group
- * names or counts of anything hidden. `read`/`write` are the scaffold's folder grants; leave
- * them out for members, since a list of groups is an existence signal.
+ * A person's whoami shows who they are and their task, never their exclusions, group names or
+ * counts of anything hidden. `read`/`write` are the scaffold's folder grants and appear only for
+ * operator tokens, since a list of groups is an existence signal.
  */
 export interface WhoamiOutput {
   client: ClientId;
   principal?: string;
   name?: string;
   tier?: "moderator" | "member";
+  /** Agents: the person who created them. */
+  created_by?: string;
   /** The task from their scope rule. */
   task?: string;
   read?: Folder[];

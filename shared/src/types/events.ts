@@ -7,6 +7,7 @@ import type { HandoffCandidate } from "./api.ts";
 import type { ClientId, Fact, Folder } from "./fact.ts";
 import type { SaveDecision, TriageDecision } from "./judge.ts";
 import type { AuditEvent, Principal, QuarantineItem, ScopeStage } from "./scopes.ts";
+import type { SourceKind } from "./session.ts";
 
 export type DistillEngine = "droid" | "claude" | "heuristic";
 
@@ -83,6 +84,34 @@ export type CanonEvent =
       ms: number;
       /** Facts left after this stage. */
       remaining: number;
+      /** One id per build, so a console can group the stages of one build. */
+      build_id?: string;
+    })
+  // ---- Member view (docs/INTEGRATION.md). The server writes these into a person's own stream from
+  // the events above; moderators and internal clients keep the originals.
+  | (Base & {
+      /** `scope.stage` for the caller or their agents, in the contract's names. Counts are within the caller's view. */
+      type: "scope.build";
+      build_id: string;
+      principal: string;
+      stage: "exclusions" | "candidates" | "judged" | "done";
+      ms: number;
+      counts: Record<string, number>;
+    })
+  | (Base & {
+      /** `scope.updated` for the caller or their agents: which facts joined or left. */
+      type: "scope.changed";
+      principal: string;
+      added: string[];
+      removed: string[];
+    })
+  | (Base & {
+      /** `session.captured` for an item the caller authored: a capture, a pasted item or a canon_save. */
+      type: "item.captured";
+      item_id: string;
+      kind: SourceKind;
+      source: string;
+      author?: string;
     })
   | (Base & {
       /**

@@ -3,14 +3,22 @@
 // in-memory index of facts (and session ids) is refreshed on every write, so reads never hit
 // the disk except for a session body.
 //
-// Layout under the data dir:   facts/<folder>/<id>.md     sessions/<id>.json
+// Layout under the data dir:   facts/<folder>/<id>.md     sessions/<id>.json     world/*.json + audit.jsonl (persist.ts)
 
 import { randomBytes } from "node:crypto";
 import { mkdir, open, readdir, readFile, rename, rm } from "node:fs/promises";
 import { basename, dirname, join } from "node:path";
 
 import { SESSION_ID_RE, factPath, folderAllows, parseFactFile, serializeFactFile, validateFact } from "@canon/shared";
-import type { CapturedSession, Fact, Folder, Tier } from "@canon/shared";
+import type { CapturedSession, Fact, Folder, SourceKind, Tier } from "@canon/shared";
+
+/** What the server keeps in memory about an archived session: enough to authorize events and name items, never the transcript. */
+export interface SessionInfo {
+  client: string;
+  principal?: string;
+  kind?: SourceKind;
+  title?: string;
+}
 
 export interface ListFactsFilter {
   /** Granted-folder semantics: `career` also lists `career/skills`. */
@@ -21,7 +29,7 @@ export interface ListFactsFilter {
 export class FileStore {
   private readonly facts = new Map<string, Fact>();
   private readonly sessionIds = new Set<string>();
-  private readonly sessionClients = new Map<string, string>();
+  private readonly sessions = new Map<string, SessionInfo>();
 
   constructor(readonly dir: string) {}
 
@@ -31,11 +39,11 @@ export class FileStore {
   async loadAll(): Promise<{ facts: number; sessions: number; skipped: number }> {
     this.facts.clear();
     this.sessionIds.clear();
-    this.sessionClients.clear();
+    this.sessions.clear();
     let skipped = 0;
 
     // Tmp files orphaned by a crash mid-writeAtomic: the real file (if any) is intact, so sweep them.
-    for (const root of [join(this.dir, "facts"), join(this.dir, "sessions")]) {
+    for (const root of [join(this.dir, "facts"), join(this.dir, "sessions"), join(this.dir, "world")]) {
       for (const tmp of await listFiles(root, ".tmp")) {
         console.warn(`[store] removing orphaned tmp file ${tmp}`);
         await rm(tmp, { force: true });
@@ -56,10 +64,10 @@ export class FileStore {
       const id = basename(file, ".json");
       try {
         if (!SESSION_ID_RE.test(id)) throw new Error(`file name is not a session id (${SESSION_ID_RE})`);
-        const parsed = JSON.parse(await readFile(file, "utf8")) as { id?: unknown; client?: unknown };
+        const parsed = JSON.parse(await readFile(file, "utf8")) as { id?: unknown; client?: unknown; principal?: unknown; kind?: unknown; title?: unknown };
         if (parsed?.id !== id) throw new Error(`"id" inside the file (${String(parsed?.id)}) does not match the file name`);
         this.sessionIds.add(id);
-        if (typeof parsed.client === "string") this.sessionClients.set(id, parsed.client);
+        if (typeof parsed.client === "string") this.sessions.set(id, sessionInfo(parsed as CapturedSession));
       } catch (err) {
         skipped++;
         console.warn(`[store] skipping ${file}: ${message(err)}`);
@@ -110,13 +118,18 @@ export class FileStore {
     const updated = this.sessionIds.has(session.id);
     await writeAtomic(this.sessionFile(session.id), JSON.stringify(session, null, 2) + "\n");
     this.sessionIds.add(session.id);
-    this.sessionClients.set(session.id, session.client);
+    this.sessions.set(session.id, sessionInfo(session));
     return { updated };
   }
 
   /** Session metadata for synchronous SSE authorization; no transcript is exposed. */
   sessionClient(id: string): string | undefined {
-    return this.sessionClients.get(id);
+    return this.sessions.get(id)?.client;
+  }
+
+  /** Who captured a session, for whom, of what kind, and its title: what an item row or a provenance line needs. */
+  sessionInfo(id: string): SessionInfo | undefined {
+    return this.sessions.get(id);
   }
 
   async getSession(id: string): Promise<CapturedSession | undefined> {
@@ -140,6 +153,14 @@ export class FileStore {
 
 // -------------------------------------------------------------------- helpers
 
+function sessionInfo(session: Pick<CapturedSession, "client" | "principal" | "kind" | "title">): SessionInfo {
+  const info: SessionInfo = { client: session.client };
+  if (typeof session.principal === "string") info.principal = session.principal;
+  if (typeof session.kind === "string") info.kind = session.kind;
+  if (typeof session.title === "string") info.title = session.title;
+  return info;
+}
+
 /** Ids come from URLs and request bodies; the regex alone rules out any path traversal. */
 function assertSessionId(id: string): void {
   if (!SESSION_ID_RE.test(id)) throw new Error(`session id must match ${SESSION_ID_RE} (got ${JSON.stringify(id)})`);
@@ -150,7 +171,7 @@ function assertSessionId(id: string): void {
  * crash right after the rename cannot leave a truncated one (the archive must never lose a
  * session). A tmp orphaned by a crash before the rename is swept on the next loadAll().
  */
-async function writeAtomic(file: string, text: string): Promise<void> {
+export async function writeAtomic(file: string, text: string): Promise<void> {
   await mkdir(dirname(file), { recursive: true });
   const tmp = `${file}.${randomBytes(4).toString("hex")}.tmp`;
   const fh = await open(tmp, "w");

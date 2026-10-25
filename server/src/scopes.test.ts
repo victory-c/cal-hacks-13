@@ -125,7 +125,7 @@ describe("scopes REST surface, scope builder and handoff (A2, A4+A6, A7+A16)", (
     }
   });
 
-  test("GET /api/groups: moderators and internal clients read it; a member gets the neutral 403", async () => {
+  test("GET /api/groups: moderators and internal clients read the full list; a member sees only the groups in their scope, by display name", async () => {
     const maya = await api("/api/groups", { token: "tok-maya" });
     assert.equal(maya.status, 200);
     const { groups } = await body<{ groups: Group[] }>(maya);
@@ -133,9 +133,15 @@ describe("scopes REST surface, scope builder and handoff (A2, A4+A6, A7+A16)", (
 
     assert.equal((await api("/api/groups", { token: "tok-dist" })).status, 200, "triage reads the groups");
 
-    const dan = await api("/api/groups", { token: "tok-dan" });
-    assert.equal(dan.status, 403);
-    assert.deepEqual(await dan.json(), MODERATORS_ONLY);
+    // Priya's rule excludes deal/*: her list never names deal/falcon, and carries no description or aliases.
+    const priya = await api("/api/groups", { token: "tok-priya" });
+    assert.equal(priya.status, 200);
+    const mine = await body<{ groups: Array<Record<string, unknown>> }>(priya);
+    assert.ok(mine.groups.length > 0, "a member with a scope sees the groups it draws from");
+    for (const g of mine.groups) {
+      assert.ok(typeof g.id === "string" && !g.id.startsWith("deal"), `${g.id} is outside Priya's scope`);
+      assert.deepEqual(Object.keys(g).sort(), ["display", "id"], "display name only: no description, no aliases");
+    }
   });
 
   test("moderator routes return one identical 403 to members, whether the target exists or not", async () => {

@@ -1,12 +1,20 @@
-// The four MCP tools (task A2, with the Jev filter of task A7 in canon_context). Every call is
-// scoped to the client token's grant. The tool bodies are plain functions (run*) so tests call
-// them without a transport; createMcpServer() only wraps them in zod schemas and MCP results.
+// The four MCP tools (task A2, with the Jev filter of task A7 in canon_context). What a call may
+// see depends on the token's class (docs/PIPELINE-PRD.md §4.2):
+//
+//   person / agent  the grant names a principal: every read is that principal's scope, through
+//                   the same handoff the Claude Code hook uses (scopes.ts selfHandoff). Nothing
+//                   outside the scope is named, counted or hinted at.
+//   operator        a capture client with no principal (claude-code, chatgpt): the scaffold's
+//                   folder grants, unchanged.
+//
+// The tool bodies are plain functions (run*) so tests call them without a transport;
+// createMcpServer() only wraps them in zod schemas and MCP results.
 
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import type { CallToolResult } from "@modelcontextprotocol/sdk/types.js";
 import { z } from "zod";
 
-import { DEFAULT_BUDGET_TOKENS, MCP_TOOLS, THRESHOLDS, canRead, cutToBudget, newSessionId, nowIso, timed } from "@canon/shared";
+import { DEFAULT_BUDGET_TOKENS, MCP_TOOLS, THRESHOLDS, canRead, cutToBudget, folderAllows, newSessionId, nowIso, timed } from "@canon/shared";
 import type {
   Answer,
   CapturedSession,
@@ -17,6 +25,7 @@ import type {
   Folder,
   Grant,
   Judge,
+  Principal,
   Question,
   SaveInput,
   SaveOutput,
@@ -26,7 +35,10 @@ import type {
 } from "@canon/shared";
 
 import type { EventBus } from "./events.ts";
+import { HttpError } from "./http.ts";
 import type { Retriever } from "./retrieval/index.ts";
+import { callerRoles, hotCandidates, scopeFacts, selfHandoff } from "./scopes.ts";
+import type { ScopeState, ScopesDeps } from "./scopes.ts";
 import type { FileStore } from "./store.ts";
 
 export interface McpDeps {
@@ -36,6 +48,8 @@ export interface McpDeps {
   retriever: Retriever;
   bus: EventBus;
   judge: Judge;
+  world: ScopeState;
+  grants: readonly Grant[];
 }
 
 /** How many candidates retrieval hands to Jev. One batched judge call covers all of them. */
@@ -45,9 +59,58 @@ export const SEARCH_LIMIT = 25;
 const ENOUGH_P = 0.5;
 const ENOUGH_ID = "enough";
 
+/** The principal this token acts as, when its grant names one (a person or an agent). */
+export function principalOf(deps: McpDeps): Principal | undefined {
+  return callerRoles(deps.world, deps.grants, deps.client).principal;
+}
+
+function scopesDeps(deps: McpDeps): ScopesDeps {
+  return { world: deps.world, store: deps.store, bus: deps.bus, grants: deps.grants, judge: deps.judge, retriever: deps.retriever };
+}
+
+/** Everything a principal may ever read: their scope, or every hot fact in a world group for a moderator. */
+function universeOf(deps: McpDeps, who: Principal): Fact[] {
+  const sd = scopesDeps(deps);
+  return who.kind === "person" && who.tier === "moderator" ? hotCandidates(sd) : scopeFacts(sd, who.id);
+}
+
 // ------------------------------------------------------------------ canon_context
 
 export async function runContext(deps: McpDeps, input: ContextInput): Promise<ContextOutput> {
+  const who = principalOf(deps);
+  if (who) return contextForPrincipal(deps, who, input);
+  return contextForOperator(deps, input);
+}
+
+/**
+ * A person's or agent's memory for this task: the self handoff (search inside the scope, the
+ * needs-context check, Jev relevance, the token budget, an audit row), with the pinned profile.
+ * No `candidates`, no `missing`: what was considered and what the memory lacks are not theirs
+ * to know.
+ */
+async function contextForPrincipal(deps: McpDeps, who: Principal, input: ContextInput): Promise<ContextOutput> {
+  const task = input.task.trim();
+  if (!task) throw new HttpError(400, "task must be a non-empty string");
+  const body: Record<string, unknown> = { task };
+  if (input.budget_tokens !== undefined) body.budget_tokens = input.budget_tokens;
+  const r = await selfHandoff(scopesDeps(deps), deps.client, who, body);
+  const enough = r.facts.length > 0;
+  // The dashboard's counter reads context.served; the handoff already emitted handoff.served for the inspector.
+  deps.bus.emit({
+    type: "context.served",
+    client: deps.client,
+    task,
+    fact_ids: r.facts.map((f) => f.id),
+    candidates: r.facts.length,
+    tokens: r.tokens,
+    latency_ms: r.latency_ms,
+    enough,
+  });
+  return { facts: r.facts, tokens: r.tokens, latency_ms: r.latency_ms, enough, profile: r.profile };
+}
+
+/** The scaffold path for operator tokens: retrieval over the folder grant, one batched judge call, the budget. */
+async function contextForOperator(deps: McpDeps, input: ContextInput): Promise<ContextOutput> {
   const t0 = performance.now();
   const task = input.task.trim();
   const budget = input.budget_tokens ?? DEFAULT_BUDGET_TOKENS;
@@ -136,6 +199,38 @@ function noulAnswers(answers: Answer[]): Map<string, number> {
 // ------------------------------------------------------------------- canon_search
 
 export async function runSearch(deps: McpDeps, input: SearchInput): Promise<SearchOutput> {
+  const who = principalOf(deps);
+  if (who) return searchForPrincipal(deps, who, input);
+  return searchForOperator(deps, input);
+}
+
+/**
+ * Search inside the principal's scope. `folders` narrow within it; a folder the scope has nothing
+ * in is simply not searched (no error, no hint). Every hit is re-checked against the scope's ids
+ * in code, so a stale index can never surface an outside fact. `supersedes` is dropped: the fact
+ * it names may be outside the scope.
+ */
+async function searchForPrincipal(deps: McpDeps, who: Principal, input: SearchInput): Promise<SearchOutput> {
+  const query = input.query.trim();
+  if (!query) return { facts: [] };
+  const universe = universeOf(deps, who);
+  const byId = new Map(universe.map((f) => [f.id, f]));
+  const inScopeFolders = [...new Set(universe.map((f) => f.folder))];
+  const requested = input.folders && input.folders.length > 0 ? input.folders : undefined;
+  const folders = requested ? inScopeFolders.filter((f) => folderAllows(requested, f)) : inScopeFolders;
+  if (folders.length === 0) return { facts: [] };
+  const hits = await deps.retriever.search(query, { folders, k: SEARCH_LIMIT });
+  const facts: Fact[] = [];
+  for (const h of hits) {
+    const fact = byId.get(h.fact.id);
+    if (!fact || (requested && !folderAllows(requested, fact.folder))) continue;
+    const { supersedes: _outside, ...own } = fact;
+    facts.push(own);
+  }
+  return { facts };
+}
+
+async function searchForOperator(deps: McpDeps, input: SearchInput): Promise<SearchOutput> {
   // Requested folders are intersected with the grant. A folder outside it is dropped silently and
   // the answer is an ordinary (possibly empty) result: no refusal, nothing that says it exists
   // (CLAUDE.md). Moderators still see the probe as access.denied on the event stream.
@@ -154,33 +249,46 @@ export async function runSearch(deps: McpDeps, input: SearchInput): Promise<Sear
 
 // --------------------------------------------------------------------- canon_save
 
-/** Never straight to hot: the text becomes a one-message session in the cold archive. */
+/**
+ * Queues text for distillation as a one-message note from this token's principal (an agent's
+ * outputs are its creator's memory). The distiller and Jev decide what becomes a fact and where;
+ * nothing is written to hot facts here. `kind: "note"` and `external: false`: the firm's own text.
+ */
 export async function runSave(deps: McpDeps, input: SaveInput): Promise<SaveOutput> {
+  const who = principalOf(deps);
   const now = nowIso();
   const session: CapturedSession = {
     id: newSessionId(),
     client: deps.client,
     started_at: now,
     ended_at: now,
-    title: input.text.slice(0, 80),
+    kind: "note",
+    external: false,
     messages: [{ role: "user", content: input.text }],
-    meta: { folder_hint: input.folder },
-    // Same binding as POST /api/sessions: a per-person client's saves are its principal's own
-    // memories, so the distilled facts carry that author and join their scope.
-    ...(deps.grant.principal !== undefined ? { principal: deps.grant.principal } : {}),
+    meta: { source: "canon_save", ...(input.folder ? { folder_hint: input.folder } : {}) },
   };
+  const principal = who ? (who.kind === "agent" ? who.created_by ?? who.id : who.id) : deps.grant.principal;
+  if (principal !== undefined) session.principal = principal;
   await deps.store.putSession(session);
   deps.bus.emit({
     type: "session.captured",
-    session: { id: session.id, client: deps.client, title: session.title, messages: 1, ended: true },
+    session: { id: session.id, client: session.client, messages: 1, ended: true },
   });
   return { queued: true, session_id: session.id };
 }
 
 // ------------------------------------------------------------------- canon_whoami
 
+/** Who this token is. A person or agent: name, tier and task, never exclusions, groups or counts. An operator: its folder grant. */
 export function runWhoami(deps: McpDeps): WhoamiOutput {
-  return { client: deps.client, read: [...deps.grant.read], write: [...deps.grant.write] };
+  const who = principalOf(deps);
+  if (!who) return { client: deps.client, read: [...deps.grant.read], write: [...deps.grant.write] };
+  const out: WhoamiOutput = { client: deps.client, principal: who.id, name: who.name };
+  if (who.kind === "person" && who.tier) out.tier = who.tier;
+  if (who.kind === "agent" && who.created_by) out.created_by = who.created_by;
+  const task = deps.world.rules.get(who.id)?.task;
+  if (task) out.task = task;
+  return out;
 }
 
 // ------------------------------------------------------------------ MCP wrapping
@@ -189,16 +297,16 @@ function ok(output: Record<string, unknown>): CallToolResult {
   return { content: [{ type: "text", text: JSON.stringify(output) }], structuredContent: output };
 }
 
-/** A fresh McpServer per request (stateless Streamable HTTP), bound to one client's grant. */
+/** A fresh McpServer per request (stateless Streamable HTTP), bound to one client's token. */
 export function createMcpServer(deps: McpDeps): McpServer {
-  const server = new McpServer({ name: "canon", version: "0.1.0" });
+  const server = new McpServer({ name: "bullwark", version: "0.2.0" });
 
   server.registerTool(
     MCP_TOOLS.context,
     {
-      title: "Relevant context for a task",
+      title: "Get context for a task",
       description:
-        "The small slice of the user's stored context that is relevant to a task: facts from past AI sessions, filtered by Jev and cut to a token budget. Call it at the start of a task instead of asking the user to repeat themselves.",
+        "Hand over the stored facts this task needs, within a token budget. Call it before answering a question that could depend on the firm's or your own earlier work. Returns facts with their relevance, the pinned profile, and whether anything was found.",
       inputSchema: {
         task: z.string().min(1).describe("What you are about to do, in one or two sentences."),
         budget_tokens: z.number().int().positive().optional().describe(`Max tokens to hand back (default ${DEFAULT_BUDGET_TOKENS}).`),
@@ -211,25 +319,23 @@ export function createMcpServer(deps: McpDeps): McpServer {
     MCP_TOOLS.search,
     {
       title: "Search stored facts",
-      description: "Search the user's stored facts within the folders this client may read. Optional folders narrow the search.",
+      description: "Search the facts in your memory by keyword. Optional folders narrow the search.",
       inputSchema: {
         query: z.string().min(1),
-        folders: z.array(z.string()).optional().describe('e.g. ["career/skills"]'),
+        folders: z.array(z.string()).optional().describe('e.g. ["market/public"]'),
       },
     },
-    async (args) => {
-      return ok({ ...(await runSearch(deps, { query: args.query, folders: args.folders as Folder[] | undefined })) });
-    },
+    async (args) => ok({ ...(await runSearch(deps, { query: args.query, folders: args.folders as Folder[] | undefined })) }),
   );
 
   server.registerTool(
     MCP_TOOLS.save,
     {
       title: "Remember this",
-      description: "Queue text to be remembered. It goes to the cold archive; the distiller and Jev then decide what becomes a hot fact and where it is filed. Nothing is written to hot facts directly.",
+      description: "Queue text to be remembered as your own memory. It goes to the cold archive; the distiller and Jev then decide what becomes a fact and where it is filed. Nothing is written to hot facts directly.",
       inputSchema: {
         text: z.string().min(1),
-        folder: z.string().optional().describe("Hint only, e.g. projects/canon. Jev decides."),
+        folder: z.string().optional().describe("Hint only, e.g. market/public. Jev decides."),
       },
     },
     async (args) => ok({ ...(await runSave(deps, { text: args.text, folder: args.folder as Folder | undefined })) }),
@@ -239,7 +345,7 @@ export function createMcpServer(deps: McpDeps): McpServer {
     MCP_TOOLS.whoami,
     {
       title: "Who am I",
-      description: "The folders this client can read and write.",
+      description: "Who this token acts as: name, tier and standing task.",
       inputSchema: {},
     },
     async () => ok({ ...runWhoami(deps) }),

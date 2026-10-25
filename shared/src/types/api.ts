@@ -2,11 +2,11 @@
 // Auth on every /api and /mcp call: `Authorization: Bearer <client token>`.
 
 import type { CanonEvent, DistillEngine, RelayedEventType } from "./events.ts";
-import type { Fact, GroupId } from "./fact.ts";
+import type { Fact, GroupId, Tier } from "./fact.ts";
 import type { Grant } from "./grants.ts";
 import type { SaveDecision } from "./judge.ts";
 import type { ContextFact } from "./mcp.ts";
-import type { CapturedSession } from "./session.ts";
+import type { CapturedSession, SourceKind } from "./session.ts";
 import type { AuditEvent, Group, Principal, PrincipalTier, QuarantineItem, Scope, ScopeRule } from "./scopes.ts";
 
 export const DEFAULT_PORTS = { server: 4100, web: 4200, status: 4173 } as const;
@@ -30,6 +30,10 @@ export const ROUTES = {
   facts: "/api/facts",
   /** GET the grants table, for the dashboard. */
   grants: "/api/grants",
+  /** GET who the caller is (INTEGRATION.md): id, kind, name, tier, task; never the exclusions. */
+  me: "/api/me",
+  /** POST an item a person pastes (memo, chat, email, transcript, note): one captured session, then triage. */
+  items: "/api/items",
 
   // ---- Scopes (A1). "moderator" = a moderator's client; "internal" = INTERNAL_CLIENTS (distiller,
   // dispatcher). Members never see groups, rules, other people's scopes or the audit log.
@@ -166,6 +170,93 @@ export interface HandoffResult {
 
 export interface AuditResponse {
   entries: AuditEvent[];
+}
+
+// ---- Member view (docs/INTEGRATION.md). Per-person and per-agent tokens get these shapes; operator,
+// internal and tokenless callers keep the scaffold's.
+
+/** GET /api/me. */
+export interface MeResponse {
+  id: string;
+  kind: Principal["kind"];
+  name: string;
+  tier?: PrincipalTier;
+  /** Agents: who created them (the contract's `creator`). */
+  creator?: string;
+  /** The task from the scope rule. Never the exclusions. */
+  task?: string;
+  /** The firm, for the console header. */
+  firm?: string;
+}
+
+/** A fact as the contract writes it: group, labels, author, dates and status instead of folder and tier. */
+export interface ContractFact {
+  id: string;
+  statement: string;
+  group: GroupId;
+  labels: string[];
+  /** The archived session (item) the fact came from. */
+  source: string;
+  author?: string;
+  /** The day the fact happened, else the day it was learned. */
+  happened_at: string;
+  learned_at: string;
+  status: Tier;
+  detail?: string;
+  /** From the archived session, when it still exists. */
+  source_kind?: SourceKind;
+  source_title?: string;
+}
+export interface ContractFactsResponse {
+  facts: ContractFact[];
+}
+
+/** POST /api/items. `author` defaults to the caller; only a moderator may name someone else. */
+export interface AddItemBody {
+  kind: Exclude<SourceKind, "ai_session">;
+  source: string;
+  text: string;
+  author?: string;
+}
+export interface AddItemResponse {
+  /** The captured session's id; the facts arrive as fact.saved events. */
+  item_id: string;
+}
+
+/** GET /api/agents, one row per agent the caller may see. Run fields fill in as the dispatcher reports. */
+export interface AgentSummary {
+  id: string;
+  creator: string;
+  name: string;
+  status: "ready" | "running" | "restarting" | "done" | "failed";
+  steps: Array<{ id: string; text: string; status: string; at: string }>;
+  files: string[];
+  inbox: Array<{ text: string; at: string }>;
+  task: string;
+}
+export interface AgentsResponse {
+  agents: AgentSummary[];
+}
+
+/** The contract's exclusions: plain-language exclusions as a list. */
+export interface ContractExclusions {
+  groups: string[];
+  labels: string[];
+  text: string[];
+}
+/** POST /api/agents in the contract's shape (the scaffold's CreateAgentBody is accepted too). */
+export interface ContractAgentBody {
+  name: string;
+  task: string;
+  exclusions: ContractExclusions;
+}
+/** PUT /api/principals/:id/rule. */
+export interface ContractRuleBody {
+  task: string;
+  exclusions: ContractExclusions;
+}
+export interface BuildResponse {
+  build_id: string;
 }
 
 export type RelayedEvent = Extract<CanonEvent, { type: RelayedEventType }>;

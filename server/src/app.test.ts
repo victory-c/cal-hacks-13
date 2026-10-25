@@ -24,6 +24,7 @@ const tokens = new Map([
   ["tok-dist", "distiller"],
   ["tok-maya", "maya"], // the moderator's own client (FALCON_TEST_GRANTS binds it to principal maya)
   ["tok-dan", "dan"], // a member's per-person client
+  ["tok-ing", "ingest"], // the moderator-run ingest CLI: files items for their real authors
 ]);
 
 const session: CapturedSession = {
@@ -168,7 +169,7 @@ describe("server over HTTP", () => {
     assert.equal((await api("/api/sessions/..%2F..%2Fetc", { token: "tok-maya" })).status, 400);
   });
 
-  test("POST /api/sessions: a per-person client is bound to its own principal; operators may set one", async () => {
+  test("POST /api/sessions: a per-person client is bound to its own principal; only ingest and internal clients name one", async () => {
     const mine: CapturedSession = {
       id: "ses_e2e000da",
       client: "dan",
@@ -185,16 +186,32 @@ describe("server over HTTP", () => {
     assert.equal(stored.principal, "dan", "a missing principal is filled in from the client's grant");
     assert.equal(stored.kind, "note", "kind survives the round trip");
 
-    // An operator client (the hook's CANON_PRINCIPAL, the ingest CLI's author) names the principal itself.
+    // A per-person token may post any capture source: the token says who, the body says where from.
+    const fromClaude: CapturedSession = { ...mine, id: "ses_e2e000dc", client: "claude-code" };
+    assert.equal((await api("/api/sessions", { method: "POST", json: fromClaude, token: "tok-dan" })).status, 200);
+    const storedClaude = (await (await api(`/api/sessions/${fromClaude.id}`, { token: "tok-maya" })).json()) as CapturedSession;
+    assert.equal(storedClaude.client, "claude-code", "the capture source is kept");
+    assert.equal(storedClaude.principal, "dan", "the author is the token's principal");
+    // ... and a person token may update only its own principal's sessions (Maya's token is bound to maya).
+    assert.equal((await api("/api/sessions", { method: "POST", json: fromClaude, token: "tok-maya" })).status, 403);
+
+    // A capture token without a principal (the Claude Code hook's claude-code client) may not name
+    // one: authorship decides whose scope the facts join, so it is never taken on trust.
     const memo: CapturedSession = { ...session, id: "ses_e2e000db", principal: "dan", kind: "memo", external: true };
-    assert.equal((await api("/api/sessions", { method: "POST", json: memo, token: "tok-cc" })).status, 200);
+    const asserted = await api("/api/sessions", { method: "POST", json: memo, token: "tok-cc" });
+    assert.equal(asserted.status, 403);
+    assert.match(((await asserted.json()) as { error: string }).error, /CANON_PERSON_TOKEN/);
+    // The ingest CLI (a moderator-run tool) files items for their real authors.
+    assert.equal((await api("/api/sessions", { method: "POST", json: { ...memo, client: "ingest" }, token: "tok-ing" })).status, 200);
     const storedMemo = (await (await api(`/api/sessions/${memo.id}`, { token: "tok-dist" })).json()) as CapturedSession;
     assert.equal(storedMemo.principal, "dan");
     assert.equal(storedMemo.kind, "memo");
     assert.equal(storedMemo.external, true);
+    // ... but only for people who exist.
+    assert.equal((await api("/api/sessions", { method: "POST", json: { ...memo, id: "ses_e2e000dd", client: "ingest", principal: "nobody" }, token: "tok-ing" })).status, 400);
 
     for (const bad of [{ kind: "tweet" }, { principal: "" }, { external: "yes" }]) {
-      assert.equal((await api("/api/sessions", { method: "POST", json: { ...memo, ...bad }, token: "tok-cc" })).status, 400, JSON.stringify(bad));
+      assert.equal((await api("/api/sessions", { method: "POST", json: { ...memo, client: "ingest", ...bad }, token: "tok-ing" })).status, 400, JSON.stringify(bad));
     }
   });
 

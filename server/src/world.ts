@@ -28,6 +28,8 @@ export type WorldMoment = "seed" | "all";
 
 export interface DemoWorld {
   fixtures: WorldFixtures;
+  /** The firm's name ("Axe Capital"), for GET /api/me. */
+  firm: string;
   /** The answer key's facts, hot, in their groups, authored by their item's author. */
   facts: Fact[];
   /** One raw session per seeded item, for the cold archive the facts' sources point at. */
@@ -42,6 +44,7 @@ interface WorldJson {
   demo_date: string;
   principals: Array<{ id: string; kind: "person" | "agent"; name: string; tier?: "moderator" | "member"; creator?: string }>;
   groups: Array<{ id: string; description: string; display?: string; code_names?: string[] }>;
+  firm?: { name?: string };
   scope_rules: Array<{ principal: string; set_by: string; task: string; exclusions: { groups: string[]; labels: string[]; text: string[] }; demo_beat?: string }>;
   timeline: Array<{ at: string; items?: string[] }>;
 }
@@ -107,6 +110,7 @@ export function loadDemoWorld(opts: { dir?: string; moment?: WorldMoment } = {})
   const groups: Group[] = world.groups.map((g) => ({
     id: g.id,
     description: g.description,
+    ...(g.display ? { display: g.display } : {}),
     ...(g.code_names && g.code_names.length > 0 ? { aliases: g.code_names } : {}),
   }));
 
@@ -175,7 +179,8 @@ export function loadDemoWorld(opts: { dir?: string; moment?: WorldMoment } = {})
   }
 
   return {
-    fixtures: { groups, principals, rules, scopes: [], quarantine: [], audit: [], initial_scopes: initial },
+    fixtures: { groups, principals, rules, scopes: [], quarantine: [], audit: [], initial_scopes: initial, ...(world.firm?.name ? { firm: world.firm.name } : {}) },
+    firm: world.firm?.name ?? "the firm",
     facts,
     sessions,
     announced: Object.values(expected.facts).filter((f) => f.announced).map((f) => f.fact_id),

@@ -1,7 +1,7 @@
 // REST handlers: the capture clients and the distiller write here, the dashboard reads here.
 // Each function validates its input and throws HttpError; the router does the HTTP plumbing.
 
-import { FACT_ID_RE, SESSION_ID_RE, SOURCE_KINDS, TIERS, canWrite, grantFor, validateFact } from "@canon/shared";
+import { FACT_ID_RE, INTERNAL_CLIENTS, SESSION_ID_RE, SOURCE_KINDS, TIERS, canWrite, grantFor, validateFact } from "@canon/shared";
 import type {
   CapturedSession,
   Fact,
@@ -20,11 +20,13 @@ import type {
   SessionMessage,
   SourceKind,
   Tier,
+  TriageDecision,
 } from "@canon/shared";
 
 import type { EventBus } from "./events.ts";
 import { HttpError, isRecord } from "./http.ts";
 import type { Retriever } from "./retrieval/index.ts";
+import type { ScopeState } from "./scopes.ts";
 import type { FileStore } from "./store.ts";
 
 export interface ApiDeps {
@@ -34,7 +36,12 @@ export interface ApiDeps {
   judge: Judge;
   retriever: Retriever;
   startedAt: number;
+  /** The world's people, so a session can only be authored by someone who exists. Optional for the scaffold tests. */
+  world?: ScopeState;
 }
+
+/** Clients that file items for their real authors: the internal workers and the moderator-run ingest CLI. */
+const NAMES_AUTHORS: readonly string[] = [...INTERNAL_CLIENTS, "ingest"];
 
 const ROLES: readonly MessageRole[] = ["user", "assistant", "system", "tool"];
 
@@ -49,27 +56,42 @@ export function grants(deps: ApiDeps): GrantsResponse {
 
 // ---------------------------------------------------------------------- sessions
 
-/** POST /api/sessions: cold archive upsert by the original capturing client. */
+/**
+ * POST /api/sessions: cold archive upsert (docs/PIPELINE-PRD.md rules 1 and 2). The token says
+ * who; `body.client` says where the text came from.
+ *
+ * - A token whose grant names a principal (a person's CANON_PERSON_TOKEN, an agent's) may post any
+ *   capture source. Its sessions are authored by that principal, a body `principal` naming anyone
+ *   else is refused, and it may update only sessions of its own principal.
+ * - A token without a principal may post only its own client and update only its own sessions.
+ *   It may name a principal only if it is an internal worker or the ingest CLI (tools a moderator
+ *   runs for the real authors); a capture token doing so is refused, since authorship decides
+ *   whose scope the facts join.
+ */
 export async function postSession(deps: ApiDeps, client: string, body: unknown): Promise<PostSessionResponse> {
   const session = parseSession(body);
-  if (session.client !== client) {
-    throw new HttpError(403, `body.client is "${session.client}" but the token belongs to "${client}"`);
-  }
-  // Only the client that first captured a session may update it.
-  const existing = await deps.store.getSession(session.id);
-  if (existing && existing.client !== client) {
-    throw new HttpError(403, `${client} cannot update session ${session.id}`);
-  }
-  // The principal becomes each distilled fact's author and the author's facts join their scope,
-  // so a per-person client (its grant names a principal) is bound to its own: a mismatch is
-  // rejected, a missing one is filled in. Operator and internal clients (ingest, dispatcher)
-  // may set it — e.g. the dispatcher posts an agent's outputs with principal = the agent's creator.
   const own = grantFor(deps.grants, client)?.principal;
+  const existing = await deps.store.getSession(session.id);
   if (own !== undefined) {
     if (session.principal !== undefined && session.principal !== own) {
-      throw new HttpError(403, `body.principal is "${session.principal}" but client "${client}" captures for "${own}"`);
+      throw new HttpError(403, `body.principal is "${session.principal}" but this token captures for "${own}"`);
     }
     session.principal = own;
+    const owned = existing === undefined || (existing.principal !== undefined ? existing.principal === own : existing.client === client);
+    if (!owned) throw new HttpError(403, `${client} cannot update session ${session.id}`);
+  } else {
+    if (session.client !== client) {
+      throw new HttpError(403, `body.client is "${session.client}" but the token belongs to "${client}"`);
+    }
+    if (existing && existing.client !== client) {
+      throw new HttpError(403, `${client} cannot update session ${session.id}`);
+    }
+    if (session.principal !== undefined && !NAMES_AUTHORS.includes(client)) {
+      throw new HttpError(403, `"${client}" has no principal and may not name one. Capture with your own token (CANON_PERSON_TOKEN); only internal clients and ingest file items for other authors.`);
+    }
+  }
+  if (session.principal !== undefined && deps.world && !deps.world.principals.has(session.principal)) {
+    throw new HttpError(400, `principal "${session.principal}" is not a person or agent in this world`);
   }
   const { updated } = await deps.store.putSession(session);
   deps.bus.emit({
@@ -146,7 +168,7 @@ const JUDGES: readonly JudgeName[] = ["jev", "claude", "fake"];
  */
 function parseDecision(raw: unknown, fact: Fact, where: string): SaveDecision {
   if (!isRecord(raw)) throw new HttpError(400, `${where} must be a SaveDecision object`);
-  const { action, supersedes, tier, folder, keep_p, folder_p, judge } = raw;
+  const { action, supersedes, tier, folder, keep_p, folder_p, judge, triage } = raw;
   if (typeof action !== "string" || !(ACTIONS as readonly string[]).includes(action)) throw new HttpError(400, `${where}.action must be ${ACTIONS.join("|")}`);
   if (supersedes !== undefined && (typeof supersedes !== "string" || !FACT_ID_RE.test(supersedes))) throw new HttpError(400, `${where}.supersedes must match ${FACT_ID_RE}`);
   if (action !== "add" && supersedes === undefined) throw new HttpError(400, `${where}.supersedes is required when action is "${action}"`);
@@ -158,6 +180,9 @@ function parseDecision(raw: unknown, fact: Fact, where: string): SaveDecision {
   if (typeof judge !== "string" || !(JUDGES as readonly string[]).includes(judge)) throw new HttpError(400, `${where}.judge must be ${JUDGES.join("|")}`);
   const clean: SaveDecision = { tier: fact.tier, folder: fact.folder, action: action as SaveAction, keep_p: keep_p as number, folder_p: folder_p as number, judge: judge as JudgeName };
   if (typeof supersedes === "string") clean.supersedes = supersedes;
+  // The triage behind the decision (why it was filed where it was) rides along for the moderator
+  // views; the member and tokenless event views strip it (router.ts).
+  if (isRecord(triage) && typeof triage.outcome === "string") clean.triage = triage as unknown as TriageDecision;
   return clean;
 }
 

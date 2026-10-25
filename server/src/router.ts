@@ -11,6 +11,7 @@ import type { CanonEvent, Folder } from "@canon/shared";
 import * as api from "./api.ts";
 import type { ApiDeps } from "./api.ts";
 import { authenticate } from "./auth.ts";
+import { handleContractRoute, listContractFacts, memberEventView } from "./contract.ts";
 import { attachSse } from "./events.ts";
 import type { EventFilter } from "./events.ts";
 import { HttpError, applyCors, readJsonBody, sendJson } from "./http.ts";
@@ -59,9 +60,21 @@ export function createRouter(deps: RouterDeps): Handler {
       // client's read grant; an unknown token is still a 401. Only internal clients and
       // moderators get the full event stream: anyone else could read a deal off fact.saved.
       if (method === "GET" && (path === ROUTES.events || path === ROUTES.facts || path === ROUTES.grants)) {
-        const viewer = optionalAuth(req, deps.tokens);
+        // /events also takes the token as ?token=: an EventSource cannot set a header (INTEGRATION.md).
+        const viewer = optionalAuth(req, deps.tokens, path === ROUTES.events ? url.searchParams.get("token") : null);
         if (viewer === "unknown") return sendJson(res, 401, UNKNOWN_TOKEN);
         if (path === ROUTES.grants) return sendJson(res, 200, api.grants(deps));
+        // A person's or agent's token (its grant names a principal) reads from its scope, in the
+        // contract's shapes; everyone else keeps the scaffold's folder view.
+        const who = viewer ? callerRoles(deps.world, deps.grants, viewer.client).principal : undefined;
+        if (viewer && who) {
+          if (path === ROUTES.events) {
+            if (seesEverything(deps, viewer.client)) attachSse(res, deps.bus, withoutExtractionPlan);
+            else attachSse(res, deps.bus, memberEventView(deps, who, viewer.client));
+            return;
+          }
+          return sendJson(res, 200, listContractFacts(deps, who, url.searchParams));
+        }
         const visible = viewer ? grantView(deps, viewer.client) : publicFolder;
         if (!visible) return sendJson(res, 403, { error: `no grants for client "${viewer?.client}"` });
         if (path === ROUTES.events) {
@@ -81,7 +94,9 @@ export function createRouter(deps: RouterDeps): Handler {
         if (!auth) return sendJson(res, 401, UNKNOWN_TOKEN);
         const { client } = auth;
 
-        // Scopes surface (A2): tiers, rules, scopes, agents, quarantine, audit, handoff, dispatch.
+        // The member view's routes (INTEGRATION.md) for person and agent tokens, then the scopes
+        // surface (A2): tiers, rules, scopes, agents, quarantine, audit, handoff, dispatch.
+        if (await handleContractRoute(deps, client, method, path, url, req, res)) return;
         if (await handleScopesRoute(deps, client, method, path, url, req, res)) return;
 
         if (method === "POST" && path === ROUTES.sessions) return sendJson(res, 200, await api.postSession(deps, client, await readJsonBody(req)));
@@ -115,9 +130,16 @@ export function createRouter(deps: RouterDeps): Handler {
 
 const UNKNOWN_TOKEN = { error: "missing or unknown bearer token. Set Authorization: Bearer <token> from CANON_CLIENT_TOKENS." };
 
-/** No header → null (public view); a header that maps to nobody → "unknown" (401); else the client. */
-function optionalAuth(req: IncomingMessage, tokens: Map<string, string>): { client: string } | null | "unknown" {
-  if (!req.headers.authorization) return null;
+/**
+ * No header → null (public view); a header that maps to nobody → "unknown" (401); else the client.
+ * `queryToken` is the `?token=` an EventSource sends instead of a header; it is never logged.
+ */
+function optionalAuth(req: IncomingMessage, tokens: Map<string, string>, queryToken: string | null = null): { client: string } | null | "unknown" {
+  if (!req.headers.authorization) {
+    if (!queryToken) return null;
+    const client = tokens.get(queryToken);
+    return client ? { client } : "unknown";
+  }
   return authenticate(req, tokens) ?? "unknown";
 }
 
@@ -183,7 +205,8 @@ function eventView(deps: RouterDeps, visible: (folder: Folder) => boolean, clien
         return withoutExtractionPlan(event);
       case "fact.saved": {
         const { supersedes: factPrevious, ...fact } = event.fact;
-        const { supersedes: decisionPrevious, ...decision } = event.decision;
+        // The triage behind a decision (why it was filed there) is moderators-only.
+        const { supersedes: decisionPrevious, triage: _triage, ...decision } = event.decision;
         return {
           ...event,
           fact: factPrevious && readableFact(factPrevious) ? { ...fact, supersedes: factPrevious } : fact,
@@ -226,7 +249,7 @@ async function handleMcp(deps: RouterDeps, client: string, req: IncomingMessage,
   if (!grant) return sendJson(res, 403, { error: `no grants for client "${client}"` });
   const body = req.method === "POST" ? await readJsonBody(req) : undefined;
 
-  const server = createMcpServer({ client, grant, store: deps.store, retriever: deps.retriever, bus: deps.bus, judge: deps.judge });
+  const server = createMcpServer({ client, grant, store: deps.store, retriever: deps.retriever, bus: deps.bus, judge: deps.judge, world: deps.world, grants: deps.grants });
   const transport = new StreamableHTTPServerTransport({ sessionIdGenerator: undefined });
   res.on("close", () => {
     void transport.close();

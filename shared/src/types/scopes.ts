@@ -34,6 +34,8 @@ export interface Group {
   id: string;
   /** One line Jev reads when filing a fact or checking an exclusion. Moderators only. */
   description: string;
+  /** How the console shows the group ("Public market"). Safe for members whose scope holds a fact in it. */
+  display?: string;
   /**
    * Names that point at the group (code names, companies, tickers). Triage matches them in code
    * as a filing hint next to Jev's pick. A deal group's code name is always one of them
@@ -108,6 +110,8 @@ export const AUDIT_KINDS = [
   "agent.created",
   "agent.deleted",
   "fact.filed",
+  "fact.edited",
+  "fact.retired",
   "quarantine",
   "quarantine.released",
 ] as const;
