@@ -149,13 +149,27 @@ const JUDGES: readonly JudgeName[] = ["jev", "claude", "fake"];
 /**
  * Rebuilds a clean SaveDecision from the request body. It is broadcast to every dashboard on
  * fact.saved, so nothing unchecked (a typo'd action, a stray field) gets through.
+ *
+ * Supersession contract: "merge"/"supersede" retire exactly `decision.supersedes`, and the fact
+ * must say so (`fact.supersedes` equal to it), never naming itself. "add" retires nothing, so it
+ * carries no `decision.supersedes`, and `fact.supersedes` may only repeat the lineage already
+ * stored for that id (`storedSupersedes`); dashboards read `fact.supersedes` as a retirement.
  */
-function parseDecision(raw: unknown, fact: Fact, where: string): SaveDecision {
+function parseDecision(raw: unknown, fact: Fact, where: string, storedSupersedes: string | undefined): SaveDecision {
   if (!isRecord(raw)) throw new HttpError(400, `${where} must be a SaveDecision object`);
   const { action, supersedes, tier, folder, keep_p, folder_p, judge } = raw;
   if (typeof action !== "string" || !(ACTIONS as readonly string[]).includes(action)) throw new HttpError(400, `${where}.action must be ${ACTIONS.join("|")}`);
   if (supersedes !== undefined && (typeof supersedes !== "string" || !FACT_ID_RE.test(supersedes))) throw new HttpError(400, `${where}.supersedes must match ${FACT_ID_RE}`);
   if (action !== "add" && supersedes === undefined) throw new HttpError(400, `${where}.supersedes is required when action is "${action}"`);
+  if (action === "add") {
+    if (supersedes !== undefined) throw new HttpError(400, `${where}.supersedes must be omitted when action is "add"`);
+    if (fact.supersedes !== undefined && fact.supersedes !== storedSupersedes) {
+      throw new HttpError(400, `${where}: fact.supersedes on "add" must be omitted or unchanged; use "supersede" or "merge" to retire a fact`);
+    }
+  } else {
+    if (fact.supersedes !== supersedes) throw new HttpError(400, `${where}: fact.supersedes must equal decision.supersedes when action is "${action}"`);
+    if (supersedes === fact.id) throw new HttpError(400, `${where}: a fact cannot ${action} itself`);
+  }
   if (tier !== fact.tier) throw new HttpError(400, `${where}.tier must equal fact.tier ("${fact.tier}")`);
   if (folder !== fact.folder) throw new HttpError(400, `${where}.folder must equal fact.folder ("${fact.folder}")`);
   for (const [name, p] of [["keep_p", keep_p], ["folder_p", folder_p]] as const) {
@@ -193,7 +207,7 @@ export async function postFacts(deps: ApiDeps, client: string, body: unknown, gr
     if (!isRecord(entry)) throw new HttpError(400, `facts[${i}] must be { fact, decision }`);
     const v = validateFact(entry.fact);
     if (!v.ok) throw new HttpError(400, `facts[${i}].fact: ${v.errors.join("; ")}`);
-    return { fact: v.fact, decision: parseDecision(entry.decision, v.fact, `facts[${i}].decision`) };
+    return { fact: v.fact, decision: parseDecision(entry.decision, v.fact, `facts[${i}].decision`, deps.store.getFact(v.fact.id)?.supersedes) };
   });
 
   const requireWrite = (folder: Folder, existing = false) => {

@@ -28,7 +28,8 @@ const projectFact: Fact = { ...privateFact, id: "fct_a111", statement: "Syntheti
 
 function entry(fact: Fact, action: SaveDecision["action"] = "add", supersedes?: string): { fact: Fact; decision: SaveDecision } {
   return {
-    fact,
+    // merge/supersede must name the retired fact on both the fact and the decision.
+    fact: supersedes ? { ...fact, supersedes } : fact,
     decision: {
       action, tier: fact.tier, folder: fact.folder, keep_p: 0.9, folder_p: 0.9, judge: "fake",
       ...(supersedes ? { supersedes } : {}),
