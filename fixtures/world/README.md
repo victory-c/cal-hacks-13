@@ -19,7 +19,7 @@ walk-away price and the financing stay walled.
 | File | What |
 |---|---|
 | `world.json` | Firm, deal, target figures, principals (4 people, 3 agents), groups and labels, scope rules, the escalation-attack agent, and the demo timeline (what is seeded, what arrives live at 0:25, what moves at 1:20) |
-| `items/*.json` | 12 source items in the `Item` shape from `docs/INTEGRATION.md` (`id`, `kind`, `source`, `author`, `captured_at`, `text`): two Stonewall memos, the deal team meeting transcript, Axe's ChatGPT session, counsel's email with the planted instruction, TMC's public Q3 letter, Ben's research draft, Dollar Bill's desk notes, and four team chat channels |
+| `items/*.json` | 13 source items in the `Item` shape from `docs/INTEGRATION.md` (`id`, `kind`, `source`, `author`, `captured_at`, `text`): two Stonewall memos, the deal team meeting transcript, Axe's ChatGPT session, counsel's email with the planted instruction, TMC's public Q3 letter, Ben's research draft, Dollar Bill's desk notes, four team chat channels, and an unlabelled voicemail whose two facts start in the inbox |
 | `expected.json` | The answer key: the facts each item should produce, each fact's group and labels, each fact's stable `fact_id` (used by the benchmark cases), which facts become public at 1:20 (`announced`), which item must be quarantined, the leak markers, and what Dollar Bill's scope must hold at 0:00 |
 
 ## How it fits together
@@ -31,6 +31,7 @@ walk-away price and the financing stay walled.
 | `research/asset-managers` | Ben's draft, `#research` | Ben (built at 0:40), and others whose rules fit |
 | `desk/dollar-bill` | Dollar Bill's desk notes, `#desk` | Dollar Bill and his desk assistant |
 | `firm/ops` | `#general` | Everyone whose rule fits |
+| `inbox` (not a group) | The voicemail | Moderators only, until Wags files each fact (`file_to` in `expected.json` is the right group) |
 
 The numbers reconcile, and `web/src/world.test.ts` checks that they do: $52.75 is a 28% premium to
 the $41.20 30-day average, 11x the $4.80 consensus 2027 earnings, and about $3.2 billion of equity on

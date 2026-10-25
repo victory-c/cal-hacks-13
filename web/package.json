@@ -2,7 +2,7 @@
   "name": "@canon/web",
   "version": "0.1.0",
   "private": true,
-  "description": "Live dashboard (sessions, facts, token/latency/cost counter) and resume viewer. Static, bundled with esbuild. Lane B.",
+  "description": "Live dashboard (sessions, facts, token/latency/cost counter) and the member view. Static, bundled with esbuild. Lane C.",
   "type": "module",
   "scripts": {
     "build": "node scripts/build.mjs",

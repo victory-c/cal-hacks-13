@@ -105,7 +105,7 @@
     }
   ],
   "timeline": [
-    { "at": "seed", "items": ["itm_sw_terms", "itm_sw_meeting", "itm_chat_deal", "itm_chat_research", "itm_chat_desk", "itm_chat_general", "itm_desk_notes", "itm_research_draft", "itm_tmc_q3_letter"], "note": "Loaded before the demo starts. Ben has no scope yet; Wags builds it at 0:40." },
+    { "at": "seed", "items": ["itm_sw_terms", "itm_sw_meeting", "itm_chat_deal", "itm_chat_research", "itm_chat_desk", "itm_chat_general", "itm_desk_notes", "itm_research_draft", "itm_tmc_q3_letter", "itm_voicemail"], "note": "Loaded before the demo starts. Ben has no scope yet; Wags builds it at 0:40. itm_voicemail's two facts are in the inbox, waiting for Wags to file them." },
     { "at": "0:00", "action": "Dollar Bill asks his desk assistant: \"Anything going on with Taylor Mason Capital? Should we add to our position?\"", "expected": "Answered from itm_tmc_q3_letter and itm_desk_notes only; no Stonewall fact, no refusal, no hint." },
     { "at": "0:25", "items": ["itm_axe_chatgpt", "itm_sw_valuation", "itm_counsel_email"], "note": "Arrive live. itm_counsel_email is pasted by Wags with Add item (author axe, his mailbox) and is quarantined." },
     { "at": "0:40", "action": "Wags builds Ben's scope from his rule." },

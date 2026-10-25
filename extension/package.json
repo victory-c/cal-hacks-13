@@ -2,7 +2,7 @@
   "name": "@canon/extension",
   "version": "0.1.0",
   "private": true,
-  "description": "Chrome MV3 extension: live capture from ChatGPT (then Claude, Gemini) on the web. Lane B.",
+  "description": "Chrome MV3 extension: live capture from ChatGPT on the web. Lane B.",
   "type": "module",
   "scripts": {
     "build": "node scripts/build.mjs",
