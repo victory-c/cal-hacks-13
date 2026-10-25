@@ -12,7 +12,7 @@ const WORLD = resolve(dirname(fileURLToPath(import.meta.url)), "../../fixtures/w
 const ITEM_KINDS = ["memo", "chat", "email", "transcript", "note", "session"];
 
 interface Item { id: string; kind: string; source: string; author: string; captured_at: string; text: string }
-interface FactKey { group: string; labels: string[]; announced: boolean; statement: string; key: string[] }
+interface FactKey { group: string; labels: string[]; announced: boolean; statement: string; key: string[]; file_to?: string }
 
 const read = <T>(path: string): T => JSON.parse(readFileSync(join(WORLD, path), "utf8")) as T;
 const world = read<any>("world.json");
@@ -45,7 +45,9 @@ test("every expected fact is in a known group and its key phrase appears in its 
     for (const factId of entry.facts) {
       const fact = facts[factId];
       assert.ok(fact, `${itemId}: unknown fact ${factId}`);
-      assert.ok(groups.has(fact.group), `${factId}: group ${fact.group}`);
+      // `inbox` is not a group: it holds facts triage can't place, each with the group Wags should file it to.
+      if (fact.group === "inbox") assert.ok(!!fact.file_to && groups.has(fact.file_to), `${factId}: inbox fact needs a real file_to, got ${fact.file_to}`);
+      else assert.ok(groups.has(fact.group), `${factId}: group ${fact.group}`);
       assert.ok(fact.key.some((k) => has(text, k)), `${itemId} should mention ${factId} (${fact.key.join(" | ")})`);
     }
   }

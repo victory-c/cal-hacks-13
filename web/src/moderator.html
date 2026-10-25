@@ -1,0 +1,219 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Bullwark · Compliance</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&family=Barlow+Condensed:wght@700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="./member.css">
+  <link rel="stylesheet" href="./moderator.css">
+</head>
+<body>
+  <div class="page">
+    <header class="top">
+      <span class="wm">
+        <svg width="26" height="22" viewBox="0 0 26 22" aria-hidden="true"><path d="M1 21V7h4v3h3V7h4v3h2V7h4v3h3V7h4v14z" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"/></svg>
+        Bullwark
+      </span>
+      <span class="who"><span id="firm"></span><span class="tierpill">Compliance</span></span>
+    </header>
+
+    <main class="wide">
+      <h1 id="greeting">Hi</h1>
+      <div class="meter" aria-label="Context handed over">
+        <span><b id="m-tokens">0</b>tokens handed over (est.)</span>
+        <span><b id="m-handoffs">0</b>handoffs</span>
+        <span title="Measured by Canon when live"><b>— · — · —</b>latency: search · judge · total</span>
+        <span title="Shown once a rate is set"><b>—</b>cost per handoff</span>
+      </div>
+      <div id="notice" class="notice" role="status" aria-live="polite" hidden></div>
+
+      <!-- People & scopes -->
+      <section class="card" aria-labelledby="ps-h">
+        <div class="bar">
+          <div>
+            <h2 id="ps-h">People &amp; scopes</h2>
+            <p class="lede">Who can see what, and why.</p>
+          </div>
+          <button id="toggle-person" class="btn" type="button" aria-expanded="false" aria-controls="person-form">+ Add person</button>
+        </div>
+        <form id="person-form" class="panel" aria-label="Add person" hidden>
+          <div class="row">
+            <label class="fld grow2">Name <input id="np-name" type="text" required placeholder="e.g. Taylor Rhodes"></label>
+            <label class="fld grow1">Tier
+              <select id="np-tier"><option value="member">Member</option><option value="moderator">Compliance</option></select>
+            </label>
+          </div>
+          <div class="row end">
+            <button id="cancel-person" class="ghost" type="button">Cancel</button>
+            <button class="btn" type="submit">Add</button>
+          </div>
+          <div class="hint">New people start with no scope. Describe their task next to build one.</div>
+        </form>
+
+        <div class="ps">
+          <nav aria-label="People"><ul id="people" class="list"></ul></nav>
+          <div>
+            <div class="bar">
+              <div style="min-width: 0">
+                <h3 id="sel-title" class="seltitle"></h3>
+                <div id="sel-in" class="inrow"></div>
+              </div>
+              <div class="row">
+                <button id="toggle-tier" class="ghost" type="button" hidden></button>
+                <button id="toggle-rule" class="btn" type="button" aria-expanded="false" aria-controls="rule-form" hidden></button>
+              </div>
+            </div>
+            <div id="sel-unbuilt" class="unbuilt" hidden></div>
+
+            <form id="rule-form" class="panel" aria-label="Scope rule" hidden>
+              <div id="rule-title" class="panel-title"></div>
+              <label class="fld">Task
+                <textarea id="r-task" rows="2" placeholder="Describe their work in plain language"></textarea>
+              </label>
+              <fieldset class="docs">
+                <legend>Groups in this scope</legend>
+                <div id="gcards" class="gcards"></div>
+                <div id="ng-rule-slot"></div>
+                <div class="hint" style="margin-top: 8px">Facts outside the selected groups are removed in code before relevance is checked.</div>
+              </fieldset>
+              <div class="row end">
+                <button id="cancel-rule" class="ghost" type="button">Cancel</button>
+                <button id="save-rule" class="btn" type="submit" disabled>Save and build</button>
+              </div>
+            </form>
+
+            <div id="build" class="panel" aria-live="polite" hidden>
+              <h4 id="build-title" class="sub"></h4>
+              <div id="build-stages"></div>
+              <div class="hint">Stage times: — until live · relevance check simulated in demo data</div>
+            </div>
+
+            <div id="scope-facts" class="scopefacts"></div>
+          </div>
+        </div>
+      </section>
+
+      <!-- Agents -->
+      <section class="card" aria-labelledby="ag-h">
+        <h2 id="ag-h">Agents</h2>
+        <p class="lede">Every agent, with who created it. An agent never holds more than its creator.</p>
+        <div id="agents"></div>
+      </section>
+
+      <div class="cols">
+        <!-- Memory (with the inbox and quarantine) -->
+        <section class="card tall" aria-labelledby="mem-h">
+          <div class="bar">
+            <div>
+              <h2 id="mem-h">Memory</h2>
+              <p class="lede">Everything the firm’s AI has learned, by group.</p>
+            </div>
+            <div class="row">
+              <button id="toggle-select" class="ghost" type="button" aria-pressed="false">Select</button>
+              <button id="toggle-filters" class="ghost" type="button" aria-expanded="false" aria-controls="filters">Filter</button>
+              <button id="toggle-add" class="btn" type="button" aria-expanded="false" aria-controls="add-form">+ Add item</button>
+            </div>
+          </div>
+
+          <div id="filters" class="filters" role="search" aria-label="Filter memory" hidden>
+            <label class="fld grow2">Keyword <input id="f-keyword" type="search" placeholder="e.g. financing"></label>
+            <label class="fld grow1">Group <select id="f-group"></select></label>
+            <label class="fld grow1">Source <select id="f-source"></select></label>
+            <label class="fld grow1">Sort <select id="f-sort"></select></label>
+          </div>
+          <div class="row between countline">
+            <span id="show-line" class="hint"></span>
+            <button id="clear-filters" class="mini" type="button" hidden>Clear filters</button>
+          </div>
+
+          <div id="bulk" class="bulk" role="region" aria-label="Selected facts" hidden>
+            <span id="picked-line" class="picked"></span>
+            <label class="inline-label">File to <select id="bulk-to" class="group-picker"></select></label>
+            <button id="file-selected" class="btn" type="button" disabled>File selected</button>
+            <button id="clear-picked" class="mini" type="button">Clear</button>
+          </div>
+
+          <div id="ng-memory-slot"></div>
+
+          <form id="add-form" class="panel" aria-label="Add item" hidden>
+            <label class="fld">Load a demo item (optional)
+              <select id="n-demo"><option value="">—</option></select>
+            </label>
+            <div class="row">
+              <label class="fld">Kind
+                <select id="n-kind">
+                  <option value="note">Note</option><option value="memo">Memo</option><option value="chat">Chat excerpt</option>
+                  <option value="email">Email</option><option value="transcript">Transcript</option><option value="session">AI chat</option>
+                </select>
+              </label>
+              <label class="fld grow2">Source <input id="n-source" type="text" placeholder="Where this came from"></label>
+              <label class="fld grow1">From <select id="n-from"></select></label>
+            </div>
+            <label class="fld">Text <textarea id="n-text" rows="4" required placeholder="Paste a memo, chat excerpt, email, transcript or note"></textarea></label>
+            <div class="row end">
+              <button id="cancel-add" class="ghost" type="button">Cancel</button>
+              <button class="btn" type="submit">Add</button>
+            </div>
+          </form>
+
+          <div class="scroll">
+            <div id="held-wrap" hidden>
+              <h3 id="held-h" class="grp">Held for review</h3>
+              <ul id="held" class="list"></ul>
+            </div>
+            <div id="inbox-wrap" class="inbox" hidden>
+              <h3 id="inbox-h" class="grp" style="margin-top: 0">Inbox</h3>
+              <p class="hint" style="margin: 0 0 6px">Facts triage couldn’t place. They join no one’s scope until you file them.</p>
+              <ul id="inbox" class="list"></ul>
+            </div>
+            <div id="memory"></div>
+          </div>
+        </section>
+
+        <aside class="card tall" aria-labelledby="feed-h">
+          <h2 id="feed-h">Feed</h2>
+          <ul id="feed" class="list feed scroll"></ul>
+        </aside>
+      </div>
+
+      <!-- Handoffs | Audit -->
+      <section class="card" aria-label="Handoffs and audit">
+        <div class="tabs" role="tablist">
+          <button id="tab-handoffs" class="tab on" type="button" role="tab" aria-selected="true" aria-controls="handoffs-panel">Handoffs</button>
+          <button id="tab-audit" class="tab" type="button" role="tab" aria-selected="false" aria-controls="audit-panel">Audit</button>
+        </div>
+        <div id="handoffs-panel" role="tabpanel"><div id="handoffs"></div></div>
+        <div id="audit-panel" role="tabpanel" hidden>
+          <div class="filters">
+            <label class="fld grow1">Person or agent <select id="a-who"><option value="">Everyone</option></select></label>
+            <label class="fld grow1">Group <select id="a-group"><option value="">All groups</option></select></label>
+          </div>
+          <p id="audit-line" class="hint" style="margin-top: 10px"></p>
+          <ul id="audit" class="list audit"></ul>
+        </div>
+      </section>
+
+      <p id="mode-line" class="foot"></p>
+    </main>
+  </div>
+
+  <!-- One form for new groups, moved next to whatever opened it. -->
+  <template id="ng-template">
+    <form id="ng-form" class="panel" aria-label="Create new group">
+      <div class="panel-title">New group</div>
+      <div class="row">
+        <label class="fld grow1">Name <input id="ng-name" type="text" required placeholder="e.g. Counterparty counsel"></label>
+        <label class="fld grow2">What belongs here (optional) <input id="ng-desc" type="text" placeholder="One line Bullwark uses when filing"></label>
+      </div>
+      <div class="row end">
+        <button id="ng-cancel" class="ghost" type="button">Cancel</button>
+        <button id="ng-create" class="btn" type="submit" disabled>Create group</button>
+      </div>
+      <div id="ng-hint" class="hint"></div>
+    </form>
+  </template>
+  <script type="module" src="./moderator.js"></script>
+</body>
+</html>
