@@ -51,6 +51,12 @@ npm run finance -w bench                             # measured (ANTHROPIC_API_K
 npm run finance -w bench -- --setup bullwark-jev --case attack-01-direct-tmc-position
 ```
 
+**Exit status:** `0` only when every requested cell ran. If any cell errors (a setup that fails to
+open errors every case of that setup, a provider failure errors one) the runner still writes the
+results with the error recorded, then exits `1`. Pass `--allow-partial` to accept a run where only
+some cells errored; a run where every cell errored exits `1` regardless. A run with no cases at all
+seeds the null results schema and exits `0`.
+
 ## Existing runner
 
 The current runner accepts **handoff tasks**: context created in one AI (`from_client`, as short setup sessions), a
@@ -76,6 +82,12 @@ npm run run -w bench                      # the real thing (needs ANTHROPIC_API_
 npm run run -w bench -- --baseline canon --task t03-public-summary
 npm run run -w bench -- --help
 ```
+
+**Exit status:** `0` only when every requested cell ran. If any cell errors (a missing token, an
+unreachable server, a provider failure) the runner still writes the results with the error recorded,
+then exits `1`, so CI cannot mistake an incomplete comparison for a complete one. Pass
+`--allow-partial` to accept a run where only some cells errored; a run where every cell errored
+exits `1` regardless.
 
 **Real run needs:** `.env` with `ANTHROPIC_API_KEY` (responder: `claude-sonnet-5-5` over the
 Messages API, usage recorded), `CANON_URL` + `CANON_CLIENT_TOKENS` (the canon baseline posts

@@ -1,11 +1,15 @@
 // Bench CLI. For every task × baseline: prepare → respond → score, then write results.
 //
 //   npm run run -w bench -- [--dry] [--baseline name]... [--task id]... [--include-example]
-//                           [--allow-simulated] [--out dir]
+//                           [--allow-simulated] [--allow-partial] [--out dir]
 //
 // Numbers only ever come from a run of this file. Without ANTHROPIC_API_KEY, or with --dry, the
 // responder is an echo stub: the run is labelled SIMULATED, accuracy and token usage are null, and
 // latest.json / chart.json are not written (pass --allow-simulated to write them, labelled).
+//
+// Exit status: 0 only when every requested cell ran. Any errored cell exits 1 (results are still
+// written); --allow-partial accepts a run where only some cells errored. A run where every cell
+// errored always exits 1.
 
 import { basename } from "node:path";
 import { parseArgs } from "node:util";
@@ -36,6 +40,8 @@ const USAGE = `Canon benchmark runner
   --task <id>          Run only this task id (repeatable), e.g. --task t03-offer-deadline
   --include-example    Also run bench/tasks/t00-example.json
   --allow-simulated    Write latest.json and chart.json even for a simulated run (labelled)
+  --allow-partial      Exit 0 when only some cells errored (default: any errored cell exits 1;
+                       a run where every cell errored always exits 1). Results are written either way.
   --out <dir>          Results directory (default bench/results/)
   -h, --help           This text
 
@@ -48,6 +54,7 @@ interface Cli {
   tasks: string[];
   includeExample: boolean;
   allowSimulated: boolean;
+  allowPartial: boolean;
   out: string;
 }
 
@@ -61,6 +68,7 @@ function parseCli(argv: string[]): Cli {
       task: { type: "string", multiple: true },
       "include-example": { type: "boolean", default: false },
       "allow-simulated": { type: "boolean", default: false },
+      "allow-partial": { type: "boolean", default: false },
       out: { type: "string" },
       help: { type: "boolean", short: "h", default: false },
     },
@@ -82,6 +90,7 @@ function parseCli(argv: string[]): Cli {
     tasks: values.task ?? [],
     includeExample: values["include-example"],
     allowSimulated: values["allow-simulated"],
+    allowPartial: values["allow-partial"],
     out: values.out ?? DEFAULT_OUT,
   };
 }
@@ -209,8 +218,8 @@ async function main(): Promise<void> {
   }
 
   const errors = cells.filter((c) => c.error).length;
-  if (errors) console.warn(`[bench] ${errors} of ${cells.length} cells errored (see above)`);
-  if (errors === cells.length) process.exitCode = 1;
+  if (errors) console.warn(`[bench] ${errors} of ${cells.length} cells errored (see above)${errors < cells.length && cli.allowPartial ? ": partial run accepted (--allow-partial)" : ": the comparison is incomplete, exiting 1 (--allow-partial accepts a partial run)"}`);
+  if (errors === cells.length || (errors > 0 && !cli.allowPartial)) process.exitCode = 1;
 }
 
 main().catch((e: unknown) => {

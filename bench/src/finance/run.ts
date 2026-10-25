@@ -3,13 +3,17 @@
 // context and accuracy, then write results.
 //
 //   npm run finance -w bench -- [--dry] [--setup name]... [--case id]... [--include-examples]
-//                               [--allow-simulated] [--out dir]
+//                               [--allow-simulated] [--allow-partial] [--out dir]
 //
 // Numbers only ever come from a run of this file. Without ANTHROPIC_API_KEY, or with --dry, the
 // responder is an echo stub: the run is labelled SIMULATED, accuracy and answer-level leak checks
 // are null, and finance-latest.json / finance-chart.json are not written (--allow-simulated
 // writes them, labelled). Without Moss/Jev credentials the pipeline runs on the labelled keyword
 // retriever and fake judge: still a real enforcement path, still labelled simulated.
+//
+// Exit status: 0 only when every requested cell ran. Any errored cell (including every case of a
+// setup that failed to open) exits 1, results are still written; --allow-partial accepts a run
+// where only some cells errored. A run where every cell errored always exits 1.
 
 import { basename } from "node:path";
 import { parseArgs } from "node:util";
@@ -44,6 +48,8 @@ const USAGE = `Bullwark finance benchmark runner (A8)
   --case <id>          Run only this case id (repeatable), e.g. --case attack-01-direct-terms
   --include-examples   Also run the task-00-* / attack-00-* documentation examples
   --allow-simulated    Write finance-latest.json and finance-chart.json even for a simulated run (labelled)
+  --allow-partial      Exit 0 when only some cells errored (default: any errored cell exits 1;
+                       a run where every cell errored always exits 1). Results are written either way.
   --out <dir>          Results directory (default bench/results/)
   -h, --help           This text
 
@@ -57,6 +63,7 @@ interface Cli {
   cases: string[];
   includeExamples: boolean;
   allowSimulated: boolean;
+  allowPartial: boolean;
   out: string;
 }
 
@@ -70,6 +77,7 @@ function parseCli(argv: string[]): Cli {
       case: { type: "string", multiple: true },
       "include-examples": { type: "boolean", default: false },
       "allow-simulated": { type: "boolean", default: false },
+      "allow-partial": { type: "boolean", default: false },
       out: { type: "string" },
       help: { type: "boolean", short: "h", default: false },
     },
@@ -91,6 +99,7 @@ function parseCli(argv: string[]): Cli {
     cases: values.case ?? [],
     includeExamples: values["include-examples"],
     allowSimulated: values["allow-simulated"],
+    allowPartial: values["allow-partial"],
     out: values.out ?? DEFAULT_OUT,
   };
 }
@@ -299,8 +308,8 @@ async function main(): Promise<void> {
   }
 
   const errors = cells.filter((c) => c.error).length;
-  if (errors) console.warn(`[bench] ${errors} of ${cells.length} cells errored (see above)`);
-  if (cells.length > 0 && errors === cells.length) process.exitCode = 1;
+  if (errors) console.warn(`[bench] ${errors} of ${cells.length} cells errored (see above)${errors < cells.length && cli.allowPartial ? ": partial run accepted (--allow-partial)" : ": the comparison is incomplete, exiting 1 (--allow-partial accepts a partial run)"}`);
+  if ((cells.length > 0 && errors === cells.length) || (errors > 0 && !cli.allowPartial)) process.exitCode = 1;
 }
 
 main().catch((e: unknown) => {
