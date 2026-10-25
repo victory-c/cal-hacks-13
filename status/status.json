@@ -1,6 +1,6 @@
 {
   "project": "Bullwark",
-  "updated": "2026-10-25T00:54:05Z",
+  "updated": "2026-10-25T01:52:59Z",
   "team": [
     {
       "id": "A",
@@ -514,7 +514,7 @@
       "priority": "must",
       "state": "doing",
       "title": "Shared preview infrastructure and sponsor-host deployment",
-      "note": "Renumbered from this branch's original B17 to preserve main's Claude fact-writer task. Docker, visible login, random client tokens and persistent volumes implemented. Local scaffold HTTP checks passed; Vultr activation, credit and VM deployment remain pending."
+      "note": "Docker, visible login, random client tokens and persistent volumes implemented. B25 provides a live authenticated HTTPS team preview through a supervised ngrok tunnel on the host Mac. Independent Vultr hosting still requires activated MLH credit/account and VM access."
     },
     {
       "id": "B22",
@@ -542,6 +542,15 @@
       "state": "done",
       "title": "Test the local live-provider preview and close permission gaps",
       "note": "docs/LOCAL_TEST_REPORT.md: 291 automated tests and both builds pass; 52 live HTTP/MCP checks pass. Factory → Jev capture produced 6 facts in 12 s (4 hot / 2 cold); Moss returned fresh facts. Fixed SSE grant filtering, cross-folder fact mutations and cross-client session overwrites. Rebuilt preview, verified source hashes and preserved 24 facts / 4 sessions across recreation. Browser visual QA unavailable (disabled in Work settings). Public Vultr hosting and finance scopes remain separate."
+    },
+    {
+      "id": "B25",
+      "owner": "B",
+      "milestone": "M2",
+      "priority": "must",
+      "state": "done",
+      "title": "Publish the tested preview through supervised HTTPS access",
+      "note": "docs/SHARED_PREVIEW.md: stable main exposed through ngrok with existing team login, secure cookies and inspection disabled. macOS LaunchAgent restarts tunnel; local private access file contains team credentials only. Public 36 HTTP/MCP checks and 14 independent unauthenticated checks pass; live SSE and 15 s heartbeat verified. Real Factory/Jev capture saved 7 facts in 21.6 s (5 hot / 2 cold); Moss retrieval passed. Host Mac/Docker must remain running; Vultr and finance-scope integration remain separate."
     }
   ],
   "tracks": [

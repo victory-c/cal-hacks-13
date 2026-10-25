@@ -1,5 +1,9 @@
 # Sponsor accounts and the team preview
 
+A shared HTTPS preview is now running through the existing local Docker stack. See
+[SHARED_PREVIEW.md](SHARED_PREVIEW.md) for access, supervision and verified behavior.
+It currently depends on the host Mac; the sponsor-VM procedure below remains the independent-hosting path.
+
 ## Which sponsor to use for hosting
 
 Use a small **Vultr Cloud Compute VM** if the MLH credit is available to your account.
