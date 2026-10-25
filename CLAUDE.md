@@ -7,7 +7,8 @@ the product and its frontend, and **Canon**, the agentic backend. They meet only
 integration contract.
 
 Read `docs/BULLWARK-PRD.md` (product and frontend), `docs/CANON-PRD.md` (agentic backend) and
-`docs/INTEGRATION.md` (the contract between them) for product scope, `docs/WORK_SPLIT.md` for
+`docs/INTEGRATION.md` (the contract between them) for product scope, `docs/PIPELINE-PRD.md` for
+what the end-to-end loop still needs (measured state, gaps, owners), `docs/WORK_SPLIT.md` for
 ownership and build order, and `STATUS.md` for progress. The PRDs describe the target; package
 READMEs describe the code that currently runs. A planned feature is not implemented until its code and validation land.
 
