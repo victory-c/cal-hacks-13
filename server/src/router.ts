@@ -59,10 +59,12 @@ export function createRouter(deps: RouterDeps): Handler {
     } catch {
       url = undefined;
     }
-    const path = url?.pathname ?? String(req.url);
+    // An unparseable target is never logged or echoed: an absolute-form URL still carries its
+    // query string, and /events takes the bearer token there (?token=).
+    const path = url?.pathname ?? "<unparseable url>";
     res.on("finish", () => log(`${method} ${path} ${res.statusCode} ${Math.round(performance.now() - t0)}ms`));
     applyCors(res);
-    if (!url) return sendJson(res, 400, { error: `bad request URL ${JSON.stringify(req.url)}` });
+    if (!url) return sendJson(res, 400, { error: "bad request URL" });
 
     try {
       if (method === "OPTIONS" && (path.startsWith("/api/") || path === ROUTES.mcp)) {

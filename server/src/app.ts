@@ -1,9 +1,11 @@
 // startServer(): wires store, bus, retriever, judge and router into one node:http server.
 // Tests call it on port 0 with their own data dir; index.ts calls it with the env.
 
+import { existsSync } from "node:fs";
 import { createServer } from "node:http";
 import type { Server } from "node:http";
 import type { AddressInfo } from "node:net";
+import { join } from "node:path";
 
 import { dataDir as defaultDataDir } from "@canon/shared";
 import type { Grant, Judge } from "@canon/shared";
@@ -48,10 +50,18 @@ export interface RunningServer {
   grants: Grant[];
   world: ScopeState;
   dataDir: string;
+  /** The living-scope listener; tests await `drain()` before reading a scope a new fact should have joined. */
+  living: LivingScopes;
+  /** True when the world was restored from `<data dir>/world/` rather than seeded from the fixtures. */
+  restored: boolean;
 }
+
+/** What attachLivingScopes() returns: the in-flight living-scope updates, drained before shutdown. */
+export type LivingScopes = ReturnType<typeof attachLivingScopes>;
 
 export async function startServer(opts: StartOptions = {}): Promise<RunningServer> {
   const dir = opts.dataDir ?? defaultDataDir();
+  const restored = existsSync(join(dir, "world", "principals.json"));
   const tokens = opts.tokens ?? loadTokens();
   const grants = opts.grants ?? loadGrants();
   const judge = opts.judge ?? createServerJudge();
@@ -118,6 +128,8 @@ export async function startServer(opts: StartOptions = {}): Promise<RunningServe
     grants,
     world,
     dataDir: dir,
+    living,
+    restored,
     close: async () => {
       await living.drain();
       living.unsubscribe();

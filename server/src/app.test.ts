@@ -88,10 +88,13 @@ describe("server over HTTP", () => {
     return fetch(`${running.url}${path}`, { ...init, headers, body: init.json !== undefined ? JSON.stringify(init.json) : init.body });
   };
 
+  /** The server's request log lines, so a test can assert what is never written there. */
+  const logged: string[] = [];
+
   before(async () => {
     console.info = () => {};
     dir = await mkdtemp(join(tmpdir(), "canon-app-"));
-    running = await startServer({ port: 0, dataDir: dir, tokens, grants: [...DEMO_GRANTS, ...FALCON_TEST_GRANTS], judge: new FakeJudge(), retriever: new KeywordRetriever(), world: loadWorldFixtures(), log: () => {} });
+    running = await startServer({ port: 0, dataDir: dir, tokens, grants: [...DEMO_GRANTS, ...FALCON_TEST_GRANTS], judge: new FakeJudge(), retriever: new KeywordRetriever(), world: loadWorldFixtures(), log: (line) => void logged.push(line) });
     events = [];
     running.bus.subscribe((e) => events.push(e));
   });
@@ -117,6 +120,9 @@ describe("server over HTTP", () => {
     const pre = await api("/api/sessions", { method: "OPTIONS" });
     assert.equal(pre.status, 204);
     assert.match(pre.headers.get("access-control-allow-headers") ?? "", /Authorization/);
+    // The console edits facts with PATCH and rules with PUT from its own origin.
+    const methods = (pre.headers.get("access-control-allow-methods") ?? "").split(/,\s*/);
+    for (const m of ["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"]) assert.ok(methods.includes(m), `${m} missing from ${methods.join(",")}`);
   });
 
   test("POST /api/sessions: 401 without a token, 200 with one, 403 when the body names another client", async () => {
@@ -203,7 +209,7 @@ describe("server over HTTP", () => {
     const { port } = new URL(running.url);
     const reply = await new Promise<string>((resolve, reject) => {
       const socket = connect(Number(port), "127.0.0.1", () => {
-        socket.write("GET http://x:99999/ HTTP/1.1\r\nHost: x\r\nConnection: close\r\n\r\n");
+        socket.write("GET http://x:99999/events?token=tok-secret HTTP/1.1\r\nHost: x\r\nConnection: close\r\n\r\n");
       });
       let data = "";
       socket.on("data", (chunk) => (data += chunk));
@@ -212,6 +218,8 @@ describe("server over HTTP", () => {
     });
     assert.match(reply, /^HTTP\/1\.1 400 /);
     assert.match(reply, /bad request URL/);
+    assert.doesNotMatch(reply, /tok-secret/, "the raw target (and the token in its query) is never echoed");
+    assert.ok(!logged.some((l) => l.includes("tok-secret")), "nor logged");
     assert.equal((await api("/health")).status, 200, "the server is still up");
   });
 

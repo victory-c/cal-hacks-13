@@ -1,6 +1,6 @@
 {
   "project": "Bullwark",
-  "updated": "2026-10-25T04:44:16.605859+00:00",
+  "updated": "2026-10-25T06:03:56.778Z",
   "team": [
     {
       "id": "A",
@@ -587,6 +587,24 @@
       "state": "done",
       "title": "Integrate outstanding PRs into the finance scope and capture pipeline",
       "note": "Integrated Edan PR34 with current main and preserved PR31 operations. 737 automated tests, typechecks and builds pass. Cross-HTTP capture/writer/triage/scope/MCP/restart test passes; 32 real HTTPS auth/privacy/MCP checks pass; Factory/Jev saved person-bound Axe fact and Claude desk-assistant completed two runtime invocations. Final integration PR records ancestry and supersedes old dispatch/triage PRs. Linux Droid dispatch, live Stop/schedules/docs and full finance benchmark remain outside the measured completion. Agent run/step/inbox and revoked-version telemetry now persist atomically and have a dedicated restart regression."
+    },
+    {
+      "id": "A22",
+      "owner": "A",
+      "milestone": "M3",
+      "priority": "must",
+      "state": "done",
+      "title": "Pipeline PRD: the core loop end to end on Claude Code",
+      "note": "docs/PIPELINE-PRD.md on main (#33): measured state per stage, gaps with owners, rules, acceptance stories."
+    },
+    {
+      "id": "A23",
+      "owner": "A",
+      "milestone": "M3",
+      "priority": "must",
+      "state": "doing",
+      "title": "Core loop on main: e2e test, CORS for PATCH/PUT, URL-token redaction, doctor and hook follow-ups",
+      "note": "Branch a/loop-on-main. Done: e2e/ workspace (7 tests, real server + distiller handler + hooks), CORS allows PUT/PATCH, unparseable URLs no longer echoed/logged with ?token=, startServer exposes living and restored. Left: doctor connector checks, hooks resolveEnv + worktree .env, install.mjs --mcp, benchmark results. See docs/LANE-A-HANDOFF.md."
     }
   ],
   "tracks": [

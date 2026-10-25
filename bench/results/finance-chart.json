@@ -1,0 +1,26 @@
+{
+  "generated_at": "2026-10-25T05:40:57.198Z",
+  "simulated": true,
+  "series": [
+    {
+      "setup": "no-memory",
+      "leak_rate": 0,
+      "missing_context_rate": 0.933
+    },
+    {
+      "setup": "shared-memory",
+      "leak_rate": 0.167,
+      "missing_context_rate": 0
+    },
+    {
+      "setup": "bullwark-claude",
+      "leak_rate": 0.119,
+      "missing_context_rate": 0.1
+    },
+    {
+      "setup": "bullwark-jev",
+      "leak_rate": 0.136,
+      "missing_context_rate": 0.067
+    }
+  ]
+}
