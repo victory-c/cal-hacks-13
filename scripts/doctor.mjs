@@ -47,10 +47,17 @@ if (!existsSync(envPath)) {
   else warn("CANON_CLIENT_TOKENS empty: every MCP call will be refused");
 }
 
+// Same precedence as env() in shared/src/env.ts: a variable already in the process environment
+// wins over .env (process.loadEnvFile never overrides it), and an empty value counts as unset.
+const setting = (name, fallback) => {
+  const v = process.env[name] ?? env[name];
+  return v === undefined || v === "" ? fallback : v;
+};
+
 // Ports
 const ports = {
-  server: Number(env.CANON_PORT ?? process.env.CANON_PORT ?? 4100),
-  web: Number(env.WEB_PORT ?? process.env.WEB_PORT ?? 4200),
+  server: Number(setting("CANON_PORT", "4100")),
+  web: Number(setting("WEB_PORT", "4200")),
   "status board": 4173,
 };
 for (const [name, port] of Object.entries(ports)) {
@@ -73,9 +80,9 @@ try {
   bad(`status.json: ${err.message}`);
 }
 
-// Fact store + cold archive. Same resolution as dataDir() in shared/src/env.ts: process env
-// wins over .env, relative paths hang off the repo root.
-const rawData = process.env.CANON_DATA_DIR || env.CANON_DATA_DIR || "data";
+// Fact store + cold archive. Same resolution as dataDir() in shared/src/env.ts: relative paths
+// hang off the repo root.
+const rawData = setting("CANON_DATA_DIR", "data");
 const dataDir = isAbsolute(rawData) ? rawData : join(root, rawData);
 const relData = relative(root, dataDir);
 const shownData = relData === "" ? "." : relData.startsWith("..") ? dataDir : relData; // absolute when outside the repo, like seed.ts
