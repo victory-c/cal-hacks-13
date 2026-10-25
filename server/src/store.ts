@@ -21,6 +21,7 @@ export interface ListFactsFilter {
 export class FileStore {
   private readonly facts = new Map<string, Fact>();
   private readonly sessionIds = new Set<string>();
+  private readonly sessionClients = new Map<string, string>();
 
   constructor(readonly dir: string) {}
 
@@ -30,6 +31,7 @@ export class FileStore {
   async loadAll(): Promise<{ facts: number; sessions: number; skipped: number }> {
     this.facts.clear();
     this.sessionIds.clear();
+    this.sessionClients.clear();
     let skipped = 0;
 
     for (const file of await listFiles(join(this.dir, "facts"), ".md")) {
@@ -46,9 +48,10 @@ export class FileStore {
       const id = basename(file, ".json");
       try {
         if (!SESSION_ID_RE.test(id)) throw new Error(`file name is not a session id (${SESSION_ID_RE})`);
-        const parsed = JSON.parse(await readFile(file, "utf8")) as { id?: unknown };
+        const parsed = JSON.parse(await readFile(file, "utf8")) as { id?: unknown; client?: unknown };
         if (parsed?.id !== id) throw new Error(`"id" inside the file (${String(parsed?.id)}) does not match the file name`);
         this.sessionIds.add(id);
+        if (typeof parsed.client === "string") this.sessionClients.set(id, parsed.client);
       } catch (err) {
         skipped++;
         console.warn(`[store] skipping ${file}: ${message(err)}`);
@@ -99,7 +102,13 @@ export class FileStore {
     const updated = this.sessionIds.has(session.id);
     await writeAtomic(this.sessionFile(session.id), JSON.stringify(session, null, 2) + "\n");
     this.sessionIds.add(session.id);
+    this.sessionClients.set(session.id, session.client);
     return { updated };
+  }
+
+  /** Session metadata for synchronous SSE authorization; no transcript is exposed. */
+  sessionClient(id: string): string | undefined {
+    return this.sessionClients.get(id);
   }
 
   async getSession(id: string): Promise<CapturedSession | undefined> {

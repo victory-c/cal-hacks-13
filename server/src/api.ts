@@ -48,11 +48,15 @@ export function grants(deps: ApiDeps): GrantsResponse {
 
 // ---------------------------------------------------------------------- sessions
 
-/** POST /api/sessions: cold archive upsert. `client` is the authenticated one. */
+/** POST /api/sessions: cold archive upsert by the original capturing client. */
 export async function postSession(deps: ApiDeps, client: string, body: unknown): Promise<PostSessionResponse> {
   const session = parseSession(body);
   if (session.client !== client) {
     throw new HttpError(403, `body.client is "${session.client}" but the token belongs to "${client}"`);
+  }
+  const existing = await deps.store.getSession(session.id);
+  if (existing && existing.client !== client) {
+    throw new HttpError(403, `${client} cannot update session ${session.id}`);
   }
   const { updated } = await deps.store.putSession(session);
   deps.bus.emit({
@@ -142,9 +146,9 @@ function parseDecision(raw: unknown, fact: Fact, where: string): SaveDecision {
 }
 
 /**
- * POST /api/facts: the distiller files decided facts. All entries are validated before any
- * write. "supersede"/"merge" retires the old fact to cold (Jev never deletes) and emits
- * fact.retired; every new fact emits fact.saved.
+ * POST /api/facts: the distiller files decided facts. All entries and existing facts they
+ * mutate are authorized before any write. "supersede"/"merge" retires the old fact to cold
+ * (Jev never deletes) and emits fact.retired; every new fact emits fact.saved.
  */
 export async function postFacts(deps: ApiDeps, client: string, body: unknown): Promise<PostFactsResponse> {
   const grant = grantFor(deps.grants, client);
@@ -166,28 +170,41 @@ export async function postFacts(deps: ApiDeps, client: string, body: unknown): P
     return { fact: v.fact, decision: parseDecision(entry.decision, v.fact, `facts[${i}].decision`) };
   });
 
-  for (const { fact } of entries) {
-    if (!canWrite(grant, fact.folder)) {
-      deps.bus.emit({ type: "access.denied", client, tool: "POST /api/facts", folder: fact.folder });
-      throw new HttpError(403, `${client} cannot write ${fact.folder}`);
+  const requireWrite = (folder: Folder, existing = false) => {
+    if (!canWrite(grant, folder)) {
+      deps.bus.emit({ type: "access.denied", client, tool: "POST /api/facts", folder });
+      throw new HttpError(403, existing ? `${client} cannot modify an existing fact` : `${client} cannot write ${folder}`);
     }
+  };
+  for (const { fact, decision } of entries) {
+    requireWrite(fact.folder);
+    // An allowed destination cannot authorize moving or overwriting a restricted fact by ID.
+    const existing = deps.store.getFact(fact.id);
+    if (existing) requireWrite(existing.folder, true);
+    // Retirement is a write to the old fact's folder, regardless of the replacement's folder.
+    const oldId = decision.action === "supersede" || decision.action === "merge" ? decision.supersedes : undefined;
+    const old = oldId ? deps.store.getFact(oldId) : undefined;
+    if (old) requireWrite(old.folder, true);
   }
 
   const saved: string[] = [];
   const retired: string[] = [];
   for (const { fact, decision } of entries) {
+    let retiredId: string | undefined;
     const oldId = decision.action === "supersede" || decision.action === "merge" ? decision.supersedes : undefined;
     if (oldId) {
       const old = deps.store.getFact(oldId);
       if (old) {
         await deps.store.putFact({ ...old, tier: "cold" });
-        deps.bus.emit({ type: "fact.retired", id: old.id, superseded_by: fact.id });
+        retiredId = old.id;
         retired.push(old.id);
       } else {
         console.warn(`[api] ${fact.id} ${decision.action}s ${oldId}, which is not in the store; saving anyway`);
       }
     }
     await deps.store.putFact(fact);
+    // Both ids must be canonical before event subscribers authorize their visibility.
+    if (retiredId) deps.bus.emit({ type: "fact.retired", id: retiredId, superseded_by: fact.id });
     deps.bus.emit({ type: "fact.saved", fact, decision });
     saved.push(fact.id);
   }
