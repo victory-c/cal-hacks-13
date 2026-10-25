@@ -10,11 +10,13 @@ import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { test } from "node:test";
 
-import { KIND, MESSAGE_MAX, buildSession, gitInfo, makeTitle, normalizePrincipal, parseTranscript, readDotEnv, sessionIdFor, stripHarness } from "../claude-code/lib.mjs";
-import { capturePath, commandFor, mergeSettings, snippet, writeSettings } from "../claude-code/install.mjs";
+import { KIND, MEMORY_PREFIX, MESSAGE_MAX, buildSession, formatContext, gitInfo, makeTitle, normalizePrincipal, parseTranscript, readDotEnv, resolveEnv, sessionIdFor, stripHarness } from "../claude-code/lib.mjs";
+import { HOOK_SCRIPTS, PROJECT_COMMAND, capturePath, commandFor, commandsFor, mcpAddCommand, mergeSettings, projectCommands, snippet, writeSettings } from "../claude-code/install.mjs";
 
 const HOOKS_DIR = resolve(dirname(fileURLToPath(import.meta.url)), "..");
+const REPO_DIR = resolve(HOOKS_DIR, "..");
 const CAPTURE = join(HOOKS_DIR, "claude-code", "canon-capture.mjs");
+const CONTEXT = join(HOOKS_DIR, "claude-code", "canon-context.mjs");
 const INSTALL = join(HOOKS_DIR, "claude-code", "install.mjs");
 const TRANSCRIPT = join(HOOKS_DIR, "fixtures", "transcript.jsonl");
 const PAYLOAD = JSON.parse(readFileSync(join(HOOKS_DIR, "fixtures", "stop-payload.json"), "utf8"));
@@ -23,8 +25,9 @@ PAYLOAD.transcript_path = resolve(HOOKS_DIR, PAYLOAD.transcript_path);
 
 const transcriptText = readFileSync(TRANSCRIPT, "utf8");
 const FIXTURE_LINES = transcriptText.trim().split("\n").length;
-// 13 lines → 4 messages (one per turn): tool_result-only, isMeta, sidechain, system and summary
-// lines are dropped, and the assistant lines between two user prompts merge into one message.
+// 14 lines → 4 messages (one per turn): tool_result-only, isMeta, sidechain, attachment (injected
+// memory), system and summary lines are dropped, and the assistant lines between two user prompts
+// merge into one message.
 const EXPECTED_MESSAGES = 4;
 
 // ---------- lib: parseTranscript ----------
@@ -55,6 +58,41 @@ test("parseTranscript summarises tools per turn and skips tool_result/isMeta/sid
   assert.doesNotMatch(all, /local-command-caveat/, "isMeta line leaked");
   assert.doesNotMatch(all, /SIDECHAIN/, "isSidechain line leaked");
   assert.doesNotMatch(all, /turn_duration/, "system line leaked");
+});
+
+// Claude Code stores what a UserPromptSubmit hook adds as a separate `attachment` record
+// (hook_additional_context), not inside the user message. The fixture pins that record so a parser
+// change that started capturing hook context would fail here: a person's memory, served by
+// canon-context.mjs, must never come back as a new fact.
+test("parseTranscript drops the hook_additional_context attachment: injected memory is never captured back", () => {
+  const records = transcriptText.trim().split("\n").map((line) => JSON.parse(line));
+  const attachment = records.find((r) => r.type === "attachment");
+  assert.equal(attachment?.attachment?.type, "hook_additional_context");
+  assert.equal(attachment.attachment.hookEvent, "UserPromptSubmit");
+  assert.ok(attachment.attachment.content[0].startsWith(MEMORY_PREFIX), "the fixture carries our own hook's output");
+
+  const msgs = parseTranscript(transcriptText);
+  assert.equal(msgs.length, EXPECTED_MESSAGES);
+  for (const m of msgs) {
+    assert.doesNotMatch(m.content, /Bullwark memory for this request/);
+    assert.doesNotMatch(m.content, /180,000 TMC/, "a fact from the injected memory leaked into a captured message");
+  }
+});
+
+test("parseTranscript drops a text block that opens with the memory header, should Claude Code ever inline it", () => {
+  const memory = formatContext({ facts: [{ id: "f1", statement: "The desk is long 180,000 TMC shares", folder: "desk/dollar-bill", updated: "2026-10-23" }] });
+  assert.ok(memory.startsWith(MEMORY_PREFIX), "formatContext and the parser share the header");
+  const lines = [
+    JSON.stringify({ type: "user", message: { content: [{ type: "text", text: memory }, { type: "text", text: "What is our TMC position now?" }] } }),
+    JSON.stringify({ type: "user", message: { content: `<system-reminder>worktree</system-reminder>\n\n${memory}` } }),
+    JSON.stringify({ type: "assistant", message: { content: [{ type: "text", text: "You are long 180,000 TMC shares." }] } }),
+  ].join("\n");
+  assert.deepEqual(
+    parseTranscript(lines).map((m) => m.content),
+    ["What is our TMC position now?", "You are long 180,000 TMC shares."],
+    "the memory block goes, the prompt beside it stays, a memory-only turn is dropped, the assistant's own words are kept",
+  );
+  assert.equal(stripHarness(memory), memory, "stripHarness is tags only; the block filter does this");
 });
 
 test("parseTranscript joins text blocks, drops thinking, survives bad lines", () => {
@@ -141,15 +179,18 @@ test("buildSession fills the CapturedSession shape; ended_at only on SessionEnd"
   assert.match(live.title, /^Build the Claude Code capture hook/);
   assert.equal(live.messages.length, EXPECTED_MESSAGES);
   assert.deepEqual(live.meta, { cwd: PAYLOAD.cwd, repo: "victory-c/canon", branch: "b/hook", hook_event: "Stop" });
+  assert.equal(live.external, false, "a Claude Code session is the firm's own text");
 
   const ended = buildSession({ payload: PAYLOAD, messages, hookEvent: "SessionEnd", git: {} });
   assert.ok(typeof ended.ended_at === "string" && !Number.isNaN(Date.parse(ended.ended_at)));
   assert.equal(ended.meta.hook_event, "SessionEnd");
   assert.equal("repo" in ended.meta, false, "undefined meta keys are dropped");
+  assert.equal(ended.external, false);
 
   const empty = buildSession({ payload: { session_id: "s" }, messages: [], hookEvent: "Stop" });
   assert.ok(!Number.isNaN(Date.parse(empty.started_at)), "falls back to now");
   assert.equal(empty.title, undefined);
+  assert.equal(empty.external, false, "external is false on every session, never left to the server to guess");
 });
 
 test("buildSession v2: kind is always ai_session; principal only when set, trimmed and lowercased", () => {
@@ -157,6 +198,7 @@ test("buildSession v2: kind is always ai_session; principal only when set, trimm
   const anon = buildSession({ payload: PAYLOAD, messages, hookEvent: "Stop" });
   assert.equal(anon.kind, "ai_session");
   assert.equal(anon.kind, KIND);
+  assert.equal(anon.external, false);
   assert.equal("principal" in anon, false, "no principal key when CANON_PRINCIPAL is unset");
 
   const dan = buildSession({ payload: PAYLOAD, messages, hookEvent: "Stop", principal: " Dan " });
@@ -226,6 +268,20 @@ test("readDotEnv parses the flat .env format and ignores noise", () => {
   assert.deepEqual(readDotEnv(join(dir, "missing.env")), {});
 });
 
+test("resolveEnv (shared by both hooks): process env, then the .env at CANON_REPO_ROOT; '' when set nowhere", () => {
+  const root = mkdtempSync(join(tmpdir(), "canon-resolve-"));
+  writeFileSync(join(root, ".env"), "CANON_PERSON_TOKEN=from-file\nCANON_URL=http://file:1\n");
+  const env = { CANON_REPO_ROOT: root, CANON_URL: "http://env:2" };
+  assert.deepEqual(resolveEnv(["CANON_URL", "CANON_PERSON_TOKEN", "CANON_PRINCIPAL"], env), {
+    CANON_URL: "http://env:2",
+    CANON_PERSON_TOKEN: "from-file",
+    CANON_PRINCIPAL: "",
+  });
+  // An empty process value does not shadow the file; a name set nowhere is "" (never undefined).
+  assert.equal(resolveEnv(["CANON_URL"], { CANON_REPO_ROOT: root, CANON_URL: "" }).CANON_URL, "http://file:1");
+  assert.deepEqual(resolveEnv(["CANON_NOT_A_KEY"], { CANON_REPO_ROOT: root }), { CANON_NOT_A_KEY: "" });
+});
+
 test("gitInfo never throws: {} outside a repo, an object inside one", () => {
   assert.deepEqual(gitInfo(mkdtempSync(join(tmpdir(), "canon-nogit-"))), {});
   assert.deepEqual(gitInfo(undefined), {});
@@ -236,12 +292,16 @@ test("gitInfo never throws: {} outside a repo, an object inside one", () => {
 
 // ---------- end to end: canon-capture.mjs as a child process ----------
 
+/** The test's environment without any CANON_* key, so a developer's own shell never leaks in. */
+function cleanEnv() {
+  return Object.fromEntries(Object.entries(process.env).filter(([k]) => !k.startsWith("CANON_")));
+}
+
 /** Runs the hook exactly as Claude Code does: payload on stdin, env, exit code back. */
 function runHook(payload, env) {
   return new Promise((done) => {
-    const clean = Object.fromEntries(Object.entries(process.env).filter(([k]) => !k.startsWith("CANON_")));
     const started = Date.now();
-    const child = spawn(process.execPath, [CAPTURE], { env: { ...clean, ...env }, stdio: ["pipe", "pipe", "pipe"] });
+    const child = spawn(process.execPath, [CAPTURE], { env: { ...cleanEnv(), ...env }, stdio: ["pipe", "pipe", "pipe"] });
     let stdout = "";
     let stderr = "";
     child.stdout.on("data", (d) => (stdout += d));
@@ -251,16 +311,19 @@ function runHook(payload, env) {
   });
 }
 
-/** Our stand-in for the Canon server: records every request, answers like POST /api/sessions. */
-async function fakeServer() {
+/**
+ * Our stand-in for the Canon server: records every request, answers like POST /api/sessions.
+ * `status` + `reply` (JSON) or `rawBody` (sent as-is, for a non-JSON error page) override the answer.
+ */
+async function fakeServer({ status = 200, reply, rawBody } = {}) {
   const hits = [];
   const server = createHttpServer((req, res) => {
     let body = "";
     req.on("data", (d) => (body += d));
     req.on("end", () => {
       hits.push({ method: req.method, url: req.url, headers: req.headers, body: body ? JSON.parse(body) : null });
-      res.writeHead(200, { "content-type": "application/json" });
-      res.end(JSON.stringify({ id: hits.at(-1).body?.id, updated: hits.length > 1 }));
+      res.writeHead(status, { "content-type": rawBody !== undefined ? "text/html" : "application/json" });
+      res.end(rawBody !== undefined ? rawBody : JSON.stringify(reply ?? { id: hits.at(-1).body?.id, updated: hits.length > 1 }));
     });
   });
   await new Promise((r) => server.listen(0, "127.0.0.1", r));
@@ -323,17 +386,23 @@ test("e2e v2: CANON_PRINCIPAL (env, then .env) is sent as principal with kind ai
     const anon = await runHook(PAYLOAD, base);
     assert.equal(anon.code, 0, anon.stderr);
     assert.equal(srv.hits[0].body.kind, "ai_session");
+    assert.equal(srv.hits[0].body.external, false);
     assert.equal("principal" in srv.hits[0].body, false, "unset → no principal key");
-    assert.doesNotMatch(anon.stderr, / as /);
+    assert.match(anon.stderr, / as claude-code → 200/, "the debug line says which mode: the operator token");
+    assert.doesNotMatch(anon.stderr, /principal/);
 
     const env = await runHook(PAYLOAD, { ...base, CANON_PRINCIPAL: "Dan" });
     assert.equal(env.code, 0, env.stderr);
     assert.equal(env.stdout, "");
     assert.equal(env.stderr.trim().split("\n").length, 1, `one debug line expected:\n${env.stderr}`);
-    assert.match(env.stderr, / as dan → 200/);
-    assert.equal(srv.hits[1].body.principal, "dan");
+    assert.match(env.stderr, / as claude-code, principal dan → 200/);
+    assert.equal(srv.hits[1].body.principal, "dan", "operator mode still names CANON_PRINCIPAL; the server decides whether this token may");
     assert.equal(srv.hits[1].body.kind, "ai_session");
     assert.equal(srv.hits[1].body.id, srv.hits[0].body.id, "same session id either way");
+    const named = await runHook(PAYLOAD, { ...base, CANON_PRINCIPAL: "Dan Okafor" });
+    assert.match(named.stderr, / as claude-code with no principal \(CANON_PRINCIPAL is not an id like dan\) → 200/);
+    assert.equal("principal" in srv.hits[2].body, false);
+    srv.hits.splice(2, 1);
 
     writeFileSync(join(root, ".env"), "CANON_PRINCIPAL=priya\n");
     const dotenv = await runHook(PAYLOAD, base);
@@ -343,6 +412,97 @@ test("e2e v2: CANON_PRINCIPAL (env, then .env) is sent as principal with kind ai
     assert.equal(srv.hits[3].body.principal, "leo", "process env wins over .env");
   } finally {
     await srv.close();
+  }
+});
+
+// One token for both directions (PIPELINE-PRD 4.1): with CANON_PERSON_TOKEN the capture hook posts
+// with the same token the context hook reads with, and names nobody; the server binds the author.
+test("e2e: CANON_PERSON_TOKEN (env, then .env) is the bearer token; the body names no principal and says external: false", async () => {
+  const srv = await fakeServer();
+  try {
+    const root = mkdtempSync(join(tmpdir(), "canon-person-"));
+    writeFileSync(join(root, ".env"), "# nothing here\n");
+    const base = { CANON_URL: srv.url, CANON_REPO_ROOT: root, CANON_DEBUG: "1" };
+
+    // The operator settings may still be present (a shared .env); the person token wins and CANON_PRINCIPAL is not sent.
+    const r = await runHook(PAYLOAD, { ...base, CANON_PERSON_TOKEN: "tok-bill", CANON_TOKEN_CLAUDE_CODE: "operator-token", CANON_PRINCIPAL: "dan" });
+    assert.equal(r.code, 0, r.stderr);
+    assert.equal(r.stdout, "", "stdout must stay empty: Claude Code reads it as a hook decision");
+    assert.equal(r.stderr.trim().split("\n").length, 1, `one debug line expected:\n${r.stderr}`);
+    assert.match(r.stderr, / \d+ msgs as person token → 200\n$/, "the debug line says which mode");
+    assert.doesNotMatch(r.stderr, /dev token|principal|tok-bill/);
+    assert.equal(srv.hits.length, 1);
+    const [hit] = srv.hits;
+    assert.equal(hit.headers.authorization, "Bearer tok-bill", "the person token, not CANON_TOKEN_CLAUDE_CODE");
+    assert.equal("principal" in hit.body, false, "a body principal would be a 403: the server binds the author to the token");
+    assert.equal(hit.body.client, "claude-code", "the capture source stays a label (Rule 2)");
+    assert.equal(hit.body.external, false, "a Claude Code session is the firm's own text");
+    assert.equal(hit.body.kind, "ai_session");
+    assert.equal(hit.body.id, sessionIdFor(PAYLOAD.session_id));
+    assert.equal(hit.body.messages.length, EXPECTED_MESSAGES);
+
+    // From .env, through the same resolveEnv the context hook uses.
+    writeFileSync(join(root, ".env"), "CANON_PERSON_TOKEN=tok-from-dotenv\nCANON_PRINCIPAL=dan\n");
+    const dotenv = await runHook(PAYLOAD, base);
+    assert.equal(dotenv.code, 0, dotenv.stderr);
+    assert.match(dotenv.stderr, / as person token → 200/);
+    assert.equal(srv.hits[1].headers.authorization, "Bearer tok-from-dotenv");
+    assert.equal("principal" in srv.hits[1].body, false);
+
+    await runHook(PAYLOAD, { ...base, CANON_PERSON_TOKEN: "tok-env" });
+    assert.equal(srv.hits[2].headers.authorization, "Bearer tok-env", "process env wins over .env");
+
+    // Silent without CANON_DEBUG, as ever.
+    const quiet = await runHook(PAYLOAD, { CANON_URL: srv.url, CANON_REPO_ROOT: root, CANON_PERSON_TOKEN: "tok-bill" });
+    assert.equal(quiet.stderr, "");
+    assert.equal(quiet.stdout, "");
+  } finally {
+    await srv.close();
+  }
+});
+
+// Rule 2: a capture token may not name a principal unless it is ingest or internal. The server
+// says so in its error; a misconfigured machine must show that reason in its one debug line.
+test("e2e: a refusal's error text reaches the debug line, so a misconfigured machine says why", async () => {
+  const root = mkdtempSync(join(tmpdir(), "canon-refused-"));
+  writeFileSync(join(root, ".env"), "");
+  const base = { CANON_REPO_ROOT: root, CANON_TOKEN_CLAUDE_CODE: "test-token", CANON_PRINCIPAL: "dan", CANON_DEBUG: "1" };
+
+  const refused = await fakeServer({ status: 403, reply: { error: "client claude-code may not name a principal: set CANON_PERSON_TOKEN" } });
+  try {
+    const r = await runHook(PAYLOAD, { ...base, CANON_URL: refused.url });
+    assert.equal(r.code, 0, r.stderr);
+    assert.equal(r.stdout, "");
+    assert.equal(r.stderr.trim().split("\n").length, 1, `one debug line expected:\n${r.stderr}`);
+    assert.match(r.stderr, / as claude-code, principal dan → 403 \(server rejected: client claude-code may not name a principal: set CANON_PERSON_TOKEN\)\n$/);
+    assert.equal(refused.hits[0].body.principal, "dan", "operator mode still sends CANON_PRINCIPAL; the server refuses, the hook reports");
+
+    const quiet = await runHook(PAYLOAD, { ...base, CANON_URL: refused.url, CANON_DEBUG: "" });
+    assert.equal(quiet.code, 0);
+    assert.equal(quiet.stderr, "", "a refusal is still silent without CANON_DEBUG");
+  } finally {
+    await refused.close();
+  }
+
+  // Any other body shape still gives one clean line: no error field, a non-string error, a long
+  // multi-line one (collapsed and cut), or an HTML error page.
+  const shapes = [
+    [{ status: 401, reply: { message: "unknown token" } }, / → 401 \(server rejected: unknown token\)/],
+    [{ status: 400, reply: {} }, / → 400 \(server rejected\)\n$/],
+    [{ status: 400, reply: { error: 42 } }, / → 400 \(server rejected\)\n$/],
+    [{ status: 422, reply: { error: `line one\n  line two ${"x".repeat(300)}` } }, / → 422 \(server rejected: line one line two x{100,}…\)\n$/],
+    [{ status: 502, rawBody: "<html>bad gateway</html>" }, / → 502 \(server rejected\)\n$/],
+  ];
+  for (const [answer, want] of shapes) {
+    const srv = await fakeServer(answer);
+    try {
+      const r = await runHook(PAYLOAD, { ...base, CANON_URL: srv.url });
+      assert.equal(r.code, 0);
+      assert.equal(r.stderr.trim().split("\n").length, 1, r.stderr);
+      assert.match(r.stderr, want);
+    } finally {
+      await srv.close();
+    }
   }
 });
 
@@ -417,16 +577,20 @@ test("e2e: exits 0 within 5s when CANON_URL points at a closed port", async () =
 
 // ---------- install.mjs ----------
 
-test("install snippet points at the real absolute path for Stop and SessionEnd", async () => {
+test("install snippet points at the real absolute paths: Stop + SessionEnd → capture, UserPromptSubmit → context", async () => {
   const s = snippet();
-  assert.deepEqual(Object.keys(s.hooks), ["Stop", "SessionEnd"]);
-  for (const ev of ["Stop", "SessionEnd"]) {
+  assert.deepEqual(Object.keys(s.hooks), ["Stop", "SessionEnd", "UserPromptSubmit"]);
+  assert.deepEqual(HOOK_SCRIPTS, { Stop: "canon-capture.mjs", SessionEnd: "canon-capture.mjs", UserPromptSubmit: "canon-context.mjs" });
+  for (const ev of ["Stop", "SessionEnd", "UserPromptSubmit"]) {
     const [group] = s.hooks[ev];
+    assert.equal(group.hooks.length, 1);
     assert.equal(group.hooks[0].type, "command");
-    assert.ok(group.hooks[0].command.includes(CAPTURE), group.hooks[0].command);
+    assert.ok(group.hooks[0].command.includes(ev === "UserPromptSubmit" ? CONTEXT : CAPTURE), group.hooks[0].command);
     assert.ok(group.hooks[0].command.startsWith("node "));
+    assert.equal(group.hooks[0].timeout, 15);
   }
   assert.ok(existsSync(capturePath()));
+  assert.ok(existsSync(CONTEXT));
   assert.equal(commandFor("/plain/path.mjs"), "node /plain/path.mjs");
   assert.equal(commandFor("/with space/path.mjs"), "node '/with space/path.mjs'");
 
@@ -465,6 +629,8 @@ test("install --write merges into settings.json, keeps other hooks, backs up, is
   assert.deepEqual(merged.hooks.Stop[0], other);
   assert.ok(merged.hooks.Stop[1].hooks[0].command.includes(CAPTURE));
   assert.equal(merged.hooks.SessionEnd.length, 1);
+  assert.equal(merged.hooks.UserPromptSubmit.length, 1);
+  assert.ok(merged.hooks.UserPromptSubmit[0].hooks[0].command.includes(CONTEXT));
 
   const second = await run();
   assert.equal(second.code, 0);
@@ -477,9 +643,83 @@ test("install --write merges into settings.json, keeps other hooks, backs up, is
   assert.deepEqual(JSON.parse(readFileSync(fresh, "utf8")), snippet());
   assert.equal(existsSync(`${fresh}.bak`), false, "no backup for a new file");
 
-  // Pure merge: replaces an older Canon entry instead of duplicating it.
-  const stale = { hooks: { Stop: [{ hooks: [{ type: "command", command: "node /old/path/canon-capture.mjs" }] }] } };
-  const replaced = mergeSettings(stale, "/new/canon-capture.mjs");
+  // Pure merge: replaces an older Canon entry (either script) instead of duplicating it.
+  const stale = {
+    hooks: {
+      Stop: [{ hooks: [{ type: "command", command: "node /old/path/canon-capture.mjs" }] }],
+      UserPromptSubmit: [{ hooks: [{ type: "command", command: "node /old/path/canon-context.mjs" }] }],
+    },
+  };
+  const replaced = mergeSettings(stale, commandsFor("/new"));
   assert.equal(replaced.hooks.Stop.length, 1);
   assert.equal(replaced.hooks.Stop[0].hooks[0].command, "node /new/canon-capture.mjs");
+  assert.equal(replaced.hooks.UserPromptSubmit.length, 1);
+  assert.equal(replaced.hooks.UserPromptSubmit[0].hooks[0].command, "node /new/canon-context.mjs");
+});
+
+// Claude Code expands ${CLAUDE_PROJECT_DIR} in both Git Bash and PowerShell; the bare
+// $CLAUDE_PROJECT_DIR is $null under PowerShell, and the hook silently never runs there.
+test("committed .claude/settings.json: three events, braced ${CLAUDE_PROJECT_DIR} commands, timeout 15; the snippet file matches", () => {
+  const settings = JSON.parse(readFileSync(join(REPO_DIR, ".claude", "settings.json"), "utf8"));
+  const want = projectCommands();
+  assert.deepEqual(Object.keys(want), Object.keys(HOOK_SCRIPTS));
+  for (const [ev, script] of Object.entries(HOOK_SCRIPTS)) {
+    const groups = settings.hooks[ev];
+    assert.equal(groups.length, 1, `${ev}: one Bullwark group`);
+    assert.equal(groups[0].hooks.length, 1);
+    const [hook] = groups[0].hooks;
+    assert.equal(hook.type, "command");
+    assert.equal(hook.command, want[ev]);
+    assert.equal(hook.command, `node "\${CLAUDE_PROJECT_DIR}/hooks/claude-code/${script}"`);
+    assert.doesNotMatch(hook.command, /\$CLAUDE_PROJECT_DIR/, "the bare form");
+    assert.equal(hook.timeout, 15, "SessionEnd hooks get 1.5 s unless they declare one");
+  }
+  assert.equal(PROJECT_COMMAND, 'node "${CLAUDE_PROJECT_DIR}/hooks/claude-code/canon-capture.mjs"');
+
+  // --project on a file written with the bare form replaces the entry rather than adding a second.
+  const stale = { hooks: { Stop: [{ hooks: [{ type: "command", command: 'node "$CLAUDE_PROJECT_DIR/hooks/claude-code/canon-capture.mjs"', timeout: 15 }] }] } };
+  const fixed = mergeSettings(stale, projectCommands());
+  assert.equal(fixed.hooks.Stop.length, 1);
+  assert.equal(fixed.hooks.Stop[0].hooks[0].command, want.Stop);
+
+  // settings.snippet.json: the same three entries with a placeholder absolute path, for pasting by hand.
+  const snip = JSON.parse(readFileSync(join(HOOKS_DIR, "claude-code", "settings.snippet.json"), "utf8"));
+  assert.deepEqual(Object.keys(snip.hooks), Object.keys(HOOK_SCRIPTS));
+  for (const [ev, script] of Object.entries(HOOK_SCRIPTS)) {
+    const [hook] = snip.hooks[ev][0].hooks;
+    assert.equal(hook.command, `node /ABSOLUTE/PATH/TO/canon/hooks/claude-code/${script}`);
+    assert.equal(hook.timeout, 15);
+  }
+});
+
+test("install --mcp prints the claude mcp add command with the placeholder, never the token; --show-token prints the value", async () => {
+  const root = mkdtempSync(join(tmpdir(), "canon-mcp-"));
+  writeFileSync(join(root, ".env"), "CANON_URL=http://canon.example:4100/\nCANON_PERSON_TOKEN=secret-bill\n");
+  const run = (...args) =>
+    new Promise((done) => {
+      const child = spawn(process.execPath, [INSTALL, ...args], { env: { ...cleanEnv(), CANON_REPO_ROOT: root } });
+      let stdout = "";
+      let stderr = "";
+      child.stdout.on("data", (d) => (stdout += d));
+      child.stderr.on("data", (d) => (stderr += d));
+      child.on("close", (code) => done({ code, stdout, stderr }));
+    });
+
+  const hidden = await run("--mcp");
+  assert.equal(hidden.code, 0, hidden.stderr);
+  assert.equal(hidden.stdout.trim(), 'claude mcp add --transport http bullwark --scope user "http://canon.example:4100/mcp" --header "Authorization: Bearer ${CANON_PERSON_TOKEN}"');
+  assert.doesNotMatch(hidden.stdout + hidden.stderr, /secret-bill/, "a real token never reaches the terminal by default");
+  assert.match(hidden.stderr, /--show-token/);
+
+  const shown = await run("--mcp", "--show-token");
+  assert.equal(shown.code, 0);
+  assert.equal(shown.stdout.trim(), mcpAddCommand({ url: "http://canon.example:4100", token: "secret-bill" }));
+
+  // Defaults: no CANON_URL → 127.0.0.1:4100 (as in .mcp.json); --show-token with no token → the dev operator token, and a note.
+  writeFileSync(join(root, ".env"), "");
+  const bare = await run("--mcp", "--show-token");
+  assert.equal(bare.stdout.trim(), 'claude mcp add --transport http bullwark --scope user "http://127.0.0.1:4100/mcp" --header "Authorization: Bearer dev-claude-code"');
+  assert.match(bare.stderr, /CANON_PERSON_TOKEN is not set/);
+  const placeholder = await run("--mcp");
+  assert.equal(placeholder.stdout.trim(), mcpAddCommand());
 });

@@ -3,14 +3,18 @@
 // Reads the hook payload from stdin, turns the transcript into a CapturedSession and POSTs it
 // to the Canon server, which upserts by id (Stop = live update, SessionEnd = final, ended_at).
 //
+// One token for both directions: with CANON_PERSON_TOKEN set (the same value canon-context.mjs
+// reads), the session is posted with it and names no principal; the server binds the author to
+// the token. Without it, the operator path: CANON_TOKEN_CLAUDE_CODE (or the dev token) plus an
+// optional CANON_PRINCIPAL, which the server accepts only from ingest or an internal client.
+//
 // Non-negotiable: this must NEVER block or break the user's session. Everything is caught,
 // the exit code is always 0, stdout stays empty (Claude Code reads a Stop hook's stdout as a
 // decision), and stderr gets one short line only when CANON_DEBUG=1.
 
 import { existsSync, readFileSync } from "node:fs";
 import { resolve } from "node:path";
-import { fileURLToPath } from "node:url";
-import { buildSession, gitInfo, parseTranscript, readDotEnv } from "./lib.mjs";
+import { CLIENT, buildSession, gitInfo, parseTranscript, resolveEnv } from "./lib.mjs";
 
 const DEFAULT_URL = "http://localhost:4100";
 // Same value as the server's dev fallback (server/src/auth.ts DEV_CLIENT_TOKENS) and .env.example,
@@ -20,8 +24,11 @@ const POST_TIMEOUT_MS = 3000;
 // If anything hangs (a stuck stdin, a slow DNS), leave anyway. Unref'd so it never keeps the
 // process alive on its own.
 const WATCHDOG_MS = 10_000;
+/** Longest server error text folded into the debug line; the line stays one line either way. */
+const ERROR_MAX = 200;
 
-const debug = process.env.CANON_DEBUG === "1" ? (msg) => process.stderr.write(`[canon] ${msg}\n`) : () => {};
+const DEBUG = process.env.CANON_DEBUG === "1";
+const debug = DEBUG ? (msg) => process.stderr.write(`[canon] ${msg}\n`) : () => {};
 
 process.on("uncaughtException", (err) => bail(`uncaught: ${String(err?.message ?? err)}`));
 process.on("unhandledRejection", (err) => bail(`unhandled: ${String(err?.message ?? err)}`));
@@ -47,7 +54,7 @@ async function main() {
   const messages = parseTranscript(readFileSync(transcriptPath, "utf8"));
   if (messages.length === 0) return debug("skip: transcript has 0 messages");
 
-  const { url, token, devToken, principal } = resolveConfig();
+  const { url, token, person, devToken, principal } = resolveConfig();
   // Folded into the one debug line below (never a second line): the fallback stays visible.
   const tokenNote = devToken ? " (dev token: CANON_TOKEN_CLAUDE_CODE not set)" : "";
 
@@ -56,7 +63,9 @@ async function main() {
     messages,
     hookEvent: payload.hook_event_name,
     git: gitInfo(payload.cwd ?? process.cwd()),
-    principal,
+    // A person token names nobody: the server binds the author to the token, and a body field
+    // naming anyone is one constant 403 (PIPELINE-PRD, Rule 1).
+    principal: person ? undefined : principal,
   });
 
   const endpoint = `${url.replace(/\/$/, "")}/api/sessions`;
@@ -74,32 +83,54 @@ async function main() {
     const why = err?.cause?.code ?? err?.cause?.message ?? err?.name ?? String(err?.message ?? err);
     return debug(`POST ${endpoint} failed: ${why} (is the Bullwark server running?)${tokenNote}`);
   }
-  const as = session.principal ? ` as ${session.principal}` : principal.trim() ? ` with no principal (CANON_PRINCIPAL is not an id like dan)` : "";
-  debug(`${payload.hook_event_name ?? "?"} ${session.id} ${messages.length} msgs${as} → ${res.status}${res.ok ? "" : " (server rejected)"}${tokenNote}`);
+  // Only the debug line reads the body, so the silent path does no more work than before.
+  const rejected = res.ok ? "" : ` (server rejected${DEBUG ? await serverError(res) : ""})`;
+  debug(`${payload.hook_event_name ?? "?"} ${session.id} ${messages.length} msgs ${describeAuth(session, person, principal)} → ${res.status}${rejected}${tokenNote}`);
 }
 
 /**
- * CANON_URL / CANON_TOKEN_CLAUDE_CODE / CANON_PRINCIPAL: process env wins, then the repo .env.
- * The repo is CANON_REPO_ROOT when set, else the checkout this script lives in
- * (hooks/claude-code → ../../). No token anywhere → DEV_TOKEN, the same default the server
- * accepts without a .env; `devToken` says so, so the fallback can be surfaced in the debug line.
- * No principal anywhere → none is sent, and the session's facts have no author.
+ * Which mode the hook used, for the debug line: `as person token` (CANON_PERSON_TOKEN; the server
+ * knows who), `as claude-code, principal dan` (operator token naming an author), `as claude-code
+ * with no principal (…)` (CANON_PRINCIPAL set but not an id), or plain `as claude-code`.
+ */
+function describeAuth(session, person, principal) {
+  if (person) return "as person token";
+  if (session.principal) return `as ${CLIENT}, principal ${session.principal}`;
+  if (principal.trim()) return `as ${CLIENT} with no principal (CANON_PRINCIPAL is not an id like dan)`;
+  return `as ${CLIENT}`;
+}
+
+/**
+ * The server's `error` text from a non-2xx JSON body, as `: <text>`, so a misconfigured machine
+ * says why in its one debug line (a capture token naming a principal, an unknown token…).
+ * Defensive: a body of any shape, or none at all, gives "".
+ */
+async function serverError(res) {
+  try {
+    const body = JSON.parse(await res.text());
+    const text = typeof body?.error === "string" ? body.error : typeof body?.message === "string" ? body.message : "";
+    const oneLine = text.replace(/\s+/g, " ").trim();
+    if (!oneLine) return "";
+    return `: ${oneLine.length > ERROR_MAX ? `${oneLine.slice(0, ERROR_MAX)}…` : oneLine}`;
+  } catch {
+    return "";
+  }
+}
+
+/**
+ * CANON_URL / CANON_PERSON_TOKEN / CANON_TOKEN_CLAUDE_CODE / CANON_PRINCIPAL through resolveEnv
+ * (lib.mjs, shared with canon-context.mjs): process env wins, then the repo .env (CANON_REPO_ROOT
+ * when set, else the checkout this script lives in). CANON_PERSON_TOKEN set → the person path:
+ * that token, no principal in the body. Else the operator path: CANON_TOKEN_CLAUDE_CODE, or
+ * DEV_TOKEN (the same default the server accepts without a .env; `devToken` says so, so the
+ * fallback can be surfaced in the debug line), plus CANON_PRINCIPAL when set.
  */
 function resolveConfig() {
-  const candidates = [];
-  if (process.env.CANON_REPO_ROOT) candidates.push(resolve(process.env.CANON_REPO_ROOT, ".env"));
-  candidates.push(fileURLToPath(new URL("../../.env", import.meta.url)));
-
-  let fileEnv = {};
-  for (const path of candidates) {
-    if (existsSync(path)) {
-      fileEnv = readDotEnv(path);
-      break;
-    }
-  }
-  const pick = (name) => process.env[name] || fileEnv[name] || "";
-  const token = pick("CANON_TOKEN_CLAUDE_CODE");
-  return { url: pick("CANON_URL") || DEFAULT_URL, token: token || DEV_TOKEN, devToken: !token, principal: pick("CANON_PRINCIPAL") };
+  const env = resolveEnv(["CANON_URL", "CANON_PERSON_TOKEN", "CANON_TOKEN_CLAUDE_CODE", "CANON_PRINCIPAL"]);
+  const url = env.CANON_URL || DEFAULT_URL;
+  if (env.CANON_PERSON_TOKEN) return { url, token: env.CANON_PERSON_TOKEN, person: true, devToken: false, principal: "" };
+  const token = env.CANON_TOKEN_CLAUDE_CODE;
+  return { url, token: token || DEV_TOKEN, person: false, devToken: !token, principal: env.CANON_PRINCIPAL };
 }
 
 function readStdin() {

@@ -94,6 +94,28 @@ test("e2e: nothing kept, a slash command, or an error status prints nothing and 
   }
 });
 
+test("e2e: CANON_PERSON_TOKEN and CANON_URL from the repo .env, through the lookup shared with the capture hook", async () => {
+  const srv = await fakeServer(RESULT);
+  try {
+    // resolveEnv (lib.mjs): process env, then the .env at CANON_REPO_ROOT. One implementation for
+    // both hooks, so the token that captures is the token that reads.
+    const root = mkdtempSync(join(tmpdir(), "canon-context-env-"));
+    writeFileSync(join(root, ".env"), `CANON_URL=${srv.url}\nCANON_PERSON_TOKEN=tok-from-dotenv\nCANON_CONTEXT_BUDGET=300\n`);
+    const r = await runHook({ prompt: "Anything on TMC?" }, { CANON_REPO_ROOT: root });
+    assert.equal(r.code, 0);
+    assert.equal(srv.hits.length, 1);
+    assert.equal(srv.hits[0].headers.authorization, "Bearer tok-from-dotenv");
+    assert.equal(srv.hits[0].body.budget_tokens, 300);
+    assert.equal(JSON.parse(r.stdout).hookSpecificOutput.additionalContext, formatContext(RESULT));
+
+    const env = await runHook({ prompt: "Anything on TMC?" }, { CANON_REPO_ROOT: root, CANON_PERSON_TOKEN: "tok-env" });
+    assert.equal(env.code, 0);
+    assert.equal(srv.hits[1].headers.authorization, "Bearer tok-env", "process env wins over .env");
+  } finally {
+    await srv.close();
+  }
+});
+
 test("e2e: a closed port or garbage stdin still exits 0 quickly with nothing printed", async () => {
   const port = await new Promise((r) => {
     const s = createServer();

@@ -23,7 +23,7 @@
     "doctor": "node scripts/doctor.mjs",
     "dev": "node scripts/dev.mjs",
     "typecheck": "npm run typecheck --workspaces --if-present",
-    "test": "npm test --workspaces --if-present && node --test scripts/preview-gateway.test.mjs",
+    "test": "npm test --workspaces --if-present && node --test \"scripts/*.test.mjs\"",
     "build": "npm run build --workspaces --if-present",
     "status": "node status/sync.mjs",
     "status:check": "node status/sync.mjs --check",

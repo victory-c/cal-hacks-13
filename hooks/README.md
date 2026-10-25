@@ -12,8 +12,10 @@ Two capture paths live here:
 - `ingest/`: a CLI that posts firm content (memos, team chat, meeting transcripts, email, notes)
   as client `ingest`. See [Ingest CLI](#ingest-cli-hooksingest).
 
-And one read path: `claude-code/canon-context.mjs`, which adds a person's memory to every prompt
-([Context hook](#context-hook-claude-codecanon-contextmjs)).
+And two read paths: `claude-code/canon-context.mjs`, which adds a person's memory to every prompt
+([Context hook](#context-hook-claude-codecanon-contextmjs)), and the repo's `.mcp.json`, which
+gives Claude Code the `canon_*` tools on demand ([MCP connector](#mcp-connector-mcpjson)). One
+value, `CANON_PERSON_TOKEN`, drives all three ([One token, both directions](#one-token-both-directions)).
 
 ## Context hook (`claude-code/canon-context.mjs`)
 
@@ -28,7 +30,7 @@ gets nothing added: no refusal, no hint. A slash command is never sent.
 
 | Env (process env, then the repo `.env`) | |
 |---|---|
-| `CANON_PERSON_TOKEN` | The person's own client token (`dev-dollar-bill` in `.env.example`). **Unset = the hook does nothing.** |
+| `CANON_PERSON_TOKEN` | The person's own client token (`dev-dollar-bill` is the demo value; see `.env.example`). The same value the capture hook posts with. **Unset = the hook does nothing.** |
 | `CANON_URL` | Default `http://localhost:4100` |
 | `CANON_CONTEXT_BUDGET` | Optional token budget for the slice (server default otherwise) |
 | `CANON_CONTEXT=0` | Opt out for one shell |
@@ -38,6 +40,34 @@ timeout, 12 s watchdog), stdout carries only the context JSON, and `CANON_DEBUG=
 to stderr. Measured on live Jev (Sat 10/24, demo world, Dollar Bill): "Anything going on with
 Taylor Mason Capital? Should we add to our position?" added 9 public and desk facts (143 est.
 tokens); "What price are we offering for Taylor Mason…?" and "Write me a haiku" added nothing.
+
+## One token, both directions
+
+A person sets **one value**, `CANON_PERSON_TOKEN` (process env, then the repo `.env`), and both
+hooks and the MCP connector act as that person:
+
+| Direction | Script | With `CANON_PERSON_TOKEN` | Without it |
+|---|---|---|---|
+| Write | `canon-capture.mjs` (`Stop`, `SessionEnd`) | Posts the session with the person's token and **names no principal**; the server binds the author to the token | Operator capture: `CANON_TOKEN_CLAUDE_CODE` (else the dev token), plus `CANON_PRINCIPAL` when set |
+| Read, every prompt | `canon-context.mjs` (`UserPromptSubmit`) | Asks `POST /api/handoff` with the token; only that person's scope is a candidate | Does nothing |
+| Read, on demand | `.mcp.json` → `/mcp` | `Authorization: Bearer ${CANON_PERSON_TOKEN}` from the shell environment | The dev operator token: scaffold folders, nobody's scope |
+
+The server side is the capture-source rule (`docs/PIPELINE-PRD.md`, Rule 2): **auth is the
+token; `client` is a label** saying where the text came from (`claude-code`, `chatgpt`,
+`ingest`). A per-person token may post any capture source, and its sessions are authored by its
+principal; a body `principal` naming anyone else is one constant 403 whether or not that person
+exists. A token with no principal (`claude-code`, `chatgpt`) may post only its own source and may
+**not** name a principal unless it is an internal client or `ingest` (tools a moderator runs,
+which file items for their real authors); the 403 it gets says to set `CANON_PERSON_TOKEN`, and
+the hook's debug line repeats that text. So `CANON_PRINCIPAL` only has an effect together with
+`CANON_TOKEN_INGEST`; set beside the hook's operator token it is refused, visibly, never filed.
+Ownership of an existing session (the `Stop` upsert) is checked by principal for person tokens,
+by client otherwise.
+
+Every Claude Code session is sent with `kind: "ai_session"` and `external: false`: it is the
+firm's own text, so triage reads it as such instead of treating an unknown origin as possibly
+outside the firm. The server keeps `principal`, `kind` and `external` in the archive, and the
+distiller writes the principal as `Fact.author`.
 
 ## The principal is the author
 
@@ -50,7 +80,7 @@ and the capture clients never guess it:
 
 | Client | `kind` | `principal` |
 |---|---|---|
-| Claude Code hook | `ai_session` | `CANON_PRINCIPAL` (process env, then `.env`) |
+| Claude Code hook | `ai_session` | the token's own principal, bound on the server (`CANON_PERSON_TOKEN`); on the operator path `CANON_PRINCIPAL` (process env, then `.env`), which the server accepts only from `ingest` or an internal client |
 | ChatGPT extension | `ai_session` | the principal field on its options page |
 | Ingest CLI | per file (below) | front-matter, else a firm email's sender, else `--principal`. Never mail from outside the firm, an email recipient, or a chat or meeting speaker. Names and addresses go through `--principals FILE` |
 
@@ -59,22 +89,17 @@ All three take an **id**, trimmed and lowercased: `Dan` → `dan`, and an agent 
 and is never guessed into one: `Dan Okafor`, `Okafor, Dan`, `D. Okafor` and
 `dan.okafor@harborlane.com` give no principal (taking the first token made `Leo Chen` Leo Brandt,
 and gave Dan the ids `okafor` and `d`). Only the ingest CLI maps names and addresses to ids, and
-only through an explicit directory (`--principals`, below). When no principal is set the field is
-left out, and the session's facts have no author, so they join a scope only by passing that
-scope's checks (exclusions in code, then Moss and Jev against the task). The hook's debug line
-shows the principal: `Stop ses_3f9a1c2b 8 msgs as dan → 200`, or `with no principal
-(CANON_PRINCIPAL is not an id like dan)`. The extension's options page says so too. `external:
-true` (ingest only) marks text from outside the firm, which triage reads with extra suspicion for
-instructions aimed at an AI.
+only through an explicit directory (`--principals`, below). On the operator path, when no
+principal is set the field is left out, and the session's facts have no author, so they join a
+scope only by passing that scope's checks (exclusions in code, then Moss and Jev against the
+task). The hook's debug line shows it: `Stop ses_3f9a1c2b 8 msgs as claude-code, principal dan →
+200`, or `as claude-code with no principal (CANON_PRINCIPAL is not an id like dan)`. The
+extension's options page says so too. `external: true` (ingest only) marks text from outside the
+firm, which triage reads with extra suspicion for instructions aimed at an AI; the Claude Code
+hook always sends `external: false`.
 
-Set your own id only. The server takes `principal` from the body today, so a wrong
-`CANON_PRINCIPAL` files your facts as someone else's memories. Binding it to the client token is
-lane A's side.
-
-**Today's server keeps only the original session keys** (`server/src/api.ts` `parseSession`),
-so `principal`, `kind` and `external` are accepted and dropped until lane A's server keeps them,
-and the distiller does not write `Fact.author` from the principal yet. Nothing breaks either way:
-the POST is the same route.
+With `CANON_PERSON_TOKEN` none of this is on the client: the hook names nobody, the server binds
+the author to the token, and a wrong id cannot file your facts as someone else's memories.
 
 ## What is captured, and when
 
@@ -92,10 +117,17 @@ consecutive lines of a role merge and the turn's tools become one last line, `[t
 Edit]`. Harness-injected tags in user turns (`<system-reminder>`, `<command-name>`,
 `<local-command-stdout>`, `<task-notification>`…) are stripped; a turn left empty is dropped.
 Everything else is dropped too (tool results, thinking, images, `isMeta` skill bodies,
-`isSidechain` subagent turns, attachments, summaries, system lines). A message is capped at 8,000
-chars. On a real 4.2 MB transcript this gives 8 messages, ~6 KB. `id` is `ses_` + 8 hex of
-sha1(Claude's session_id), so it is stable for the session. `title` is the first user message
-cut to 80 chars; `meta` carries `cwd`, `repo`, `branch` (best-effort `git`) and `hook_event`.
+`isSidechain` subagent turns, attachments, summaries, system lines). Attachments include **our
+own injected memory**: Claude Code stores what the context hook adds to a prompt as a separate
+`attachment` record (`hook_additional_context`, rendered as role `system`), never inside the user
+message, so a person's memory is not captured back as a new fact. `fixtures/transcript.jsonl`
+carries one such record, and the test asserts it is dropped and that no captured message contains
+`Bullwark memory for this request`; as a second fence, a text block that opens with that line is
+dropped even if a future Claude Code inlined it. A message is capped at 8,000 chars. On a real
+4.2 MB transcript this gives 8 messages, ~6 KB. `id` is `ses_` + 8 hex of sha1(Claude's
+session_id), so it is stable for the session. `title` is the first user message cut to 80 chars;
+`meta` carries `cwd`, `repo`, `branch` (best-effort `git`) and `hook_event`; `kind` is
+`ai_session` and `external` is `false`.
 
 **It can never block or break a session.** Everything is caught, the exit code is always 0,
 stdout stays empty (a Stop hook's stdout is read as a decision), the POST times out after 3 s and
@@ -104,42 +136,85 @@ a 10 s watchdog ends the process no matter what. Missing transcript or 0 message
 ## Install
 
 **Already installed for this repo.** `.claude/settings.json` (committed) wires `Stop` and
-`SessionEnd` to `node "$CLAUDE_PROJECT_DIR/hooks/claude-code/canon-capture.mjs"`, so every
-Claude Code session in any clone or worktree of Bullwark posts to your local server. Nothing outside
-the repo is touched. With no server running the hook exits silently in milliseconds. Set
-`CANON_CAPTURE=0` in your environment to opt out. Start a **new** session after pulling: Claude
-Code reads hooks at session start.
+`SessionEnd` to `node "${CLAUDE_PROJECT_DIR}/hooks/claude-code/canon-capture.mjs"` and
+`UserPromptSubmit` to `…/canon-context.mjs`, each with `timeout: 15`, so every Claude Code
+session in any clone or worktree of Bullwark posts to your local server and reads your memory
+from it. The braced `${CLAUDE_PROJECT_DIR}` is deliberate: Claude Code expands it in both Git
+Bash and PowerShell, while the bare `$CLAUDE_PROJECT_DIR` is `$null` under PowerShell and the
+hook silently never runs. Nothing outside the repo is touched. With no server running the hooks
+exit silently in milliseconds. Set `CANON_CAPTURE=0` (capture) or `CANON_CONTEXT=0` (context) in
+your environment to opt out. Start a **new** session after pulling: Claude Code reads hooks at
+session start.
 
-To capture **every** project on your machine (the real product), install at user scope:
+To run the hooks for **every** project on your machine (the real product), install at user scope:
 
 ```bash
-node hooks/claude-code/install.mjs              # print the hooks JSON with this checkout's absolute path
+node hooks/claude-code/install.mjs              # print the hooks JSON with this checkout's absolute paths
 node hooks/claude-code/install.mjs --write      # merge into ~/.claude/settings.json (backup .bak, other hooks kept)
-node hooks/claude-code/install.mjs --project    # rewrite the repo's .claude/settings.json (only if you change it)
+node hooks/claude-code/install.mjs --project    # rewrite the repo's .claude/settings.json (only if you change it; byte-identical today)
+node hooks/claude-code/install.mjs --mcp        # print the `claude mcp add` command for the MCP connector (below)
 ```
 
-`claude-code/settings.snippet.json` is the same snippet with a placeholder path, for pasting by
-hand. Re-running replaces the old Bullwark entry. Don't install both user and project scope, or a
-Bullwark-repo session posts twice (harmless upsert, wasted work).
+`claude-code/settings.snippet.json` is the same three entries with a placeholder path, for
+pasting by hand. Re-running replaces the old Bullwark entries (either script, an old path or the
+bare `$CLAUDE_PROJECT_DIR`). Don't install both user and project scope, or a Bullwark-repo session
+posts twice (harmless upsert, wasted work).
 
-Config resolution, per key (`CANON_URL`, `CANON_TOKEN_CLAUDE_CODE`, `CANON_PRINCIPAL`): process
-env → `.env` at `CANON_REPO_ROOT` → `.env` in this checkout (`../../.env` from the script).
-`CANON_URL` defaults to `http://localhost:4100`.
-`CANON_TOKEN_CLAUDE_CODE` defaults to `dev-claude-code`, the same dev value the server accepts
-when it has no `.env` (`server/src/auth.ts`), so a fresh clone captures with no setup; set a
-real token in `.env` to override it.
+Config resolution is one function for both hooks and `install.mjs` (`resolveEnv` in `lib.mjs`),
+per key: process env → `.env` at `CANON_REPO_ROOT` → `.env` in this checkout (`../../.env` from
+the script). Keys: `CANON_URL` (default `http://localhost:4100`), `CANON_PERSON_TOKEN`,
+`CANON_TOKEN_CLAUDE_CODE`, `CANON_PRINCIPAL`, `CANON_CONTEXT_BUDGET`. `CANON_TOKEN_CLAUDE_CODE`
+defaults to `dev-claude-code`, the same dev value the server accepts when it has no `.env`
+(`server/src/auth.ts`), so a fresh clone captures with no setup (and no author); set
+`CANON_PERSON_TOKEN` to capture and read as yourself.
+
+## MCP connector (`.mcp.json`)
+
+The repo root's `.mcp.json` (committed) registers one HTTP MCP server, `bullwark`, at
+`${CANON_URL:-http://127.0.0.1:4100}/mcp` with the header `Authorization: Bearer
+${CANON_PERSON_TOKEN:-dev-claude-code}`. Claude Code expands `${VAR:-default}` in `url` and
+`headers` from **the shell environment it was started in**, not from `.env`: export
+`CANON_PERSON_TOKEN` in that shell, or start Claude Code from a shell that sourced `.env`. With
+nothing exported the server sees the dev operator token and the tools serve the scaffold folders;
+with your token they serve your scope (`canon_context`, `canon_search`, `canon_whoami`,
+`canon_save`) through the same server handoff the context hook uses, so the two can never
+disagree.
+
+What you see: Claude Code asks once per clone whether to use the project's MCP servers (approve
+`bullwark`); `claude mcp list` shows `bullwark` with its `/mcp` URL as connected when the server
+is up and as `Failed to connect` when it is down, and nothing else breaks either way. Anyone who
+prefers not to use the project file registers it at user scope with the command `install.mjs
+--mcp` prints:
+
+```bash
+node hooks/claude-code/install.mjs --mcp                # claude mcp add --transport http bullwark --scope user "<CANON_URL>/mcp" --header "Authorization: Bearer ${CANON_PERSON_TOKEN}"
+node hooks/claude-code/install.mjs --mcp --show-token   # the same, with the real token value in place of the placeholder
+```
+
+Without `--show-token` the token is always the `${CANON_PERSON_TOKEN}` placeholder, so a real
+value never lands in a scrollback or a pasted log by accident. `npm run doctor` checks that
+`CANON_PERSON_TOKEN`, when set, is a value in `CANON_CLIENT_TOKENS` whose client is a person in
+`fixtures/world/world.json`, that `.mcp.json` parses with the `bullwark` entry, that the committed
+hooks are wired with the braced placeholder, and warns when neither `CANON_PERSON_TOKEN` nor
+`CANON_PRINCIPAL` is set (captures would have no author); `hooks/test/mcp.test.mjs` pins the
+file's shape.
 
 ## Test and smoke
 
 ```bash
-npm test -w hooks         # node:test, offline, ~1.5 s: hook lib + install + the hook as a child process, ingest parsing + CLI against a port-0 server
-npm run typecheck -w hooks  # node --check on the five scripts (no TypeScript here)
+npm test -w hooks         # node:test, offline, ~3 s: hook lib + install + both hooks as child processes + .mcp.json, ingest parsing + CLI against a port-0 server
+npm run typecheck -w hooks  # node --check on the six scripts (no TypeScript here)
 npm run smoke -w hooks    # runs the real hook on fixtures/stop-payload.json against CANON_URL with CANON_DEBUG=1
 ```
 
-`fixtures/transcript.jsonl` is a 13-line Claude Code transcript (4 turns after filtering);
+`fixtures/transcript.jsonl` is a 14-line Claude Code transcript (4 turns after filtering),
+including one `attachment` record of injected memory that must never be captured;
 `fixtures/stop-payload.json` is the matching `Stop` payload. The test "real Claude Code
-transcript shapes" pins the line shapes copied from a real Claude Code 2.1 transcript.
+transcript shapes" pins the line shapes copied from a real Claude Code 2.1 transcript. The hook
+tests also run both token modes as child processes (person token: the bearer is the token, no
+`principal`, `external: false`; operator: `CANON_TOKEN_CLAUDE_CODE` + `CANON_PRINCIPAL`), a 403
+whose `error` text must reach the debug line, the committed `.claude/settings.json` (three
+events, braced `${CLAUDE_PROJECT_DIR}`, timeout 15), `.mcp.json` and `install.mjs --mcp`.
 
 **Verified end to end (B1):** `claude -p` in this repo ran the committed hook on `SessionEnd`; the
 server archived the session with `ended_at`, branch and repo; the distiller worker picked it up
@@ -147,10 +222,17 @@ over SSE and saved a fact; the dashboard showed the session and the fact live.
 
 ## Debug
 
-Set `CANON_DEBUG=1` in the environment Claude Code runs in. The hook then writes exactly one
-line to stderr per run, e.g. `[canon] Stop ses_3f9a1c2b 8 msgs → 200`, or the reason it skipped
-(`transcript not found`, `0 messages`, a fetch error). When no token is configured the same line
-ends with `(dev token: CANON_TOKEN_CLAUDE_CODE not set)`. Without it the hook is silent.
+Set `CANON_DEBUG=1` in the environment Claude Code runs in. The capture hook then writes exactly
+one line to stderr per run, and the line says which token mode it used: `[canon] Stop
+ses_3f9a1c2b 8 msgs as person token → 200` (`CANON_PERSON_TOKEN`), `… as claude-code → 200`
+(operator token, no author), `… as claude-code, principal dan → 200` (operator token naming
+`CANON_PRINCIPAL`), or the reason it skipped (`transcript not found`, `0 messages`, a fetch
+error). A refusal carries the server's reason: `… as claude-code, principal dan → 403 (server
+rejected: client claude-code may not name a principal: set CANON_PERSON_TOKEN)`, collapsed to one
+line and cut at 200 characters; a body with no `error` text gives `(server rejected)`. When no
+token is configured the line ends with `(dev token: CANON_TOKEN_CLAUDE_CODE not set)`. The
+context hook writes `handoff → 4 facts, 83 tokens` or its skip reason. Without `CANON_DEBUG`
+both hooks are silent.
 
 ## Ingest CLI (`hooks/ingest/`)
 
@@ -301,8 +383,9 @@ run after one line. Exit code: 0 all posted, 1 anything failed (a POST, or a fil
 be read or parsed in full, also on `--dry-run`), 2 bad flags or paths, or a session id clash.
 
 **Verified against today's server** (Sat 05:00, `CANON_CLIENT_TOKENS` with `ingest=dev-ingest`):
-all 5 world items archived, a second run printed `updated` for the same ids. The archive kept
-the original keys only (see [The principal is the author](#the-principal-is-the-author) above).
+all 5 world items archived, a second run printed `updated` for the same ids. The archive of that
+day kept the original keys only; the server has since kept `principal`, `kind` and `external`
+(see [One token, both directions](#one-token-both-directions) above).
 
 ### Dan's ChatGPT session without the extension
 
@@ -359,6 +442,9 @@ simulated, so nothing is labelled simulated. The sample world is synthetic data 
 ## Privacy
 
 Only the transcript text reaches the server: user and assistant messages and tool names, never
-tool output, file contents returned by tools, thinking blocks, or harness-injected context. The server is yours
-(`CANON_URL`, localhost by default). The client token lives in `.env`, which is gitignored; it
-never goes into `settings.json` or git.
+tool output, file contents returned by tools, thinking blocks, or harness-injected context,
+including the memory our own context hook added (an `attachment` record, dropped; pinned by the
+fixture test). The server is yours (`CANON_URL`, localhost by default). Your token lives in
+`.env`, which is gitignored, or in your shell environment for the MCP header; it never goes into
+`settings.json`, `.mcp.json` (which holds only the `${CANON_PERSON_TOKEN}` reference) or git, and
+`install.mjs --mcp` prints the placeholder unless you ask for the value.

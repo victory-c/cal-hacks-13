@@ -6,18 +6,16 @@
 // needs stored context at all and which facts help, and a token budget caps the slice. The hook
 // only formats the reply (formatContext in lib.mjs).
 //
-// Off unless CANON_PERSON_TOKEN is set (the person's own token, e.g. dev-dollar-bill): the
-// principal comes from that token on the server, never from this machine.
+// Off unless CANON_PERSON_TOKEN is set (the person's own token, e.g. dev-dollar-bill, the one
+// value canon-capture.mjs posts with too): the principal comes from that token on the server,
+// never from this machine.
 //
 // Non-negotiable, as for the capture hook: this must NEVER block or break the user's session.
 // Everything is caught and the exit code is always 0. stdout carries only the JSON that adds
 // context, and only when there is some; on any failure the prompt goes through untouched, and
 // stderr gets one short line when CANON_DEBUG=1.
 
-import { existsSync } from "node:fs";
-import { resolve } from "node:path";
-import { fileURLToPath } from "node:url";
-import { formatContext, readDotEnv } from "./lib.mjs";
+import { formatContext, resolveEnv } from "./lib.mjs";
 
 const DEFAULT_URL = "http://localhost:4100";
 // A live handoff is two judge calls; leave room for them, but never hold a prompt for long.
@@ -71,23 +69,14 @@ async function main() {
 }
 
 /**
- * CANON_URL / CANON_PERSON_TOKEN / CANON_CONTEXT_BUDGET: process env wins, then the repo .env
- * (CANON_REPO_ROOT when set, else the checkout this script lives in), as in canon-capture.mjs.
+ * CANON_URL / CANON_PERSON_TOKEN / CANON_CONTEXT_BUDGET through resolveEnv (lib.mjs): process env
+ * wins, then the repo .env (CANON_REPO_ROOT when set, else the checkout this script lives in).
+ * The same lookup canon-capture.mjs uses, so one CANON_PERSON_TOKEN serves both directions.
  */
 function resolveConfig() {
-  const candidates = [];
-  if (process.env.CANON_REPO_ROOT) candidates.push(resolve(process.env.CANON_REPO_ROOT, ".env"));
-  candidates.push(fileURLToPath(new URL("../../.env", import.meta.url)));
-  let fileEnv = {};
-  for (const path of candidates) {
-    if (existsSync(path)) {
-      fileEnv = readDotEnv(path);
-      break;
-    }
-  }
-  const pick = (name) => process.env[name] || fileEnv[name] || "";
-  const budget = Number(pick("CANON_CONTEXT_BUDGET"));
-  return { url: pick("CANON_URL") || DEFAULT_URL, token: pick("CANON_PERSON_TOKEN"), budget: Number.isFinite(budget) && budget > 0 ? budget : undefined };
+  const env = resolveEnv(["CANON_URL", "CANON_PERSON_TOKEN", "CANON_CONTEXT_BUDGET"]);
+  const budget = Number(env.CANON_CONTEXT_BUDGET);
+  return { url: env.CANON_URL || DEFAULT_URL, token: env.CANON_PERSON_TOKEN, budget: Number.isFinite(budget) && budget > 0 ? budget : undefined };
 }
 
 function readStdin() {

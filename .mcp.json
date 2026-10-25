@@ -1,0 +1,9 @@
+{
+  "mcpServers": {
+    "bullwark": {
+      "type": "http",
+      "url": "${CANON_URL:-http://127.0.0.1:4100}/mcp",
+      "headers": { "Authorization": "Bearer ${CANON_PERSON_TOKEN:-dev-claude-code}" }
+    }
+  }
+}
