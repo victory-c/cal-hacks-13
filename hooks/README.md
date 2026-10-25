@@ -55,8 +55,9 @@ hooks and the MCP connector act as that person:
 The server side is the capture-source rule (`docs/PIPELINE-PRD.md`, Rule 2): **auth is the
 token; `client` is a label** saying where the text came from (`claude-code`, `chatgpt`,
 `ingest`). A per-person token may post any capture source, and its sessions are authored by its
-principal; a body `principal` naming anyone else is one constant 403 whether or not that person
-exists. A token with no principal (`claude-code`, `chatgpt`) may post only its own source and may
+principal; a body `principal` naming anyone else is a 403 that echoes both names (`body.principal
+is "<named>" but this token captures for "<own>"`), the same whether or not that person exists. A
+token with no principal (`claude-code`, `chatgpt`) may post only its own source and may
 **not** name a principal unless it is an internal client or `ingest` (tools a moderator runs,
 which file items for their real authors); the 403 it gets says to set `CANON_PERSON_TOKEN`, and
 the hook's debug line repeats that text. So `CANON_PRINCIPAL` only has an effect together with
@@ -228,9 +229,10 @@ ses_3f9a1c2b 8 msgs as person token → 200` (`CANON_PERSON_TOKEN`), `… as cla
 (operator token, no author), `… as claude-code, principal dan → 200` (operator token naming
 `CANON_PRINCIPAL`), or the reason it skipped (`transcript not found`, `0 messages`, a fetch
 error). A refusal carries the server's reason: `… as claude-code, principal dan → 403 (server
-rejected: client claude-code may not name a principal: set CANON_PERSON_TOKEN)`, collapsed to one
-line and cut at 200 characters; a body with no `error` text gives `(server rejected)`. When no
-token is configured the line ends with `(dev token: CANON_TOKEN_CLAUDE_CODE not set)`. The
+rejected: "claude-code" has no principal and may not name one. Capture with your own token
+(CANON_PERSON_TOKEN); only internal clients and ingest file items for other authors.)`, collapsed
+to one line and cut at 200 characters; a body with no `error` text gives `(server rejected)`. When
+no token is configured the line ends with `(dev token: CANON_TOKEN_CLAUDE_CODE not set)`. The
 context hook writes `handoff → 4 facts, 83 tokens` or its skip reason. Without `CANON_DEBUG`
 both hooks are silent.
 
@@ -446,5 +448,6 @@ tool output, file contents returned by tools, thinking blocks, or harness-inject
 including the memory our own context hook added (an `attachment` record, dropped; pinned by the
 fixture test). The server is yours (`CANON_URL`, localhost by default). Your token lives in
 `.env`, which is gitignored, or in your shell environment for the MCP header; it never goes into
-`settings.json`, `.mcp.json` (which holds only the `${CANON_PERSON_TOKEN}` reference) or git, and
+`settings.json`, `.mcp.json` (which holds `${CANON_PERSON_TOKEN:-dev-claude-code}`: the reference
+plus the dev operator token as its default, never a person's value) or git, and
 `install.mjs --mcp` prints the placeholder unless you ask for the value.

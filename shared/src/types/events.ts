@@ -3,10 +3,10 @@
 // slack on Saturday). Every event carries `at` (ISO 8601).
 
 import type { AgentRun, AgentStep, DispatchRequest, InboxItem } from "./agents.ts";
-import type { HandoffCandidate } from "./api.ts";
+import type { AgentSummary, ContractHandoff, ContractPrincipal, HandoffCandidate } from "./api.ts";
 import type { ClientId, Fact, Folder } from "./fact.ts";
 import type { SaveDecision, TriageDecision } from "./judge.ts";
-import type { AuditEvent, Principal, QuarantineItem, ScopeStage } from "./scopes.ts";
+import type { AuditEvent, Group, Principal, QuarantineItem, ScopeStage } from "./scopes.ts";
 import type { SourceKind } from "./session.ts";
 
 export type DistillEngine = "droid" | "claude" | "heuristic";
@@ -23,7 +23,8 @@ export type CanonEvent =
     })
   | (Base & {
       type: "session.captured";
-      session: { id: string; client: ClientId; title?: string; messages: number; ended: boolean };
+      /** `client` is the capture source (claude-code, chatgpt, ingest); `principal` the author, when the token or the body named one. */
+      session: { id: string; client: ClientId; title?: string; messages: number; ended: boolean; principal?: string };
     })
   | (Base & { type: "distill.started"; session_id: string; engine: DistillEngine })
   | (Base & {
@@ -51,6 +52,8 @@ export type CanonEvent =
       retrieval_ms?: number;
       judge_ms?: number;
       enough: boolean;
+      /** On a moderator's or member's stream: the handoff behind this context, as the inspector shows it. */
+      handoff?: ContractHandoff;
     })
   | (Base & { type: "access.denied"; client: ClientId; tool: string; folder: Folder })
   // ---- Finance contract (A1). Server-emitted unless marked "relayed": those come from lane B's internal
@@ -138,6 +141,8 @@ export type CanonEvent =
   | (Base & {
       /** Every handoff, for the inspector: what was considered, what was cut, and why. */
       type: "handoff.served";
+      /** The audit row's id, which the inspector's record also carries. */
+      id?: string;
       principal: string;
       client?: ClientId;
       run_id?: string;
@@ -160,8 +165,18 @@ export type CanonEvent =
       request: DispatchRequest;
     })
   | (Base & { /** relayed (dispatcher) */ type: "agent.run"; run: AgentRun })
-  | (Base & { /** relayed (dispatcher) */ type: "agent.step"; step: AgentStep })
-  | (Base & { /** relayed (dispatcher) */ type: "agent.inbox"; item: InboxItem });
+  | (Base & { /** relayed (dispatcher); on a person's stream `run` adds the console's view of the agent */ type: "agent.step"; step: AgentStep; run?: AgentSummary })
+  | (Base & { /** relayed (dispatcher); on a person's stream `run` adds the console's view of the agent */ type: "agent.inbox"; item: InboxItem; run?: AgentSummary })
+  // ---- Console view (docs/INTEGRATION.md): what a moderator's or member's stream carries instead of
+  // the server's own names above. The server derives them; nobody publishes them.
+  | (Base & { type: "agent.started"; run: AgentSummary })
+  | (Base & { type: "agent.restarted"; run: AgentSummary })
+  | (Base & { type: "agent.finished"; run: AgentSummary })
+  | (Base & { type: "item.quarantined"; item_id: string; source: string; reason: string })
+  | (Base & { type: "item.released"; item_id: string; source: string; facts: number })
+  | (Base & { type: "principal.added"; principal: ContractPrincipal })
+  | (Base & { type: "principal.tier"; principal: ContractPrincipal })
+  | (Base & { type: "group.created"; group: Group });
 
 /** Event types lane B's internal workers may publish through POST /api/events. */
 export const RELAYED_EVENTS = ["triage.decided", "quarantine.flagged", "agent.run", "agent.step", "agent.inbox"] as const;

@@ -128,6 +128,13 @@ export function listAgents(deps: ScopesDeps, who: Principal): AgentsResponse {
       steps: [],
       files: [],
       inbox: [],
+      fact_count: deps.world.scopes.get(p.id)?.fact_ids.length ?? 0,
+      pending: 0,
+      finished_at: null,
+      leave_out: "",
+      docs: [],
+      schedule: "Only when I press Run",
+      outputs: [],
       task: deps.world.rules.get(p.id)?.task ?? "",
     });
   }

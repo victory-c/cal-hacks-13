@@ -186,8 +186,10 @@ records the repeat (its `session_id` and `relation_to`).
 item's principal; unset when the principal is unknown, never guessed), `happened` (a
 `YYYY-MM-DD` the writer read off the source, else dropped), `source`, and `decision.triage` (the
 full `TriageDecision`: outcome, keep, group and Jev's probability, `new_group`, labels, injection,
-relation, and a one-line `reason`, moderators only). `SaveDecision.folder_p` is Jev's probability
-for its pick.
+relation, and a one-line `reason`, moderators only). A Claude Code session captured with
+`CANON_PERSON_TOKEN` arrives with the person's principal (the server binds it from the token; the
+hook names none) and `external: false`, so its facts carry that person as `author`.
+`SaveDecision.folder_p` is Jev's probability for its pick.
 
 **Missing or neutral answers land on the safe side:** no `inject` answer is 0.5, so the item is
 quarantined; no `group` answer is unsure, so inbox; no label answer applies the label (a label
@@ -208,7 +210,7 @@ on. The facts are never sent again. A quarantine item's `quarantine.flagged` wai
 the event carries the server's id. Only a missing route (404 / 405) is skipped.
 
 **Against a server without the scopes routes** (`/api/groups`, `/api/quarantine` or
-`/api/events` answer 404, as today's does): the worker warns once per route for its whole life,
+`/api/events` answer 404, as an older one did): the worker warns once per route for its whole life,
 **files every fact in `inbox`** (`reason` says "the server gave no group list"), skips the
 quarantine item and events, and keeps running. Facts still go to `POST /api/facts`, which today's
 server accepts in `inbox` (one of the distiller's folders). The same holds when `GET /api/groups`
@@ -264,27 +266,31 @@ CLI say "simulated".
   state (`suggested_group`, `suggested_labels`); Jev picks, and the filing rules above decide.
 - **A quarantined draft's decision** says `group: "inbox"` and no labels: nothing from it is
   written, and its Jev answers came from a state that held an injection.
-- **A missing `external`, `kind` or `principal` is unknown, not the friendly default.** The
-  capture route can drop all three (today's `parseSession` in `server/` does), so a missing flag
+- **A missing `external`, `kind` or `principal` is unknown, not the friendly default.** An
+  earlier `parseSession` in `server/` dropped all three (today's keeps them); a missing flag
   may be an outside email that lost it. Triage does not apply the contract's "missing kind =
   `ai_session`" default for that reason. The offline judge reads unknown origin as possibly
   external: an order to an AI quarantines as always, and so does a request to send something out
   (any "forward/send ... to", and any send to an email address or an outside / personal one).
   Only the author's own plan ("before i send the LOI draft to the team") and "share" the noun
   ("per share ... a premium to") are let through, so the demo world's internal items still triage
-  when the server strips their flags. An item stated `external: false` is read as before. A fact
+  when an item arrives without its flags. An item stated `external: false` is read as before. A fact
   from an item with no principal has no `author`.
 
 ## Open
 
-- Server requests (lane A): `POST /api/sessions` must keep `external`, `kind` and `principal`
-  through `parseSession` and storage (asked in PR #7). Until it does, every item reaches triage as
-  unknown origin and every fact is written without an `author`, so living scopes cannot add a
-  member's own facts to their scope. The distiller's grant must let it write every group (today
-  it writes only `career`, `projects`, `team`, `private` and `inbox`, so a fact in `deal/falcon`
-  would be a 403 once `GET /api/groups` exists) and `GET /api/facts` (no tier: the worker reads
-  hot and cold) must return facts from every group to the distiller, or the relation and duplicate
-  rules cannot see them.
+**Served by the server today** (the lane A requests from PR #7). `POST /api/sessions` keeps
+`principal`, `kind` and `external` through `parseSession` and storage. A token with a principal (a
+person's `CANON_PERSON_TOKEN`) binds its sessions to that principal; a capture token without one
+that names a principal is refused, and only the ingest CLI and internal clients may name authors.
+The distiller writes `Fact.author` from the session principal (`provenance()` in `src/triage.ts`).
+The distiller's grant reads and writes every scaffold folder and top group (`ALL_FOLDERS` in
+`shared/src/types/grants.ts`); `POST /api/facts` also takes the server's listed groups from it, and
+`GET /api/facts` (no tier) returns every listed group to it, so the relation and duplicate rules see
+every stored fact. Measured in the Sat 10/24 live run (real Jev, Claude fact writer): the three
+facts filed in `desk/dollar-bill` with `author: dollar-bill` joined Dollar Bill's scope and his desk
+assistant's.
+
 - Long items: past 24 000 characters the judge reads the head, the tail and the suspect sentences
   code finds in the middle, so every draft from such an item waits in `inbox` (a long email thread
   with quoted history included). Once Jev's request size limit is known, raise the cap or ask

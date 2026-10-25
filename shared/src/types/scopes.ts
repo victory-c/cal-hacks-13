@@ -112,6 +112,7 @@ export const AUDIT_KINDS = [
   "fact.filed",
   "fact.edited",
   "fact.retired",
+  "group.created",
   "quarantine",
   "quarantine.released",
 ] as const;

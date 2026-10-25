@@ -1,6 +1,6 @@
 {
   "project": "Bullwark",
-  "updated": "2026-10-25T04:28:27Z",
+  "updated": "2026-10-25T04:36:47Z",
   "team": [
     {
       "id": "A",
@@ -245,6 +245,15 @@
       "state": "done",
       "title": "End-to-end test of the Claude Code loop (e2e/ workspace, in npm run check)",
       "note": "e2e/src/claude-code-loop.test.ts: the real server, the real distiller handler and the real hook scripts as child processes on the offline providers. Proves capture as the person token → heuristic distill + demo triage → desk facts in desk/dollar-bill joined Dollar Bill's and his assistant's scopes; a Stonewall rumor filed in deal/stonewall never joins his; the next prompt's context hook carries the new fact and a haiku gets nothing; MCP whoami/search/context/save as Dollar Bill; restart keeps scopes and audit; the bid question leaks nothing from any door. 7 tests, ~2 s. The rumor is a second session because triage's item backstop (lane B) sends a draft to inbox when its item names another group."
+    },
+    {
+      "id": "A26",
+      "owner": "A",
+      "milestone": "M3",
+      "priority": "must",
+      "state": "doing",
+      "title": "Moderator console parity: the routes and stream Edan's web/src/moderator calls",
+      "note": "Built as new modules, wiring pending the review pass: server/src/agent-runs.ts (the dispatcher's agent.run/step/inbox folded into the console's run state), server/src/handoffs.ts (inspector records, world/handoffs.jsonl), server/src/moderator.ts (GET /api/principals with rule+scope+creator, GET /api/principals/:id/scope, GET/POST /api/groups with display names, GET /api/inbox, GET /api/quarantine and /api/audit in the console's shapes, GET /api/handoffs, POST /api/agents/:id/stop → 501 until the dispatcher has a cancel request, the moderator stream in the contract's names incl. context.served carrying the handoff). Still to wire: router order, run tracker + handoff recording in the server, POST /api/principals {name, tier} without id or rule, session.captured carrying the capture source and principal."
     },
     {
       "id": "B1",

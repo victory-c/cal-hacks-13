@@ -13,6 +13,8 @@ Built at Cal Hacks 13.0.
 
 Bullwark decides what to show; Canon decides who may see what. They meet only through
 [`docs/INTEGRATION.md`](docs/INTEGRATION.md): REST, server-sent events and one token per person or agent.
+The Claude Code connector is the project's [`.mcp.json`](.mcp.json) plus the hooks in
+[`.claude/settings.json`](.claude/settings.json); read [`hooks/README.md`](hooks/README.md).
 
 - **Owners and build order:** [`docs/WORK_SPLIT.md`](docs/WORK_SPLIT.md)
 - **Working agreement:** [`CLAUDE.md`](CLAUDE.md)

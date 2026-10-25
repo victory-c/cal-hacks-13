@@ -223,20 +223,113 @@ export interface AddItemResponse {
   item_id: string;
 }
 
-/** GET /api/agents, one row per agent the caller may see. Run fields fill in as the dispatcher reports. */
+/**
+ * GET /api/agents, one row per agent the caller may see, and the `run` of every agent.* event on a
+ * person's stream. Run fields come from the dispatcher's agent.run / agent.step / agent.inbox
+ * events (server/src/agent-runs.ts); "ready" until it has reported, "stopped" when it cancelled.
+ * The fields after `task` are the console's: docs, schedule, outputs and the pending count stay
+ * empty until the dispatcher carries them.
+ */
 export interface AgentSummary {
   id: string;
   creator: string;
   name: string;
-  status: "ready" | "running" | "restarting" | "done" | "failed";
-  steps: Array<{ id: string; text: string; status: string; at: string }>;
+  status: "ready" | "running" | "restarting" | "done" | "failed" | "stopped";
+  steps: Array<{ id: string; text: string; status: "running" | "done"; at: string }>;
   files: string[];
   inbox: Array<{ text: string; at: string }>;
   task: string;
+  /** Facts in the agent's scope right now. */
+  fact_count: number;
+  /** New facts since its last run; the dispatcher's inbox decides, so 0 until then. */
+  pending: number;
+  finished_at: string | null;
+  leave_out: string;
+  docs: string[];
+  schedule: string;
+  outputs: unknown[];
 }
 export interface AgentsResponse {
   agents: AgentSummary[];
 }
+
+/** INTEGRATION.md `ScopeRule` as the console writes and reads it: plain-language exclusions as a list, group prefixes as `deal/*`. */
+export interface ContractRule {
+  task: string;
+  exclusions: ContractExclusions;
+}
+
+/** A person or agent as the console lists them: the contract's Principal plus their rule (moderators see exclusions) and scope. */
+export interface ContractPrincipal {
+  id: string;
+  kind: Principal["kind"];
+  name: string;
+  tier?: PrincipalTier;
+  creator?: string;
+  /** null until a moderator sets one. */
+  rule: ContractRule | null;
+  fact_ids: string[];
+}
+export interface ContractPrincipalsResponse {
+  principals: ContractPrincipal[];
+}
+/** GET /api/principals/:id/scope. */
+export interface PrincipalScopeResponse {
+  principal: string;
+  rule: ContractRule | null;
+  fact_ids: string[];
+  built_at?: string;
+}
+
+/** INTEGRATION.md `Handoff`: one handoff as the inspector shows it. */
+export interface ContractHandoffCandidate {
+  fact_id: string;
+  statement: string;
+  /** Jev's P(helps); null when never scored (inject-nothing, judge failure). */
+  p: number | null;
+  decision: "kept" | "cut_relevance" | "cut_budget";
+  tokens_est: number;
+}
+export interface ContractHandoff {
+  /** The audit row's id. */
+  id: string;
+  at: string;
+  principal: string;
+  client?: string;
+  run_id?: string;
+  request: string;
+  candidates: ContractHandoffCandidate[];
+  tokens_est: number;
+  budget_est: number;
+  timings_ms: { search: number | null; judge: number | null; total: number | null };
+  simulated: boolean;
+  inject_nothing: boolean;
+}
+export interface HandoffsResponse {
+  handoffs: ContractHandoff[];
+}
+
+/** POST /api/groups (moderator). `id` defaults to `custom/<slug of name>`. */
+export interface CreateGroupBody {
+  name: string;
+  description: string;
+  id?: string;
+}
+
+/** GET /api/quarantine for the console: the held item plus what it was and whose. */
+export type ContractHeldItem = QuarantineItem & {
+  kind: SourceKind;
+  source: string;
+  author: string;
+  reason: string;
+  at: string;
+};
+
+/** GET /api/audit for the console: the server's row plus the contract's `text` and `group`. */
+export type ContractAuditEntry = AuditEvent & {
+  text: string;
+  group: GroupId | null;
+};
 
 /** The contract's exclusions: plain-language exclusions as a list. */
 export interface ContractExclusions {

@@ -99,6 +99,7 @@ mention, count or name anything outside a scope; `canon_whoami` shows the task, 
 npm install                 # Node 22+, see .nvmrc
 npm run doctor              # preflight
 npm run seed -w server      # optional, existing development fixtures
+npm run reset -w server     # back to the demo world at 0:00
 npm run dev                 # server :4100, distiller, dispatcher, frontend :4200
 npm run check               # status validation, workspace typechecks and tests
 npm run build               # browser bundles
@@ -106,7 +107,9 @@ npm run build               # browser bundles
 
 The status board runs on :4173 (`npm run status:board`). Without API keys, the stack uses
 labelled simulated providers. Read each package README before changing it; verify provider
-settings against `.env.example` and the implementation.
+settings against `.env.example` and the implementation. A person sets `CANON_PERSON_TOKEN` in
+`.env` (and exports it for the MCP header); the committed Claude Code hooks and `.mcp.json` use it
+in both directions, and `npm run doctor` checks it.
 
 ## Deadlines and coordination (PDT)
 
