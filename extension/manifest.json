@@ -3,7 +3,7 @@
   "name": "Bullwark Capture",
   "version": "0.1.0",
   "description": "Streams your ChatGPT web sessions into Bullwark as you chat. Turn text only.",
-  "permissions": ["storage"],
+  "permissions": ["storage", "alarms"],
   "host_permissions": [
     "https://chatgpt.com/*",
     "https://chat.openai.com/*",
