@@ -221,12 +221,18 @@ export function elapsed(fromIso: string | null | undefined, now: number): string
 export type DocBlock =
   | { type: "heading"; level: 1 | 2 | 3; text: string }
   | { type: "item"; text: string }
-  | { type: "para"; text: string };
+  | { type: "para"; text: string }
+  | { type: "table"; head: string[]; rows: string[][] };
+
+/** "| a | b |" → ["a", "b"]. */
+function tableCells(line: string): string[] {
+  return line.replace(/^\|/, "").replace(/\|$/, "").split("|").map((c) => c.trim());
+}
 
 /**
- * The small markdown agents write (headings, bullet and numbered lists, paragraphs) as blocks.
- * Everything else stays plain text: the page renders text nodes only, so whatever a model put in
- * a document can never become markup.
+ * The small markdown agents write (headings, bullet and numbered lists, pipe tables, paragraphs)
+ * as blocks. Everything else stays plain text: the page renders text nodes only, so whatever a
+ * model put in a document can never become markup.
  */
 export function docBlocks(markdown: string): DocBlock[] {
   const blocks: DocBlock[] = [];
@@ -236,6 +242,15 @@ export function docBlocks(markdown: string): DocBlock[] {
     const line = raw.trim();
     let m: RegExpExecArray | null;
     if (!line) { flush(); continue; }
+    if (/^\|.*\|$/.test(line)) {
+      flush();
+      // The |---|:--:| rule under a header row carries no content.
+      if (/^\|[\s|:-]+\|$/.test(line)) continue;
+      const last = blocks[blocks.length - 1];
+      if (last?.type === "table") last.rows.push(tableCells(line));
+      else blocks.push({ type: "table", head: tableCells(line), rows: [] });
+      continue;
+    }
     if ((m = /^(#{1,3})\s+(.*?)\s*#*$/.exec(line))) { flush(); blocks.push({ type: "heading", level: m[1]!.length as 1 | 2 | 3, text: m[2]! }); continue; }
     if ((m = /^(?:[-*+]|\d+[.)])\s+(.*)$/.exec(line))) { flush(); blocks.push({ type: "item", text: m[1]! }); continue; }
     para.push(line);
@@ -279,4 +294,20 @@ export function usageLine(f: Pick<Fact, "uses" | "last_used">, now: number): str
 /** The layer a memory is in, top of mind when Canon has not said. */
 export function layerOfFact(f: Pick<Fact, "layer">): "top" | "background" {
   return f.layer === "background" ? "background" : "top";
+}
+
+/**
+ * A short plain-text preview of an agent's markdown document for its result card: the heading
+ * that repeats the title is dropped, markdown and fact-id citations are removed, and the text is
+ * cut at a word near `max` characters.
+ */
+export function docExcerpt(markdown: string, title: string, max = 240): string {
+  const lines = docBlocks(markdown)
+    .filter((b, i) => !(i === 0 && b.type === "heading" && b.text.trim() === title.trim()))
+    .flatMap((b) => (b.type === "table" ? [] : [stripFactRefs(b.text).replaceAll("**", "").trim()]))
+    .filter(Boolean);
+  const text = lines.join(" · ");
+  if (text.length <= max) return text;
+  const cut = text.slice(0, max);
+  return `${cut.slice(0, Math.max(cut.lastIndexOf(" "), max * 0.6)).replace(/[\s·,;:]+$/, "")}…`;
 }

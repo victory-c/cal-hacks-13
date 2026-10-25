@@ -6,7 +6,7 @@ import { GROUP_NAMES, seedAgents, seedFacts } from "./fixture.ts";
 import {
   ALL_GROUPS, NO_FILTERS, agentPlanLine, agentStatusLine, countShown, feedText, filtersActive, fmtDay, groupLabel,
   groupOrder, kindLabel, viewMemory, agentPhase, boldRuns, docBlocks, elapsed, fileLabel, friendlyStep, stripFactRefs,
-  layerOfFact, layerReasonLabel, usageLine,
+  layerOfFact, layerReasonLabel, usageLine, docExcerpt,
 } from "./logic.ts";
 
 const facts = seedFacts();
@@ -155,4 +155,21 @@ test("memory layers in plain words", () => {
   assert.match(usageLine({ uses: 3, last_used: "2026-10-25T10:00:00Z" }, now), /^Used 3× · last 2 h/);
   assert.equal(layerOfFact({}), "top");
   assert.equal(layerOfFact({ layer: "background" }), "background");
+});
+
+test("docExcerpt: a short plain preview without the repeated title, markdown or fact ids", () => {
+  const md = "# TMC brief: Q3 2026\n\n## Headline\n- AUM was **$38.4 billion** (fct_570013).\n- Net outflows were $0.9 billion.";
+  assert.equal(docExcerpt(md, "TMC brief: Q3 2026"), "Headline · AUM was $38.4 billion. · Net outflows were $0.9 billion.");
+  const long = docExcerpt(`# T\n\n${"word ".repeat(100)}`, "T", 50);
+  assert.ok(long.endsWith("…") && long.length <= 51, long);
+});
+
+test("docBlocks reads pipe tables as tables, skipping the rule under the header", () => {
+  const md = "## Flows\n| Manager | Q3 flow |\n|---|:--:|\n| TMC | -$0.9bn |\n| Others | not found |\nAfter the table.";
+  assert.deepEqual(docBlocks(md), [
+    { type: "heading", level: 2, text: "Flows" },
+    { type: "table", head: ["Manager", "Q3 flow"], rows: [["TMC", "-$0.9bn"], ["Others", "not found"]] },
+    { type: "para", text: "After the table." },
+  ]);
+  assert.equal(docExcerpt(md, "x"), "Flows · After the table.", "previews leave tables out");
 });

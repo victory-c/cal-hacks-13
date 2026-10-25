@@ -9,7 +9,7 @@ import { MockCanon } from "./member/mock.ts";
 import {
   ALL_GROUPS, ALL_SOURCES, NO_FILTERS, SORTS, STATUS_LABELS, agentPhase, agentPlanLine, agentStatusLine, boldRuns, countShown,
   docBlocks, elapsed, feedText, filtersActive, fmtDay, friendlyStep, groupLabel, groupOrder, isBusy, kindLabel, layerOfFact,
-  layerReasonLabel, plural, stripFactRefs, usageLine,
+  layerReasonLabel, plural, stripFactRefs, usageLine, docExcerpt,
   sourceTitle, viewMemory,
 } from "./member/logic.ts";
 import type { Filters, Sort } from "./member/logic.ts";
@@ -48,6 +48,8 @@ const state = {
   filters: { ...NO_FILTERS } as Filters,
   editing: null as string | null,
   openDocs: new Set<string>(),
+  /** Agents whose memory groups are unfolded on their card. */
+  openMemory: new Set<string>(),
   agentForm: null as null | "new" | string,
   /** What the member has typed into each agent's "give it something to do" box. */
   assign: new Map<string, string>(),
@@ -186,19 +188,27 @@ function documentsOf(run: AgentRun): AgentDocument[] {
 }
 
 /** A markdown document as text nodes only: whatever a model wrote can never become markup. */
-function renderDoc(text: string): HTMLElement {
+function renderDoc(text: string, title = ""): HTMLElement {
   const inline = (line: string) => boldRuns(stripFactRefs(line)).map((part, i) => (i % 2 ? h("b", null, part) : part));
   const out = h("div", { class: "doc-body" });
   let list: HTMLUListElement | null = null;
-  for (const block of docBlocks(text)) {
+  docBlocks(text).forEach((block, i) => {
+    // The card already shows the title; a document that opens by repeating it skips that line.
+    if (i === 0 && block.type === "heading" && block.text.trim() === title.trim()) return;
     if (block.type === "item") {
       if (!list) out.append((list = h("ul", null)));
       list.append(h("li", null, inline(block.text)));
-      continue;
+      return;
     }
     list = null;
+    if (block.type === "table") {
+      out.append(h("div", { class: "doc-table" }, h("table", null,
+        h("thead", null, h("tr", null, block.head.map((c) => h("th", null, inline(c))))),
+        h("tbody", null, block.rows.map((row) => h("tr", null, row.map((c) => h("td", null, inline(c)))))))));
+      return;
+    }
     out.append(block.type === "heading" ? h(block.level === 1 ? "h4" : "h5", null, inline(block.text)) : h("p", null, inline(block.text)));
-  }
+  });
   return out;
 }
 
@@ -232,51 +242,66 @@ function agentCard(run: AgentRun): HTMLElement {
     onkeydown: (e: Event) => { if ((e as KeyboardEvent).key === "Enter") { e.preventDefault(); void startRun(run); } },
   }) as HTMLInputElement;
   assignBox.value = state.assign.get(run.id) ?? "";
+  const memoryOpen = state.openMemory.has(run.id);
+  const toggle = (set: Set<string>, key: string) => { if (set.has(key)) set.delete(key); else set.add(key); renderAgents(); };
+  const asked = run.run_task && run.run_task !== run.task ? run.run_task : "";
   return h("li", { class: "agent", "data-status": run.status },
     h("div", { class: "ahead" },
       h("div", { style: "flex: 1; min-width: 220px" },
         h("div", { class: "aname" }, run.name),
-        h("div", { class: "atask" }, run.task),
-        h("div", { class: "remembers" },
-          groups.length
-            ? [h("span", { class: "hint" }, "Remembers"), groups.map((g) => h("span", { class: "chip" }, g.name))]
-            : null,
-          h("span", { class: "hint" }, plural(run.fact_count, "memory", "memories")))),
+        h("div", { class: "atask" }, run.task)),
       h("span", { class: run.status === "failed" ? "pill failed" : busy ? "pill live" : "pill" }, STATUS_LABELS[run.status]),
       run.status === "running" && h("button", { class: "ghost", type: "button", onclick: () => void attempt("stop the agent", () => api.stopAgent(run.id)) }, "Stop"),
       h("button", { class: "mini", type: "button", "aria-label": `Edit ${run.name}`, onclick: () => openAgentForm(run.id) }, "Edit")),
+    // What it works from, folded to one line; the groups open on request.
+    h("button", { class: "disclose", type: "button", "aria-expanded": String(memoryOpen), onclick: () => toggle(state.openMemory, run.id) },
+      h("span", { class: "caret", "aria-hidden": "true" }),
+      `Works from ${plural(run.fact_count, "memory", "memories")}${groups.length ? ` in ${plural(groups.length, "group")}` : ""}`),
+    memoryOpen && groups.length > 0 && h("div", { class: "remembers" }, groups.map((g) => h("span", { class: "chip" }, g.name, h("span", { class: "chip-n" }, String(g.count))))),
     busy
       ? thinking(run)
       : [
         h("div", { class: "assign" }, assignBox, h("button", { class: "btn", type: "button", onclick: () => void startRun(run) }, "Run")),
-        h("div", { class: "live" }, h("span", { class: run.status === "done" ? "dot ok" : "dot", "aria-hidden": "true" }), agentStatusLine(run, Date.now()),
-          run.status === "done" && run.started_at && run.finished_at && h("span", { class: "hint" }, ` · took ${elapsed(run.started_at, Date.parse(run.finished_at))}`)),
-        run.run_task && run.run_task !== run.task && (run.status === "done" || run.status === "failed") && h("div", { class: "hint" }, "Last asked: ", h("span", { class: "assignment" }, run.run_task)),
+        h("div", { class: "runline" },
+          h("span", { class: run.status === "done" ? "dot ok" : run.status === "failed" ? "dot bad" : "dot", "aria-hidden": "true" }),
+          h("span", null, agentStatusLine(run, Date.now())),
+          run.status === "done" && run.started_at && run.finished_at && h("span", { class: "sep" }, elapsed(run.started_at, Date.parse(run.finished_at))),
+          asked && h("span", { class: "sep asked", title: asked }, `“${asked}”`)),
       ],
     api.mode === "mock" && h("div", { class: "hint plan" }, agentPlanLine(run)),
-    run.refresh && h("div", { class: "hint refresh" }, "Its memory has changed since this run. Run it again for an up-to-date document."),
-    notes.length > 0 && h("div", { class: "notes" },
-      h("h3", { class: "sub" }, "Notes it left you"),
-      h("ul", { class: "list" }, notes.map((n) => h("li", { class: "note" }, n.text.replace(/^#+\s*/gm, "")))),
-      h("div", { class: "hint" }, "Each note is filed like anything you add: what fits your memory joins it.")),
-    docs.length > 0 && h("div", { class: "output" },
-      h("div", { class: "bar", style: "align-items: center" },
-        h("h3", { class: "sub" }, "What it wrote"),
-        h("span", { class: "hint" }, run.finished_at ? `Finished ${relativeTime(run.finished_at)}` : "")),
-      h("ul", { class: "list" }, docs.map((d) => {
-        const key = `${run.id}:${d.file}`;
-        const open = state.openDocs.has(key);
-        return h("li", { class: "docrow" },
-          h("div", { class: "ahead" },
-            h("span", { class: "doctitle" }, d.title),
-            h("button", {
-              class: "mini", type: "button", "aria-expanded": String(open),
-              onclick: () => { if (open) state.openDocs.delete(key); else state.openDocs.add(key); renderAgents(); },
-            }, open ? "Close" : "Open")),
-          open && h("div", { class: "preview" },
-            renderDoc(d.text),
-            h("div", { class: "hint", style: "margin-top: 8px" }, api.mode === "mock" ? "Simulated draft built from this agent’s memory" : "Written from this agent’s memory, which is part of yours")));
-      }))));
+    run.refresh && h("div", { class: "callout" }, "Its memory has changed since this run. Run it again for an up-to-date result."),
+    docs.map((d) => resultCard(run, d)),
+    notes.length > 0 && h("div", { class: "callout notes" },
+      h("div", { class: "callout-h" }, "Added to your memory"),
+      h("ul", { class: "list" }, notes.map((n) => h("li", null, stripFactRefs(n.text.replace(/^#+\s*/gm, ""))))),
+      h("div", { class: "hint" }, "Filed like anything you add: what fits your memory joins it.")));
+}
+
+/** One document the agent produced: title, a short preview, then the full report on request. */
+function resultCard(run: AgentRun, d: AgentDocument): HTMLElement {
+  const key = `${run.id}:${d.file}`;
+  const open = state.openDocs.has(key);
+  const copy = async (button: HTMLButtonElement) => {
+    try {
+      await navigator.clipboard.writeText(stripFactRefs(d.text));
+      button.textContent = "Copied";
+      setTimeout(() => (button.textContent = "Copy"), 1500);
+    } catch {
+      notify("Couldn't copy: the browser blocked the clipboard.");
+    }
+  };
+  return h("article", { class: open ? "result open" : "result" },
+    h("div", { class: "result-meta" },
+      h("span", { class: "result-kind" }, "Latest result"),
+      d.at && h("span", { class: "hint" }, relativeTime(d.at))),
+    h("h4", { class: "result-title" }, d.title),
+    open
+      ? renderDoc(d.text, d.title)
+      : h("p", { class: "result-excerpt" }, docExcerpt(d.text, d.title)),
+    h("div", { class: "result-actions" },
+      h("button", { class: "mini", type: "button", "aria-expanded": String(open), onclick: () => { if (open) state.openDocs.delete(key); else state.openDocs.add(key); renderAgents(); } }, open ? "Show less" : "Read full report"),
+      h("button", { class: "mini link", type: "button", onclick: (e: Event) => void copy(e.currentTarget as HTMLButtonElement) }, "Copy"),
+      h("span", { class: "hint" }, api.mode === "mock" ? "Simulated from this agent’s memory" : "From this agent’s memory, which is part of yours")));
 }
 
 async function startRun(run: AgentRun): Promise<void> {
@@ -292,7 +317,7 @@ async function startRun(run: AgentRun): Promise<void> {
 function renderAgents(): void {
   const now = Date.now();
   syncList(el.agents, state.agents.map((run) => {
-    const open = documentsOf(run).map((d) => (state.openDocs.has(`${run.id}:${d.file}`) ? "1" : "0")).join("");
+    const open = documentsOf(run).map((d) => (state.openDocs.has(`${run.id}:${d.file}`) ? "1" : "0")).join("") + (state.openMemory.has(run.id) ? "m" : "");
     let version = `${JSON.stringify(run)}|${open}|${agentStatusLine(run, now)}|${isBusy(run) ? elapsed(run.started_at, now) : ""}`;
     // Someone typing an assignment keeps their card (and their caret) while the agent sits idle.
     // Any change of status (they pressed Run, or Enter) redraws it at once.
