@@ -118,7 +118,7 @@
       "priority": "must",
       "state": "done",
       "title": "Moss index with group and label metadata; scope builds and handoffs filter by scope fact ids",
-      "note": "Real scope builder and in-scope handoff search landed (4576d07, 1eb0270): one retriever query over the post-exclusion pool only, every hit re-checked against the scope's fact ids in code. Main's B22 (#27) adds the Moss local hybrid adapter (server/src/retrieval/moss.ts), merged into this branch; it runs once MOSS_PROJECT_ID/KEY are set and its live retrieval is still unverified, so the keyword stub (labelled simulated) runs here."
+      "note": "Real scope builder and in-scope handoff search landed (4576d07, 1eb0270): one retriever query over the post-exclusion pool only, every hit re-checked against the scope's fact ids in code. Main's B22 (#27, #28) adds and verifies the Moss local hybrid adapter (server/src/retrieval/moss.ts) with folder prefilters and a persistent model cache; it runs once MOSS_PROJECT_ID/KEY are set. Without them the keyword stub (labelled simulated) runs."
     },
     {
       "id": "A5",
@@ -530,9 +530,9 @@
       "owner": "B",
       "milestone": "M2",
       "priority": "must",
-      "state": "doing",
+      "state": "done",
       "title": "Factory and Moss scaffold adapters; verified Jev contract and preview login",
-      "note": "Renumbered from this branch's original B18 to preserve main's live agent-routing task. SDK adapters implemented; offline checks pass, Jev live requests and Moss authentication verified. Factory CLI/model downloads and full live activation remain pending. Does not implement finance scopes or agent dispatch."
+      "note": "Activated the local Docker preview with Factory/Droid extraction, Jev judging and Moss hybrid retrieval. Repaired and integrity-verified CLI packages; cached the Moss model; preserved existing data. Fresh capture produced five Jev-judged cold facts; real MCP context returned four hot facts (259 estimated tokens). Anthropic fallback extraction also passed live. Finance scopes and dispatched agents remain separate tasks; Vultr deployment is B21."
     },
     {
       "id": "B23",
@@ -541,7 +541,16 @@
       "priority": "must",
       "state": "done",
       "title": "Reconcile provider preview with current Bullwark main",
-      "note": "PR #27 reconciled against current Bullwark main: retained branding, PRDs and datasets; preserved B17/B18 finance tasks by moving preview work to B21/B22; removed obsolete Docker password-hash setup; restricted raw extraction plans to the internal worker stream. npm run check: 276 tests pass; browser builds, Compose configuration and fresh credential setup checks pass. Provider live-download limits remain tracked in B22."
+      "note": "PR #27 reconciled against current Bullwark main: retained branding, PRDs and datasets; preserved B17/B18 finance tasks by moving preview work to B21/B22; removed obsolete Docker password-hash setup; restricted raw extraction plans to the internal worker stream. npm run check: 276 tests pass; browser builds, Compose configuration and fresh credential setup checks pass. Live providers were subsequently verified in B22."
+    },
+    {
+      "id": "B24",
+      "owner": "B",
+      "milestone": "M2",
+      "priority": "must",
+      "state": "done",
+      "title": "Test the local live-provider preview and close permission gaps",
+      "note": "docs/LOCAL_TEST_REPORT.md: 291 automated tests and both builds pass; 52 live HTTP/MCP checks pass. Factory → Jev capture produced 6 facts in 12 s (4 hot / 2 cold); Moss returned fresh facts. Fixed SSE grant filtering, cross-folder fact mutations and cross-client session overwrites. Rebuilt preview, verified source hashes and preserved 24 facts / 4 sessions across recreation. Browser visual QA unavailable (disabled in Work settings). Public Vultr hosting and finance scopes remain separate."
     }
   ],
   "tracks": [
@@ -735,7 +744,7 @@
       "owner": "C",
       "state": "resolved",
       "text": "Moss project credentials",
-      "answer": "Local Moss project credentials were configured and authenticated. First embedding-model download and full live retrieval are still pending (B22); no secrets are stored here."
+      "answer": "Local Moss project credentials authenticated; the embedding model is cached and native hybrid retrieval was verified on macOS and the Linux preview (B22). Finance scope filters remain A4. No secrets are stored here."
     },
     {
       "id": "Q3",

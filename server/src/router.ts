@@ -12,6 +12,7 @@ import * as api from "./api.ts";
 import type { ApiDeps } from "./api.ts";
 import { authenticate } from "./auth.ts";
 import { attachSse } from "./events.ts";
+import type { EventFilter } from "./events.ts";
 import { HttpError, applyCors, readJsonBody, sendJson } from "./http.ts";
 import { createMcpServer } from "./mcp.ts";
 import { MODERATORS_ONLY, callerRoles, handleScopesRoute } from "./scopes.ts";
@@ -60,15 +61,17 @@ export function createRouter(deps: RouterDeps): Handler {
       if (method === "GET" && (path === ROUTES.events || path === ROUTES.facts || path === ROUTES.grants)) {
         const viewer = optionalAuth(req, deps.tokens);
         if (viewer === "unknown") return sendJson(res, 401, UNKNOWN_TOKEN);
-        if (path === ROUTES.events) {
-          // Moderators and internal workers see the whole stream; only the distiller sees raw
-          // extraction plans, which summarize transcripts and may mention facts outside a batch.
-          attachSse(res, deps.bus, !viewer || !seesEverything(deps, viewer.client) ? publicEvent : viewer.client === "distiller" ? undefined : withoutExtractionPlan);
-          return;
-        }
         if (path === ROUTES.grants) return sendJson(res, 200, api.grants(deps));
         const visible = viewer ? grantView(deps, viewer.client) : publicFolder;
         if (!visible) return sendJson(res, 403, { error: `no grants for client "${viewer?.client}"` });
+        if (path === ROUTES.events) {
+          // Moderators and internal workers see the whole stream; only the distiller sees raw
+          // extraction plans, which summarize transcripts and may mention facts outside a batch.
+          if (viewer?.client === "distiller") attachSse(res, deps.bus);
+          else if (viewer && seesEverything(deps, viewer.client)) attachSse(res, deps.bus, withoutExtractionPlan);
+          else attachSse(res, deps.bus, eventView(deps, visible, viewer?.client));
+          return;
+        }
         return sendJson(res, 200, api.listFacts(deps, url.searchParams, visible));
       }
 
@@ -125,36 +128,6 @@ function optionalAuth(req: IncomingMessage, tokens: Map<string, string>): { clie
 const PUBLIC_FOLDERS = ["career", "projects", "team"];
 const publicFolder = (folder: Folder): boolean => folderAllows(PUBLIC_FOLDERS, folder);
 
-/**
- * The public SSE view: scaffold events with every free-text field that could name a deal removed
- * (a session title, a distill plan, a context task); a fact or a denial only for a public folder;
- * no scopes, triage, quarantine, audit or agent events at all.
- */
-const publicEvent = (e: CanonEvent): boolean | CanonEvent => {
-  switch (e.type) {
-    case "server.started":
-    case "distill.started":
-    case "fact.retired":
-      return true;
-    case "session.captured": {
-      const { title: _title, ...session } = e.session;
-      return { ...e, session };
-    }
-    case "distill.finished": {
-      const { plan: _plan, ...rest } = e;
-      return rest;
-    }
-    case "context.served":
-      return { ...e, task: "" };
-    case "fact.saved":
-      return publicFolder(e.fact.folder);
-    case "access.denied":
-      return publicFolder(e.folder);
-    default:
-      return false;
-  }
-};
-
 /** Internal workers and moderators read the whole event stream. */
 function seesEverything(deps: RouterDeps, client: string): boolean {
   if ((INTERNAL_CLIENTS as readonly string[]).includes(client)) return true;
@@ -168,6 +141,68 @@ function withoutExtractionPlan(event: CanonEvent): CanonEvent {
   if (event.type !== "distill.finished") return event;
   const { plan: _plan, ...safe } = event;
   return safe;
+}
+
+/**
+ * Everyone else's stream (members, AI clients, the tokenless dashboard): the fact-read boundary on
+ * replay and live events. A client token sees its own session and request metadata only; the
+ * tokenless view also loses every free-text field that could name a deal (a session title, a
+ * context task). No scope, triage, quarantine, audit or agent event passes.
+ */
+function eventView(deps: RouterDeps, visible: (folder: Folder) => boolean, client?: string): EventFilter {
+  const readableFact = (id: string): boolean => {
+    const fact = deps.store.getFact(id);
+    return !!fact && visible(fact.folder);
+  };
+  const allowed = (event: CanonEvent): boolean => {
+    switch (event.type) {
+      case "fact.saved":
+        // Re-check canonical state: a replayed fact may since have moved to another folder.
+        return visible(event.fact.folder) && readableFact(event.fact.id);
+      case "fact.retired":
+        return readableFact(event.id) && readableFact(event.superseded_by);
+      case "context.served":
+        return (!client || event.client === client) && event.fact_ids.every(readableFact);
+      case "session.captured":
+        return !client || event.session.client === client;
+      case "distill.started":
+      case "distill.finished":
+        return !client || deps.store.sessionClient(event.session_id) === client;
+      case "access.denied":
+        return (!client || event.client === client) && visible(event.folder);
+      case "server.started":
+        return true;
+      default:
+        return false;
+    }
+  };
+  return (event) => {
+    if (!allowed(event)) return false;
+    switch (event.type) {
+      case "distill.finished":
+        return withoutExtractionPlan(event);
+      case "fact.saved": {
+        const { supersedes: factPrevious, ...fact } = event.fact;
+        const { supersedes: decisionPrevious, ...decision } = event.decision;
+        return {
+          ...event,
+          fact: factPrevious && readableFact(factPrevious) ? { ...fact, supersedes: factPrevious } : fact,
+          decision: decisionPrevious && readableFact(decisionPrevious)
+            ? { ...decision, supersedes: decisionPrevious }
+            : { ...decision, action: "add" },
+        };
+      }
+      case "session.captured": {
+        if (client) return event;
+        const { title: _title, ...session } = event.session;
+        return { ...event, session };
+      }
+      case "context.served":
+        return client ? event : { ...event, task: "" };
+      default:
+        return event;
+    }
+  };
 }
 
 /**
