@@ -2,6 +2,7 @@
 // Runs in Chrome's isolated world (own JS, shared DOM). Everything that touches the page is below
 // the guard at the bottom, so node:test can import extractTurns() with no side effects.
 
+import { backoffMs, isTurnsAck } from "../shared/protocol.ts";
 import type { Turn, TurnsMessage } from "../shared/protocol.ts";
 
 /**
@@ -63,6 +64,93 @@ export function pageTitle(raw: string): string | undefined {
   return title;
 }
 
+/** Retry schedule when the worker does not accept a snapshot: 1 s, 2 s, 4 s … capped at 30 s, 8 tries. */
+export const RETRY_BASE_MS = 1000;
+export const RETRY_MAX_MS = 30_000;
+export const RETRY_MAX_ATTEMPTS = 8;
+
+export interface SenderDeps {
+  /** chrome.runtime.sendMessage in the page; may reject or throw (worker gone, extension reloaded). */
+  send(msg: TurnsMessage): Promise<unknown>;
+  setTimeout(fn: () => void, ms: number): unknown;
+  clearTimeout(handle: unknown): void;
+}
+
+interface Snapshot {
+  msg: TurnsMessage;
+  fingerprint: string;
+}
+
+/**
+ * Hands snapshots to the service worker and keeps three states apart: `delivered` (the worker
+ * acknowledged it), the one in flight, and the newest one still waiting. Only a delivered or
+ * in-flight snapshot is skipped as a duplicate, so a failed delivery is retried with backoff and an
+ * unchanged transcript still goes once the worker is back. Snapshots that arrive while one is in
+ * flight or backing off collapse into the single waiting slot; the final (`ended`) one never waits.
+ */
+export class SnapshotSender {
+  private delivered = "";
+  private inFlight: Snapshot | undefined;
+  private latest: Snapshot | undefined;
+  private retryTimer: unknown;
+  private failures = 0;
+
+  constructor(private readonly deps: SenderDeps) {}
+
+  offer(msg: TurnsMessage, fingerprint: string): void {
+    const ended = msg.ended === true;
+    if (!ended && (fingerprint === this.delivered || fingerprint === this.inFlight?.fingerprint)) return;
+    this.latest = { msg, fingerprint };
+    if (ended && this.retryTimer !== undefined) {
+      this.deps.clearTimeout(this.retryTimer); // the tab is going away; do not sit out the backoff
+      this.retryTimer = undefined;
+    }
+    if (this.retryTimer === undefined) this.pump();
+  }
+
+  private pump(): void {
+    if (this.inFlight || !this.latest) return;
+    const snap = this.latest;
+    this.latest = undefined;
+    this.inFlight = snap;
+    let reply: Promise<unknown>;
+    try {
+      reply = Promise.resolve(this.deps.send(snap.msg));
+    } catch (err) {
+      reply = Promise.reject(err);
+    }
+    reply.then(
+      (res) => this.settle(snap, isTurnsAck(res), res),
+      (err: unknown) => this.settle(snap, false, err),
+    );
+  }
+
+  private settle(snap: Snapshot, ok: boolean, detail: unknown): void {
+    this.inFlight = undefined;
+    if (ok) {
+      this.delivered = snap.fingerprint;
+      this.failures = 0;
+      if (this.latest && !this.latest.msg.ended && this.latest.fingerprint === this.delivered) this.latest = undefined;
+      this.pump();
+      return;
+    }
+    console.debug("[canon] sendMessage failed:", detail);
+    this.failures += 1;
+    if (!this.latest) this.latest = snap; // keep the newest snapshot; a newer one replaces this one
+    if (this.failures >= RETRY_MAX_ATTEMPTS) {
+      // Give up for now (e.g. the extension was reloaded under this tab). `delivered` is unchanged,
+      // so the next capture, even of the same transcript, tries again.
+      this.failures = 0;
+      this.latest = undefined;
+      return;
+    }
+    this.retryTimer = this.deps.setTimeout(() => {
+      this.retryTimer = undefined;
+      this.pump();
+    }, backoffMs(this.failures, RETRY_BASE_MS, RETRY_MAX_MS));
+  }
+}
+
 // ---------------------------------------------------------------------------------------------
 // Page wiring. Nothing below runs under node:test.
 
@@ -75,32 +163,27 @@ function tabId(): string {
   return id;
 }
 
-function send(msg: TurnsMessage): void {
-  try {
-    // Rejected when the extension was reloaded under this tab; the next page load fixes it.
-    chrome.runtime.sendMessage(msg).catch((err: unknown) => console.debug("[canon] sendMessage failed:", err));
-  } catch (err) {
-    console.debug("[canon] sendMessage failed:", err);
-  }
-}
-
 function start(): void {
-  let lastSent = "";
   let timer: number | undefined;
+  // Rejects when the worker is unavailable or the extension was reloaded under this tab; the sender retries.
+  const sender = new SnapshotSender({
+    send: (msg) => chrome.runtime.sendMessage(msg),
+    setTimeout: (fn, ms) => window.setTimeout(fn, ms),
+    clearTimeout: (handle) => window.clearTimeout(handle as number),
+  });
 
   const capture = (ended = false): void => {
     const turns = extractTurns(document);
     if (turns.length === 0) return; // home page, settings, or the chat has not started
     const conversationId = conversationIdFor(location.pathname, tabId());
-    // Skip identical snapshots (MutationObserver fires for UI noise too). The final one always goes.
+    // The sender skips snapshots already delivered or in flight (MutationObserver fires for UI noise
+    // too). The final one always goes.
     const fingerprint = JSON.stringify([conversationId, turns]);
-    if (!ended && fingerprint === lastSent) return;
-    lastSent = fingerprint;
     const msg: TurnsMessage = { kind: "turns", site: "chatgpt", conversationId, url: location.href, turns };
     const title = pageTitle(document.title);
     if (title) msg.title = title;
     if (ended) msg.ended = true;
-    send(msg);
+    sender.offer(msg, fingerprint);
   };
 
   const schedule = (): void => {

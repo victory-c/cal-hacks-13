@@ -8,7 +8,7 @@ import type { TestContext } from "node:test";
 import { DEMO_GRANTS, FakeJudge } from "@canon/shared";
 import type { CapturedSession, Fact, SaveDecision } from "@canon/shared";
 
-import { postFacts, postSession } from "./api.ts";
+import { getSession, postFacts, postSession } from "./api.ts";
 import type { ApiDeps } from "./api.ts";
 import { EventBus } from "./events.ts";
 import { HttpError } from "./http.ts";
@@ -28,7 +28,8 @@ const projectFact: Fact = { ...privateFact, id: "fct_a111", statement: "Syntheti
 
 function entry(fact: Fact, action: SaveDecision["action"] = "add", supersedes?: string): { fact: Fact; decision: SaveDecision } {
   return {
-    fact,
+    // merge/supersede must name the retired fact on both the fact and the decision.
+    fact: supersedes ? { ...fact, supersedes } : fact,
     decision: {
       action, tier: fact.tier, folder: fact.folder, keep_p: 0.9, folder_p: 0.9, judge: "fake",
       ...(supersedes ? { supersedes } : {}),
@@ -154,4 +155,31 @@ test("POST sessions continues to reject body.client impersonation by the interna
 
   assert.deepEqual(await deps.store.getSession(capturedSession.id), capturedSession);
   assert.equal(deps.bus.size, 0);
+});
+
+test("POST sessions binds ownership atomically when two clients race to create the same id", async (t) => {
+  const deps = await setup(t);
+  const attempt = (client: string): CapturedSession => ({
+    ...capturedSession,
+    client,
+    messages: [{ role: "user", content: `Synthetic transcript from ${client}` }],
+  });
+
+  const results = await Promise.allSettled([
+    postSession(deps, "claude-code", attempt("claude-code")),
+    postSession(deps, "chatgpt", attempt("chatgpt")),
+  ]);
+
+  assert.equal(results[0].status, "fulfilled");
+  assert.deepEqual(results[0].status === "fulfilled" && results[0].value, { id: capturedSession.id, updated: false });
+  assert.ok(results[1].status === "rejected" && results[1].reason instanceof HttpError && results[1].reason.status === 403);
+  assert.deepEqual(await getSession(deps, capturedSession.id), attempt("claude-code"));
+  assert.deepEqual(deps.bus.replay().map((e) => e.type), ["session.captured"]);
+  await assert.rejects(
+    postSession(deps, "chatgpt", attempt("chatgpt")),
+    (error: unknown) => error instanceof HttpError && error.status === 403,
+  );
+  const reloaded = new FileStore(deps.store.dir);
+  await reloaded.loadAll();
+  assert.equal(reloaded.sessionClient(capturedSession.id), "claude-code");
 });

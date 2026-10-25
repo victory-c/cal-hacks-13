@@ -39,3 +39,21 @@ export function isTurnsMessage(x: unknown): x is TurnsMessage {
     Array.isArray(m.turns)
   );
 }
+
+/**
+ * The worker's reply to a TurnsMessage. `ok: true` means the snapshot is queued in the worker's
+ * outbox (chrome.storage.session), not that the server has it: the POST and its retries follow.
+ */
+export interface TurnsAck {
+  ok: boolean;
+}
+
+/** Anything other than an explicit `{ ok: true }` (no reply, an error, junk) counts as not delivered. */
+export function isTurnsAck(x: unknown): boolean {
+  return typeof x === "object" && x !== null && (x as Record<string, unknown>).ok === true;
+}
+
+/** Capped exponential backoff: base, 2×base, 4×base … never more than `maxMs`. `failures` starts at 1. */
+export function backoffMs(failures: number, baseMs: number, maxMs: number): number {
+  return Math.min(maxMs, baseMs * 2 ** Math.max(0, failures - 1));
+}
