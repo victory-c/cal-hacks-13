@@ -5,7 +5,7 @@ import type { AgentRun, Fact } from "./contract.ts";
 import { GROUP_NAMES, seedAgents, seedFacts } from "./fixture.ts";
 import {
   ALL_GROUPS, NO_FILTERS, agentPlanLine, agentStatusLine, countShown, feedText, filtersActive, fmtDay, groupLabel,
-  groupOrder, kindLabel, viewMemory, agentPhase, boldRuns, docBlocks, elapsed, fileLabel, friendlyStep,
+  groupOrder, kindLabel, viewMemory, agentPhase, boldRuns, docBlocks, elapsed, fileLabel, friendlyStep, stripFactRefs,
 } from "./logic.ts";
 
 const facts = seedFacts();
@@ -135,4 +135,10 @@ test("docBlocks: headings, lists and paragraphs; everything else stays text", ()
   ]);
   assert.deepEqual(boldRuns("**Purpose:** our position"), ["", "Purpose:", " our position"]);
   assert.equal(fileLabel("out/tmc_brief-v2.md"), "tmc brief v2");
+});
+
+test("stripFactRefs drops fact-id citations and nothing else", () => {
+  assert.equal(stripFactRefs("AUM was **$38.4 billion** (fct_570013)."), "AUM was **$38.4 billion**.");
+  assert.equal(stripFactRefs("about $459,000 on paper (fct_57001e, fct_57001f)"), "about $459,000 on paper");
+  assert.equal(stripFactRefs("Q3 (the third quarter) results"), "Q3 (the third quarter) results");
 });

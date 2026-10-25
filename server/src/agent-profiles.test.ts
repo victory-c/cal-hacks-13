@@ -14,6 +14,7 @@ import type { Fact, Grant, Judge, ScopeRule } from "@canon/shared";
 import { startServer } from "./app.ts";
 import type { RunningServer } from "./app.ts";
 import { documentTitle } from "./member.ts";
+import { touchesRun } from "./router.ts";
 import { KeywordRetriever } from "./retrieval/keyword.ts";
 import type { WorldFixtures } from "./scopes.ts";
 import { FileStore } from "./store.ts";
@@ -192,4 +193,40 @@ test("a creator's leave-out sentence: theirs to replace or clear, but only ever 
     assert.equal(await ruleText(), "anything about pending deals; firm operations", "hers is added, never replacing");
     assert.equal((await call(server, `/api/principals/${id}/rule`, "alice", { task: "x", preserve_exclusions: true, exclude_text: 7 }, "PUT")).status, 400);
   } finally { await done(); }
+});
+
+test("a fact leaving the creator's memory withdraws only the finished runs that held it", async () => {
+  const { server, done } = await setup();
+  try {
+    const { id } = await create(server, []);
+    const { id: other } = await create(server, ["market/public"]);
+    const publish = (event: unknown) => call(server, "/api/events", "dispatcher", { event });
+    const finish = async (agent: string, runId: string, held: string[]) => {
+      const run = { id: runId, agent, created_by: "alice", task: "t", state: "done", runtime: "claude", sandbox: `data/agents/${runId}`, steps: 2, restarts: 0, started_at: "2026-10-25T00:00:00Z", ended_at: "2026-10-25T00:00:20Z" };
+      await publish({ type: "agent.run", run });
+      await publish({ type: "agent.step", step: { run_id: runId, n: 2, kind: "file", text: "saved out/brief.md to alice's memory", file: "out/brief.md", content: "# Brief\nBody", fact_ids: held, at: run.ended_at } });
+    };
+    await finish(id, "run_ab0101", ["fct_aa0011", "fct_aa0022"]);
+    await finish(other, "run_ab0102", ["fct_aa0022"]);
+
+    // fct_aa0011 leaves Alice's memory (a newer fact retired it, or Compliance refiled it).
+    server.bus.emit({ type: "scope.updated", principal: "alice", reason: "fact_left", added: [], removed: ["fct_aa0011"], size: 1 });
+    const agents = await agentsOf(server, "alice");
+    const held = agents.find((a) => a.id === id)!;
+    const untouched = agents.find((a) => a.id === other)!;
+    assert.equal(held.status, "done", "never a restart nobody is running");
+    assert.equal(held.refresh, true);
+    assert.deepEqual(held.documents, []);
+    assert.equal(untouched.status, "done");
+    assert.equal(untouched.refresh, false, "a run that never held the fact keeps its work");
+    assert.deepEqual(untouched.documents.map((d) => d.title), ["Brief"]);
+  } finally { await done(); }
+});
+
+test("touchesRun: reported folders decide; a run that never reported is always reached", () => {
+  assert.equal(touchesRun([{ text: "saved out/a.md", fact_ids: ["fct_aa01"] }], ["fct_bb02"]), false);
+  assert.equal(touchesRun([{ text: "saved out/a.md", fact_ids: ["fct_aa01"] }], ["fct_aa01"]), true);
+  assert.equal(touchesRun([{ text: "read_file facts/fct_cc03.md" }, { text: "saved", fact_ids: [] }], ["fct_cc03"]), true, "a fact named in a step counts");
+  assert.equal(touchesRun([{ text: "The synthetic portfolio holds 200000 shares." }], ["fct_aa01"]), true);
+  assert.equal(touchesRun([], ["fct_aa01"]), true);
 });

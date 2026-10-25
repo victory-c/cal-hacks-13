@@ -61,7 +61,8 @@ export function agentView(deps: ScopesDeps, p: Principal) {
     steps: steps.map((step, n) => ({ id: `${runId}:${n}`, text: step.text, kind: step.kind, ...(step.file ? { file: step.file } : {}), status: active && n === steps.length - 1 ? "running" : "done", at: step.at })),
     files: [...new Set(steps.filter((step) => step.file).map((step) => step.file!))],
     inbox: deps.world.agentInbox.get(runId) ?? [], docs: [], schedule: "Only when I press Run",
-    documents, memories, refresh: saved.some((step) => !fresh(step)),
+    // Withdrawn: a fact the finished run held has left its scope, so its trace is gone (router.ts).
+    documents, memories, refresh: saved.some((step) => !fresh(step)) || (run as { withdrawn?: boolean } | undefined)?.withdrawn === true,
     // The documents themselves; a run that carried no document text (an older dispatcher) still
     // shows its result lines, as before.
     outputs: documents.length

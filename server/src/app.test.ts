@@ -123,6 +123,10 @@ describe("server over HTTP", () => {
     // The console edits facts with PATCH and rules with PUT from its own origin.
     const methods = (pre.headers.get("access-control-allow-methods") ?? "").split(/,\s*/);
     for (const m of ["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"]) assert.ok(methods.includes(m), `${m} missing from ${methods.join(",")}`);
+    // The member view on its own port opens the live stream with an Authorization header.
+    const stream = await api("/events", { method: "OPTIONS" });
+    assert.equal(stream.status, 204, "a cross-origin page can open the live stream");
+    assert.match(stream.headers.get("access-control-allow-headers") ?? "", /Authorization/);
   });
 
   test("POST /api/sessions: 401 without a token, 200 with one, 403 when the body names another client", async () => {

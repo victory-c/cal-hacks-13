@@ -8,7 +8,7 @@ import { CanonClient } from "./member/canon.ts";
 import { MockCanon } from "./member/mock.ts";
 import {
   ALL_GROUPS, ALL_SOURCES, NO_FILTERS, SORTS, STATUS_LABELS, agentPhase, agentPlanLine, agentStatusLine, boldRuns, countShown,
-  docBlocks, elapsed, feedText, filtersActive, fmtDay, friendlyStep, groupLabel, groupOrder, isBusy, kindLabel, plural,
+  docBlocks, elapsed, feedText, filtersActive, fmtDay, friendlyStep, groupLabel, groupOrder, isBusy, kindLabel, plural, stripFactRefs,
   sourceTitle, viewMemory,
 } from "./member/logic.ts";
 import type { Filters, Sort } from "./member/logic.ts";
@@ -50,6 +50,8 @@ const state = {
   agentForm: null as null | "new" | string,
   /** What the member has typed into each agent's "give it something to do" box. */
   assign: new Map<string, string>(),
+  /** When the member last pressed Run: the page checks on the agent until it reports in. */
+  kicked: 0,
   replaying: true,
 };
 
@@ -118,9 +120,13 @@ async function refreshFacts(): Promise<void> {
 }
 
 async function refreshAgents(): Promise<void> {
+  const wasBusy = new Set(state.agents.filter(isBusy).map((a) => a.id));
   const res = await attempt("load your agents", () => api.agents());
   if (res.ok) state.agents = res.value;
   renderAgents();
+  // A run that just ended may have left notes that are now memories. The live stream says so
+  // too; this keeps My memory right when the stream is down.
+  if (state.agents.some((a) => wasBusy.has(a.id) && !isBusy(a))) void refreshFacts();
 }
 
 // ---------- events
@@ -154,7 +160,9 @@ function onEvent(ev: MemberEvent): void {
   }
   const text = feedText(ev, (id) => state.agents.find((a) => a.id === id)?.name);
   if (text) {
-    const id = "fact" in ev ? ev.fact.id : "run" in ev ? `${ev.run.id}:${ev.run.status}:${ev.run.steps.length}` : "item_id" in ev ? ev.item_id : "build_id" in ev ? ev.build_id : "";
+    // One "started" line per run, however many status updates the run sends while it works.
+    const runKey = (run: AgentRun) => (ev.type === "agent.started" ? `${run.id}:${run.started_at ?? run.status}` : `${run.id}:${run.status}:${run.steps.length}`);
+    const id = "fact" in ev ? ev.fact.id : "run" in ev ? runKey(ev.run) : "item_id" in ev ? ev.item_id : "build_id" in ev ? ev.build_id : "";
     addFeed(`${ev.type}:${id}:${ev.at}`, ev.at, text);
     renderFeed();
   }
@@ -167,15 +175,15 @@ function statementOf(id: string): string | undefined {
   return state.facts.find((f) => f.id === id)?.statement;
 }
 
-/** The documents to show: what the agent wrote, or (an older run) its result lines as one. */
+/** The documents to show: what the agent wrote. Only a client that sends no documents falls back to outputs. */
 function documentsOf(run: AgentRun): AgentDocument[] {
-  if (run.documents?.length) return run.documents;
+  if (run.documents) return run.documents;
   return run.outputs.map((o) => ({ file: o.type, title: o.title, text: o.lines.map((l) => `- ${l.text}`).join("\n"), at: run.finished_at ?? "" }));
 }
 
 /** A markdown document as text nodes only: whatever a model wrote can never become markup. */
 function renderDoc(text: string): HTMLElement {
-  const inline = (line: string) => boldRuns(line).map((part, i) => (i % 2 ? h("b", null, part) : part));
+  const inline = (line: string) => boldRuns(stripFactRefs(line)).map((part, i) => (i % 2 ? h("b", null, part) : part));
   const out = h("div", { class: "doc-body" });
   let list: HTMLUListElement | null = null;
   for (const block of docBlocks(text)) {
@@ -220,7 +228,7 @@ function agentCard(run: AgentRun): HTMLElement {
     onkeydown: (e: Event) => { if ((e as KeyboardEvent).key === "Enter") { e.preventDefault(); void startRun(run); } },
   }) as HTMLInputElement;
   assignBox.value = state.assign.get(run.id) ?? "";
-  return h("li", { class: "agent" },
+  return h("li", { class: "agent", "data-status": run.status },
     h("div", { class: "ahead" },
       h("div", { style: "flex: 1; min-width: 220px" },
         h("div", { class: "aname" }, run.name),
@@ -244,8 +252,9 @@ function agentCard(run: AgentRun): HTMLElement {
     api.mode === "mock" && h("div", { class: "hint plan" }, agentPlanLine(run)),
     run.refresh && h("div", { class: "hint refresh" }, "Its memory has changed since this run. Run it again for an up-to-date document."),
     notes.length > 0 && h("div", { class: "notes" },
-      h("h3", { class: "sub" }, "Saved to your memory"),
-      h("ul", { class: "list" }, notes.map((n) => h("li", { class: "note" }, n.text.replace(/^#+\s*/gm, ""))))),
+      h("h3", { class: "sub" }, "Notes it left you"),
+      h("ul", { class: "list" }, notes.map((n) => h("li", { class: "note" }, n.text.replace(/^#+\s*/gm, "")))),
+      h("div", { class: "hint" }, "Each note is filed like anything you add: what fits your memory joins it.")),
     docs.length > 0 && h("div", { class: "output" },
       h("div", { class: "bar", style: "align-items: center" },
         h("h3", { class: "sub" }, "What it wrote"),
@@ -269,6 +278,8 @@ function agentCard(run: AgentRun): HTMLElement {
 async function startRun(run: AgentRun): Promise<void> {
   const task = (state.assign.get(run.id) ?? "").trim();
   if (!(await attempt("start the agent", () => api.runAgent(run.id, task || undefined))).ok) return;
+  state.kicked = Date.now();
+  if (document.activeElement instanceof HTMLInputElement) document.activeElement.blur();
   state.assign.delete(run.id);
   local(task ? `You asked ${run.name} to: ${task}` : `You started ${run.name}`);
   await refreshAgents();
@@ -279,9 +290,11 @@ function renderAgents(): void {
   syncList(el.agents, state.agents.map((run) => {
     const open = documentsOf(run).map((d) => (state.openDocs.has(`${run.id}:${d.file}`) ? "1" : "0")).join("");
     let version = `${JSON.stringify(run)}|${open}|${agentStatusLine(run, now)}|${isBusy(run) ? elapsed(run.started_at, now) : ""}`;
-    // Someone typing an assignment keeps their card (and their caret) until they are done.
+    // Someone typing an assignment keeps their card (and their caret) while the agent sits idle.
+    // Any change of status (they pressed Run, or Enter) redraws it at once.
     const card = el.agents.querySelector<HTMLElement>(`[data-key="${CSS.escape(run.id)}"]`);
-    if (card?.contains(document.activeElement) && document.activeElement instanceof HTMLInputElement) version = card.dataset.version ?? version;
+    const typing = card?.contains(document.activeElement) && document.activeElement instanceof HTMLInputElement && !document.activeElement.disabled;
+    if (typing && card?.dataset.status === run.status) version = card.dataset.version ?? version;
     return { key: run.id, version, build: () => agentCard(run) };
   }), () => h("li", { class: "empty" }, "No agents yet. Create one, give it a task and choose which of your memory it may use."));
 }
@@ -528,8 +541,15 @@ function wire(): void {
 
   // Relative times ("2 min ago") and idle agent lines age without events.
   setInterval(() => { renderFeed(); renderAgents(); }, 30_000);
-  // A working agent's clock ticks every second; idle cards are left alone.
-  setInterval(() => { if (state.agents.some(isBusy)) renderAgents(); }, 1_000);
+  // A working agent's clock ticks every second; idle cards are left alone. While one works (or was
+  // just started and has not reported in yet) the page also re-reads Canon every 2 s, so the card
+  // stays current even when the live stream has dropped.
+  let tick = 0;
+  setInterval(() => {
+    if (!state.agents.some(isBusy) && Date.now() - state.kicked > 20_000) return;
+    if (++tick % 2 === 0) void refreshAgents();
+    else renderAgents();
+  }, 1_000);
 }
 
 async function start(): Promise<void> {

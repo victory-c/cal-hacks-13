@@ -27,6 +27,19 @@ export interface RouterDeps extends ApiDeps {
 
 export type Handler = (req: IncomingMessage, res: ServerResponse) => Promise<void>;
 
+/**
+ * Whether removing `removed` from an agent's scope reaches a finished run. A run whose saves carry
+ * `fact_ids` (the fact files its folder held) is reached only through one of those, or a fact it
+ * named in a step; a run that never reported its folder is always reached.
+ */
+export function touchesRun(steps: readonly Record<string, unknown>[], removed: readonly string[]): boolean {
+  const reported = steps.filter((step) => Array.isArray(step.fact_ids));
+  if (reported.length === 0) return true;
+  const used = new Set(reported.flatMap((step) => step.fact_ids as string[]));
+  for (const step of steps) for (const m of String(step.text ?? "").matchAll(/\bfct_[0-9a-f]+\b/g)) used.add(m[0]);
+  return removed.some((id) => used.has(id));
+}
+
 export function createRouter(deps: RouterDeps): Handler {
   deps.bus.subscribe((event) => {
     if (event.type === "scope.updated" && event.removed.length) {
@@ -34,9 +47,15 @@ export function createRouter(deps: RouterDeps): Handler {
         if (agent.kind !== "agent" || agent.id !== event.principal && agent.created_by !== event.principal) continue;
         const run = deps.world.agentRuns.get(agent.id); if (!run) continue;
         const runId = String(run.id);
+        const active = run.state === "queued" || run.state === "running" || run.state === "waiting";
+        // A finished run is left alone when none of the removed facts was in its folder: a run that
+        // reported what it held (fact_ids on its saves) cannot have drawn on anything else. One that
+        // did, or one that never said, is withdrawn: its trace goes, and it asks for a new run
+        // rather than claiming to restart (nothing is running it).
+        if (!active && !touchesRun(deps.world.agentSteps.get(runId) ?? [], event.removed)) continue;
         deps.world.invalidRunVersions.set(runId, Number(run.restarts ?? 0) + 1);
         deps.world.agentSteps.delete(runId); deps.world.agentInbox.delete(runId);
-        deps.world.agentRuns.set(agent.id, { ...run, state: "restarting" });
+        deps.world.agentRuns.set(agent.id, active ? { ...run, state: "restarting" } : { ...run, withdrawn: true });
       }
     }
     if (event.type === "handoff.served") deps.world.handoffs.unshift({ id: `handoff_${event.event_id}`, ...event });
@@ -67,7 +86,9 @@ export function createRouter(deps: RouterDeps): Handler {
     if (!url) return sendJson(res, 400, { error: "bad request URL" });
 
     try {
-      if (method === "OPTIONS" && (path.startsWith("/api/") || path === ROUTES.mcp)) {
+      // Preflight for every route a browser on another origin calls with an Authorization header:
+      // the REST API, MCP, and the live stream (the member view reads /events with its token).
+      if (method === "OPTIONS" && (path.startsWith("/api/") || path === ROUTES.mcp || path === ROUTES.events)) {
         res.writeHead(204);
         res.end();
         return;

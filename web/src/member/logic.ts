@@ -248,3 +248,11 @@ export function docBlocks(markdown: string): DocBlock[] {
 export function boldRuns(text: string): string[] {
   return text.split(/\*\*(.+?)\*\*/g);
 }
+
+/**
+ * Drops an agent's citations of internal fact ids ("AUM fell 3% (fct_570013)" → "AUM fell 3%"):
+ * they let the run's record be audited, but mean nothing to the person reading the document.
+ */
+export function stripFactRefs(text: string): string {
+  return text.replace(/\s*\((?:fct_[0-9a-f]+(?:\s*(?:,|and|;)\s*)?)+\)/g, "");
+}
