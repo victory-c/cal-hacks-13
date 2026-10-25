@@ -16,6 +16,10 @@ npm test -w web          # node:test, offline
 
 - `/moderator.html`: Compliance's people, scopes, agents, memory, quarantine, feed, handoffs and audit.
 - `/member.html`: the signed-in person's own agents, memory and feed.
+- `/about.html`: the product page and pitch deck (static, no Canon data; → and ← step through sections), linked as
+  **About Bullwark** from both headers. It quotes measured live runs only; its mock-ups use the
+  synthetic world. Its Open Bullwark buttons return to the console page that linked to it, with that
+  page's query (`?server=…&auth=token` survives); opened directly, they go to `member.html`.
 - `/index.html`: the original technical dashboard for capture/extraction diagnostics. The preview
   gateway redirects `/` to the appropriate product page after login.
 

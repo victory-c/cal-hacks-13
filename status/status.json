@@ -1,6 +1,6 @@
 {
   "project": "Bullwark",
-  "updated": "2026-10-25T11:57:10.506Z",
+  "updated": "2026-10-25T14:29:24.215Z",
   "team": [
     {
       "id": "A",
@@ -650,6 +650,15 @@
       "state": "done",
       "title": "Finish lane B freeze gaps, live agent acceptance and submission copy",
       "note": "GitHub review branch codex/b-finish-pipeline integrates main 4dc9c81. Final checks: 811 tests, all workspace typechecks and browser/extension builds pass. Named writers, seeded position supersession, durable Stop, HTTP/SSE scope-change coverage and Droid/ApplyPatch fixes verified; Stop save guard runs inside the atomic session-write lock with queued-write regression. Real Jev/Claude checks and a two-step macOS Seatbelt Droid note completed. Review/merge, deployment and full finance benchmark remain. See docs/B_LANE_WRAPUP.md."
+    },
+    {
+      "id": "C21",
+      "owner": "C",
+      "milestone": "M5",
+      "priority": "stretch",
+      "state": "done",
+      "title": "About Bullwark product page for the pitch",
+      "note": "web/src/about.html + about.css: the product page and pitch deck, linked as About Bullwark from the member and moderator headers; Open Bullwark returns to the linking console page with its query (CDP click-through). Hero scope map, problem-to-fix table, a Boundary first / Retrieval second pipeline infographic (six stages, role and scope hierarchy, Jev decision layer, memory layer, what it prevents), six ideas, Capture / Scope / Agents / Trust accordions, expandable sponsor deep-dives (Moss, Factory Droid, Jev, Claude) with why-not-alternatives and verified evidence, and who it is for. Right/left arrow keys step through sections for presenting. Names follow the updated demo world. Only measured live figures are quoted (174/271 ms scope builds, 420 ms triage, ~3 s session to memory, 6,342 ms writer, 35.3 s single Droid Seatbelt run, 846 tests); no benchmark leak rates. Checked in headless Chrome at 1440 px and 390 px (no horizontal overflow); web tests 131 pass."
     }
   ],
   "tracks": [
