@@ -217,3 +217,9 @@ button:focus-visible, input:focus-visible, select:focus-visible, textarea:focus-
 .mem.bg .fact { opacity: .62; }
 .mem.bg .fact:hover, .mem.bg .fact:focus-within { opacity: 1; }
 @media (max-width: 640px) { .fact { flex-wrap: wrap; } .fact .actions { width: 100%; justify-content: flex-end; } }
+
+/* Header link to the product page (about.html). */
+.topnav { margin-right: auto; }
+.topnav a { color: var(--light-ink); font-size: 14px; font-weight: 600; text-decoration: none; opacity: .82; padding: 6px 10px; border-radius: 4px; }
+.topnav a:hover { opacity: 1; background: rgba(255, 255, 255, .1); }
+.topnav a:focus-visible { outline: 2px solid var(--light-ink); outline-offset: 2px; }
