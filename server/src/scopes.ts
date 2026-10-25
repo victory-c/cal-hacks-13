@@ -466,15 +466,24 @@ export async function refileFact(deps: ScopesDeps, callerId: string, factId: str
   });
   deps.bus.emit({ type: "fact.filed", fact_id: saved.id, from: fact.folder, group: saved.folder, labels: saved.labels ?? [] });
 
-  // Leave every scope whose rule now excludes it (every scope, for the moderators-only inbox).
-  for (const scope of deps.world.scopes.values()) {
-    const i = scope.fact_ids.indexOf(saved.id);
-    if (i === -1) continue;
-    const rule = deps.world.rules.get(scope.principal);
-    if (!folderAllows([INBOX], saved.folder) && rule && allowedByRule(rule, saved)) continue;
-    scope.fact_ids.splice(i, 1);
-    logAudit(deps, { kind: "fact.left_scope", actor: callerId, principal: scope.principal, fact_ids: [saved.id], detail: `${saved.id} was filed to ${saved.folder} and left ${scope.principal}'s scope.` });
-    deps.bus.emit({ type: "scope.updated", principal: scope.principal, reason: "fact_filed", added: [], removed: [saved.id], size: scope.fact_ids.length });
+  // Leave every scope whose rule now excludes it (every scope, for the moderators-only inbox), and
+  // every agent scope whose creator no longer holds it. Repeat until nothing changes, so a creator's
+  // loss reaches their agents whatever order the scopes are visited in.
+  for (let changed = true; changed; ) {
+    changed = false;
+    for (const scope of deps.world.scopes.values()) {
+      const i = scope.fact_ids.indexOf(saved.id);
+      if (i === -1) continue;
+      const rule = deps.world.rules.get(scope.principal);
+      const principal = deps.world.principals.get(scope.principal);
+      const ruleKeeps = !folderAllows([INBOX], saved.folder) && rule !== undefined && allowedByRule(rule, saved);
+      if (ruleKeeps && (principal?.kind !== "agent" || creatorHolds(deps, principal, saved.id))) continue;
+      scope.fact_ids.splice(i, 1);
+      changed = true;
+      const why = ruleKeeps ? `its creator ${principal?.created_by ?? "?"} lost it` : `it was filed to ${saved.folder}`;
+      logAudit(deps, { kind: "fact.left_scope", actor: callerId, principal: scope.principal, fact_ids: [saved.id], detail: `${saved.id} left ${scope.principal}'s scope: ${why}.` });
+      deps.bus.emit({ type: "scope.updated", principal: scope.principal, reason: "fact_filed", added: [], removed: [saved.id], size: scope.fact_ids.length });
+    }
   }
   // Then it joins the scopes it now fits, with the checks a new fact gets.
   await onFactSaved(deps, saved);
@@ -554,13 +563,16 @@ export async function onFactSaved(deps: ScopesDeps, fact: Fact): Promise<void> {
 
   for (const c of members) if (passes(c)) joinScope(deps, c, fact);
   for (const c of agents) {
-    const creator = c.principal.created_by !== undefined ? deps.world.principals.get(c.principal.created_by) : undefined;
-    const creatorHolds =
-      creator?.kind === "person" && creator.tier === "moderator"
-        ? true // a moderator creator sees every hot fact and has no scope record
-        : c.principal.created_by !== undefined && (deps.world.scopes.get(c.principal.created_by)?.fact_ids.includes(fact.id) ?? false);
-    if (creatorHolds && passes(c)) joinScope(deps, c, fact); // members joined above, so a creator's gain reaches their agents in the same pass
+    if (creatorHolds(deps, c.principal, fact.id) && passes(c)) joinScope(deps, c, fact); // members joined above, so a creator's gain reaches their agents in the same pass
   }
+}
+
+/** Whether an agent's creator currently holds the fact; an agent without a known creator holds nothing. */
+function creatorHolds(deps: ScopesDeps, agent: Principal, factId: string): boolean {
+  if (agent.created_by === undefined) return false;
+  const creator = deps.world.principals.get(agent.created_by);
+  if (creator?.kind === "person" && creator.tier === "moderator") return true; // a moderator creator sees every hot fact and has no scope record
+  return deps.world.scopes.get(agent.created_by)?.fact_ids.includes(factId) ?? false;
 }
 
 function joinScope(deps: ScopesDeps, c: LiveCheck, fact: Fact): void {

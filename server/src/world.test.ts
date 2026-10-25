@@ -130,6 +130,24 @@ describe("demo world on the server (fixtures/world/)", () => {
     assert.ok(running.world.audit.some((e) => e.kind === "fact.filed" && e.actor === "wags"));
   });
 
+  test("refiling into a walled group takes the fact from the creator and, with it, their agent", async () => {
+    // The desk assistant's own rule excludes nothing, so only the creator cap can take the fact away.
+    assert.deepEqual(running.world.rules.get("desk-assistant")?.exclude.groups, []);
+    const id = running.world.scopes.get("desk-assistant")?.fact_ids.find((fid) => !demo.announced.includes(fid));
+    assert.ok(id, "the desk assistant holds a fact to refile");
+    assert.ok(running.world.scopes.get("dollar-bill")?.fact_ids.includes(id));
+
+    const res = await api(`${ROUTES.facts}/${id}/file`, { method: "POST", token: "tok-wags", json: { group: "deal/stonewall" } });
+    assert.equal(res.status, 200);
+    assert.equal(running.world.scopes.get("dollar-bill")?.fact_ids.includes(id), false, "Dollar Bill's rule excludes deal/*");
+    assert.equal(running.world.scopes.get("desk-assistant")?.fact_ids.includes(id), false, "the agent never keeps what its creator lost");
+    assert.ok(running.world.audit.some((e) => e.kind === "fact.left_scope" && e.principal === "desk-assistant" && e.fact_ids?.includes(id)), "the agent's loss is audited");
+
+    // Living scopes run off the bus after the refile; the fact must not rejoin the agent there either.
+    await running.living.drain();
+    assert.equal(running.world.scopes.get("desk-assistant")?.fact_ids.includes(id), false);
+  });
+
   test("refiling into the inbox takes the fact out of every scope", async () => {
     const id = demo.announced[0];
     const res = await api(`${ROUTES.facts}/${id}/file`, { method: "POST", token: "tok-wags", json: { group: "inbox" } });
