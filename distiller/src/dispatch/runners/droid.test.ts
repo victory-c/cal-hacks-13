@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { chmodSync, existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { chmodSync, existsSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { delimiter, join } from "node:path";
 import { after, before, describe, test } from "node:test";
@@ -126,13 +126,23 @@ function request(dir: string, events: StepEvent[], over: Partial<StepRequest> = 
 }
 
 describe("DroidRunner against a fake droid on PATH", () => {
+  test("an npm-style PATH symlink executes the canonical file allowed by Seatbelt", { skip: POSIX_ONLY }, async () => {
+    const links = mkdtempSync(join(tmpdir(), "canon-droid-links-"));
+    try {
+      symlinkSync(join(bin, "droid"), join(links, "droid"));
+      await withEnv({ PATH: `${links}${delimiter}${process.env.PATH}`, FACTORY_API_KEY: "fk-test" }, async () => {
+        const runner = new DroidRunner({ osSandbox: "none" });
+        assert.equal(runner.command(request(root, [])).file, realPath(join(bin, "droid")));
+      });
+    } finally { rmSync(links, { recursive: true, force: true }); }
+  });
   test("runs `droid exec --auto low -o stream-json --cwd <sandbox>` and parses the stream into steps", { skip: POSIX_ONLY }, async () => {
     const sb = createSandbox("run_00000d01", { root });
     const events: StepEvent[] = [];
     const result = await withDroid({ FAKE_DROID_MODE: "ok" }, async () => (await newRunner()).step(request(sb.dir, events)));
 
     const call = JSON.parse(readFileSync(join(sb.dir, "droid-call.json"), "utf8"));
-    assert.deepEqual(call.args.slice(0, 10), ["exec", "--auto", "low", "-o", "stream-json", "--disable-builtin-skills", "--only-tools", "Read,LS,Grep,Glob,Create,Edit", "--cwd", sb.dir]);
+    assert.deepEqual(call.args.slice(0, 10), ["exec", "--auto", "low", "-o", "stream-json", "--disable-builtin-skills", "--only-tools", "Read,LS,Grep,Glob,ApplyPatch", "--cwd", sb.dir]);
     assert.equal(call.args.includes("-m"), false, "Factory chooses its supported account default");
     assert.match(call.args.at(-1), /^You are Priya's research agent, an agent in Bullwark/);
     assert.equal(call.pwd.endsWith("run_00000d01"), true, "spawned in the sandbox");

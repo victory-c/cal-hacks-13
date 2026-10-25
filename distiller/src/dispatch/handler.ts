@@ -69,7 +69,7 @@ export function createDispatchHandler(opts: HandlerOptions): DispatchHandler {
   const agents = new Map<string, Principal>();
   const deleted = new Set<string>();
   /** Dispatches still reading their agent's scope rule, by agent: a deletion heard meanwhile marks them. */
-  const starting = new Map<string, Set<{ deleted: boolean }>>();
+  const starting = new Map<string, Set<{ deleted: boolean; stopGeneration: number }>>();
   let noScopeRoute = false;
 
   const remember = (p: Principal) => {
@@ -142,6 +142,14 @@ export function createDispatchHandler(opts: HandlerOptions): DispatchHandler {
 
   const handle = async (event: CanonEvent, replayed: boolean): Promise<void> => {
     switch (event.type) {
+      case "dispatch.stop_requested": {
+        for (const ticket of starting.get(event.agent) ?? []) ticket.stopGeneration = Math.max(ticket.stopGeneration, event.generation);
+        const items = opts.dispatcher.routable()
+          .filter((run) => run.agent === event.agent && isActive(run) && (run.stop_generation ?? 0) < event.generation)
+          .map((run) => ({ id: `inb_${randomBytes(6).toString("hex")}`, run_id: run.run_id, kind: "cancel" as const, urgent: true, text: "Stopped by its creator or Compliance.", at: event.at }));
+        opts.dispatcher.deliver(items);
+        return;
+      }
       case "principal.changed": {
         const p = event.principal;
         if (p.kind !== "agent") return;
@@ -169,13 +177,13 @@ export function createDispatchHandler(opts: HandlerOptions): DispatchHandler {
         }
         // Deleted while the rule is read: the dispatcher asks the ticket right before the run
         // starts, so the run ends cancelled without reading the agent's scope or running a step.
-        const ticket = { deleted: false };
-        const tickets = starting.get(agent) ?? new Set<{ deleted: boolean }>();
+        const ticket = { deleted: false, stopGeneration: 0 };
+        const tickets = starting.get(agent) ?? new Set<{ deleted: boolean; stopGeneration: number }>();
         tickets.add(ticket);
         starting.set(agent, tickets);
         let run;
         try {
-          run = await opts.dispatcher.dispatch(event.request, agents.get(agent), () => (ticket.deleted ? DELETED_TEXT : undefined));
+          run = await opts.dispatcher.dispatch(event.request, agents.get(agent), (generation) => ticket.deleted ? DELETED_TEXT : ticket.stopGeneration > generation ? "Stopped by its creator or Compliance." : undefined);
         } finally {
           tickets.delete(ticket);
           if (tickets.size === 0 && starting.get(agent) === tickets) starting.delete(agent);

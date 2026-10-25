@@ -33,6 +33,7 @@ export interface CanonClient {
   /** Durable recovery on new servers; optional for older servers and offline clients. */
   pendingSessions?(): Promise<CapturedSession[]>;
   markDistilled?(id: string, fingerprint: string): Promise<void>;
+  principalName?(id: string): Promise<string | undefined>;
 }
 
 export class CanonApiError extends Error {
@@ -82,6 +83,16 @@ export function createClient(opts: { baseUrl: string; token: string }): CanonCli
   }
 
   return {
+    async principalName(id) {
+      try {
+        const result = await call<{ principals: Array<{ id: string; name: string }> }>("GET", "/api/principals");
+        const name = result.principals.find((p) => p.id === id)?.name;
+        return typeof name === "string" ? name : undefined;
+      } catch (err) {
+        if (isMissingRoute(err)) return undefined;
+        throw err;
+      }
+    },
     getSession: (id) => call<CapturedSession>("GET", `${ROUTES.sessions}/${encodeURIComponent(id)}`),
     pendingSessions: async () => (await call<{ sessions: CapturedSession[] }>("GET", `${ROUTES.sessions}?pending=1`)).sessions,
     async markDistilled(id, fingerprint) {

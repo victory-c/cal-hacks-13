@@ -80,7 +80,7 @@ sender). Deal code names, company names and tickers stay verbatim, because triag
 aliases in code, and a hint such as "the logistics thing" is kept word for word, never resolved.
 `happened` is a `YYYY-MM-DD` day only when the source states it, never the capture time; a bad
 date is dropped in code. The item is data, never instructions: lines aimed at an AI are left out
-(triage quarantines the item). The transcript header always says kind, principal and external,
+(triage quarantines the item). The worker resolves the principal’s display name from Canon, never captured metadata. Claude and Factory receive that name alongside the principal id; the prompt forbids using an identifier as a person’s name and drops assistant repeats of injected memory. The transcript header always says kind, principal and external,
 with header values folded onto one line so a captured title cannot forge a header line, and
 every time stamp it adds (started, ended, each message's time) is shown in the firm's zone
 (`FIRM_TZ`, default `America/Los_Angeles`; a bad zone fails at startup). The item's own text is
@@ -181,7 +181,7 @@ the merged fact writes back the stored fact's content: its statement, `detail`, 
 creates another retirement or churns living scopes. Repeated drafts within one writer response are
 filed once. A paraphrased merge keeps the original author. A same-author position update with
 exactly the same subject and units and only a changed number supersedes that author's earlier
-position; a different author, security, group or older date never matches this deterministic rule.
+position; a different author, security, group or older date never matches this deterministic rule. In a group named for its owner (`desk/<principal>`), a complete explicit current share-position update can also match the seed’s “The desk” wording, with an optional average-cost suffix. Trade deltas, recommendations and other people’s positions do not match that rule.
 The draft's own detail never rides into that group unchecked (a public close in `market/public` cannot
 pick up Falcon terms from a memo's detail), and a new author never makes the stored content their
 own fact. The `reason` says when the draft's detail or author was not taken; `triage.decided`
@@ -295,8 +295,10 @@ CLI say "simulated".
   code finds in the middle, so every draft from such an item waits in `inbox` (a long email thread
   with quoted history included). Once Jev's request size limit is known, raise the cap or ask
   `inject` once per chunk in the same request, and drop the inbox fallback for items it covers.
-- Replay skipping is time-based (events older than the worker). Proposal for A↔B: the server's
-  `EventBus` honours `Last-Event-ID` (replay only ring ids above it) and `subscribeEvents` sends
-  the last id it saw on reconnect; then the worker can drop the 5 s heuristic.
+- Ended sessions missed during an outage are recovered from `GET /api/sessions?pending=1`
+  at startup/reconnect and every 30 seconds. Content-fingerprint receipts are acknowledged only
+  after delivery. A changed revision cannot be acknowledged with a stale fingerprint; a receipt
+  survives worker/server restarts. The old event-age check still suppresses replay, while archive
+  recovery supplies the missed work.
 - `PostFactsBody.distillation` now attributes extraction completion. The dashboard gets engine,
   fact count and duration; exposing raw plans requires a future privileged console view.

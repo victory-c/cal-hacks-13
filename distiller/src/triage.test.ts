@@ -95,6 +95,26 @@ describe("triage", () => {
     assert.equal(different.drafts[0].save?.action, "add");
   });
 
+  test("a current desk-owner update supersedes the actual demo seed without guessing other subjects", async () => {
+    const folder = "desk/dollar-bill";
+    const old = fakeFact("fct_57001e", "The desk is long 180,000 TMC shares at an average cost of $39.10", { folder, author: "dollar-bill", happened: "2026-10-19" });
+    const item = { ...session, principal: "dollar-bill", external: false, messages: [{ role: "user" as const, content: "I am now long 200,000 TMC shares." }] };
+    const group = { id: folder, description: "Dollar Bill's desk positions", aliases: [] };
+    const decide = async (statement: string, stored = old, happened = "2026-10-24") => (await triage(input([draft(statement, { happened })], { session: item, groups: [group], existing: [stored] }), scripted({ "group:0": { choice: folder, p: 0.9 } }))).drafts[0];
+    const updated = await decide("Dollar Bill is now long 200,000 TMC shares.");
+    assert.equal(updated.save?.action, "supersede");
+    assert.equal(updated.fact?.supersedes, old.id);
+    for (const statement of [
+      "Ben Kim is now long 200,000 TMC shares.",
+      "Dollar Bill is now long 200,000 XYZ shares.",
+      "Dollar Bill is now long 200,000 TMC options.",
+      "Dollar Bill bought 20,000 TMC shares.",
+      "Dollar Bill should now be long 200,000 TMC shares.",
+    ]) assert.equal((await decide(statement)).save?.action, "add", statement);
+    assert.equal((await decide("Dollar Bill is now long 200,000 TMC shares.", { ...old, author: "ben" })).save?.action, "add");
+    assert.equal((await decide("Dollar Bill is now long 200,000 TMC shares.", old, "2026-10-18")).save?.action, "add");
+  });
+
   test("the simulated judge files the active Stonewall world's desk and research groups", async () => {
     const active: Group[] = [
       { id: "desk/dollar-bill", description: "Dollar Bill's own positions", aliases: [] },

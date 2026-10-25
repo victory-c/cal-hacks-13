@@ -1,6 +1,6 @@
 {
   "project": "Bullwark",
-  "updated": "2026-10-25T04:44:16.605859+00:00",
+  "updated": "2026-10-25T06:01:14Z",
   "team": [
     {
       "id": "A",
@@ -48,37 +48,37 @@
   "milestones": [
     {
       "id": "M1",
-      "window": "Sat 04:00–09:00",
+      "window": "Sat 04:00\u201309:00",
       "end": "2026-10-24T09:00:00-07:00",
       "label": "Schema frozen (tiers, groups, scope rules, scopes), ingest and synthetic fixtures"
     },
     {
       "id": "M2",
-      "window": "Sat 09:00–14:00",
+      "window": "Sat 09:00\u201314:00",
       "end": "2026-10-24T14:00:00-07:00",
       "label": "Scope builder end to end, grouping at save, filtered handoff and live feed"
     },
     {
       "id": "M3",
-      "window": "Sat 14:00–20:00",
+      "window": "Sat 14:00\u201320:00",
       "end": "2026-10-24T20:00:00-07:00",
       "label": "Agent profiles, Droid lanes, living scopes, people and tiers, quarantine and evaluation sets"
     },
     {
       "id": "M4",
-      "window": "Sat 20:00–24:00",
+      "window": "Sat 20:00\u201324:00",
       "end": "2026-10-24T23:59:00-07:00",
       "label": "Measured benchmark, Devpost draft and first video cut"
     },
     {
       "id": "M5",
-      "window": "Sun 00:00–07:00",
+      "window": "Sun 00:00\u201307:00",
       "end": "2026-10-25T07:00:00-07:00",
       "label": "Polish, scope map, attack box, fallback recording, sponsor READMEs"
     },
     {
       "id": "M6",
-      "window": "Sun 07:00–09:00",
+      "window": "Sun 07:00\u201309:00",
       "end": "2026-10-25T09:00:00-07:00",
       "label": "Freeze, final video, submit, rehearse"
     }
@@ -127,7 +127,7 @@
       "priority": "must",
       "state": "done",
       "title": "SSE events for the console: scope builds and changes, facts joining scopes, handoffs, audit",
-      "note": "Audited every scopes route against PRD #15/#19: scope.stage (measured times), scope.updated (built / rule_changed / fact_joined / fact_left), principal.changed (added / tier_changed / agent_created / agent_deleted), handoff.served, quarantine.released and audit.logged were already emitted with their audit rows. Gap closed: POST /api/quarantine wrote its audit row but emitted nothing — it now emits quarantine.flagged (relay for lane B workers kept). No new event types; plain SSE unchanged. Tests assert event + audit row per route."
+      "note": "Audited every scopes route against PRD #15/#19: scope.stage (measured times), scope.updated (built / rule_changed / fact_joined / fact_left), principal.changed (added / tier_changed / agent_created / agent_deleted), handoff.served, quarantine.released and audit.logged were already emitted with their audit rows. Gap closed: POST /api/quarantine wrote its audit row but emitted nothing \u2014 it now emits quarantine.flagged (relay for lane B workers kept). No new event types; plain SSE unchanged. Tests assert event + audit row per route."
     },
     {
       "id": "A6",
@@ -135,8 +135,8 @@
       "milestone": "M1",
       "priority": "must",
       "state": "done",
-      "title": "Scope builder: exclusions in code → Moss candidates → Jev yes/no → scope, with living updates",
-      "note": "Deny-by-default enforced in code before any search: excluded groups and labels leave the pool before Moss or Jev see anything (allowedByRule in server/src/scopes.ts), scopes are fixed fact-id lists, agents are capped at their creator, living updates keep scopes current (4576d07). Expiring clearances were cut by the scopes PRD #14 — access changes are rule edits, not timed grants."
+      "title": "Scope builder: exclusions in code \u2192 Moss candidates \u2192 Jev yes/no \u2192 scope, with living updates",
+      "note": "Deny-by-default enforced in code before any search: excluded groups and labels leave the pool before Moss or Jev see anything (allowedByRule in server/src/scopes.ts), scopes are fixed fact-id lists, agents are capped at their creator, living updates keep scopes current (4576d07). Expiring clearances were cut by the scopes PRD #14 \u2014 access changes are rule edits, not timed grants."
     },
     {
       "id": "A7",
@@ -144,8 +144,8 @@
       "milestone": "M2",
       "priority": "must",
       "state": "done",
-      "title": "Handoff: search inside the scope → Jev relevance → token budget → audit",
-      "note": "server/src/scopes.ts runHandoff: fixed scope → retriever inside the scope's groups with in-code fact-id re-check → inject-nothing judge() check → one batched Jev relevance ask → budget cut in code → audit row with exactly the facts sent. Judge/retriever failures degrade to profile-only, never a refusal or leak. Offline providers are the labelled keyword retriever + fake judge (Moss id-filter and Jev creds still open under A4/Q2)."
+      "title": "Handoff: search inside the scope \u2192 Jev relevance \u2192 token budget \u2192 audit",
+      "note": "server/src/scopes.ts runHandoff: fixed scope \u2192 retriever inside the scope's groups with in-code fact-id re-check \u2192 inject-nothing judge() check \u2192 one batched Jev relevance ask \u2192 budget cut in code \u2192 audit row with exactly the facts sent. Judge/retriever failures degrade to profile-only, never a refusal or leak. Offline providers are the labelled keyword retriever + fake judge (Moss id-filter and Jev creds still open under A4/Q2)."
     },
     {
       "id": "A8",
@@ -199,7 +199,7 @@
       "priority": "must",
       "state": "done",
       "title": "Calibrate the scope-build and handoff thresholds on live Jev",
-      "note": "Calibrated on live Jev (demo world, one run, Sat 10/24): EXCLUDE_GROUP 0.2→0.6, EXCLUDE_FACT 0.3→0.45, IN_SCOPE 0.7→0.5, RELEVANT 0.7→0.6, NEEDS_CONTEXT stays 0.5; measured ranges sit next to each value in shared/src/types/judge.ts. Live result: Dollar Bill's scope 11 facts (public, research, his desk; zero deal), Axe's 18 (12 deal). Small scopes (≤40 facts) are judged whole, so the keyword stub no longer drops paraphrases. One world, one run: re-check on the benchmark."
+      "note": "Calibrated on live Jev (demo world, one run, Sat 10/24): EXCLUDE_GROUP 0.2\u21920.6, EXCLUDE_FACT 0.3\u21920.45, IN_SCOPE 0.7\u21920.5, RELEVANT 0.7\u21920.6, NEEDS_CONTEXT stays 0.5; measured ranges sit next to each value in shared/src/types/judge.ts. Live result: Dollar Bill's scope 11 facts (public, research, his desk; zero deal), Axe's 18 (12 deal). Small scopes (\u226440 facts) are judged whole, so the keyword stub no longer drops paraphrases. One world, one run: re-check on the benchmark."
     },
     {
       "id": "A21",
@@ -217,16 +217,16 @@
       "priority": "must",
       "state": "done",
       "title": "Claude Code capture hook",
-      "note": "Committed project hook (.claude/settings.json, $CLAUDE_PROJECT_DIR). Parser fixed for real transcripts (turn merge, harness tags). Verified: claude -p → SessionEnd → server → distiller → fact → dashboard."
+      "note": "Committed project hook (.claude/settings.json, $CLAUDE_PROJECT_DIR). Parser fixed for real transcripts (turn merge, harness tags). Verified: claude -p \u2192 SessionEnd \u2192 server \u2192 distiller \u2192 fact \u2192 dashboard."
     },
     {
       "id": "B2",
       "owner": "B",
       "milestone": "M3",
       "priority": "must",
-      "state": "doing",
+      "state": "done",
       "title": "Droid agent runs: sandbox folder holding only the agent's scope as markdown, with steps and files streamed",
-      "note": "Integrated on b/integration-v2 with triage, ingest and lane A's A2 stubs, and verified end to end (fake runtime, simulated): Leo dispatches agt_leodesk → scope rule, scope facts, handoff, 2 steps, outputs saved as Leo's memory and triaged; Dan dispatching Leo's agent gets 403. npm run dev now starts the dispatcher. Windows: POSIX-only tests skip with a reason; LOCKED folder modes do not hold there, so run real Droid on macOS. Remaining: one real droid exec run (no FACTORY_API_KEY on Henry's machine); a server-side refusal of a save whose facts left the scope (lane A)."
+      "note": "B28: real Factory Droid CLI completed a scoped public research note in two steps under macOS Seatbelt, saving one session as Ben; isolated HTTP/SSE run 35,332 ms. Fixed canonical npm executable resolution and the current ApplyPatch allow-list. Docker preview retains Claude because Linux Droid isolation is unverified. See docs/B_LANE_WRAPUP.md."
     },
     {
       "id": "B4",
@@ -235,16 +235,16 @@
       "priority": "must",
       "state": "doing",
       "title": "ChatGPT capture for the synthetic finance demo",
-      "note": "Built and tested on b/ingest (PR #12), updated for the scopes PRD: the options-page principal is documented as the author of the chat's facts. Remaining: lane A keeping principal and kind on POST /api/sessions and binding the principal to the token, then a live chatgpt.com run."
+      "note": "Capture extension and author-bound server path are integrated; live chatgpt.com acceptance remains unverified and deferred under PIPELINE-PRD P2. Demo uses Claude Code, ingest or Add item; no live extension claim."
     },
     {
       "id": "B5",
       "owner": "B",
       "milestone": "M2",
       "priority": "must",
-      "state": "doing",
+      "state": "done",
       "title": "Jev triage: keep, group, labels, instructions aimed at an AI, relation to existing facts",
-      "note": "Runs on real Jev (TypeSafe /v1/systemone, client rewritten to the documented API) on b/integration-v2. Measured end to end on the world (simulated heuristic writer, real Jev judge): the lawyers' email quarantined at inject p 0.98; memo, chat, transcript, news and Leo's agent output pass at 0.08-0.17; each batched triage call 106-191 ms; Priya, Leo and Leo's agent hold zero deal/falcon facts. Calibrated on real Jev: the injection question now asks about item.text only and excludes handling notes to people (a memo's 'do not paste into any AI tool' note had scored 0.57), and dispatcher sessions are judged on the agent's outputs only (our own task prompt had scored 0.30-0.86). A draft sent to inbox no longer retires a fact in another group. Remaining: the Claude writer live (no ANTHROPIC_API_KEY yet); public Nimbus news lands in inbox (the Nimbus alias belongs to deal/falcon)."
+      "note": "B28: Jev triage, active-world offline grouping, preserved merge authorship, repeat stability and archive catch-up verified. Extended supersession to the actual demo seed\u2019s The desk / Dollar Bill current-position wording, with author/security/unit/date guards. Real Claude/Jev filing checked; no benchmark guarantee. See docs/B_LANE_WRAPUP.md."
     },
     {
       "id": "B6",
@@ -253,52 +253,52 @@
       "priority": "must",
       "state": "todo",
       "title": "ChatGPT MCP read connector configured and demo-tested",
-      "note": "Capture remains through the extension; the token maps to one person, so answers come only from their scope."
+      "note": "Deferred under PIPELINE-PRD P2. Claude Code has the verified automatic read/write path; ChatGPT MCP setup and live acceptance are not claimed."
     },
     {
       "id": "B11",
       "owner": "B",
       "milestone": "M5",
       "priority": "stretch",
-      "state": "todo",
+      "state": "done",
       "title": "Quarantine review view",
-      "note": "Optional view; quarantine enforcement belongs to B5."
+      "note": "Quarantine review and release already integrated in the moderator console on main (C13/B27). Current client and mock regression suites cover it; no new optional screen needed."
     },
     {
       "id": "B12",
       "owner": "B",
       "milestone": "M4",
       "priority": "must",
-      "state": "doing",
+      "state": "done",
       "title": "Devpost text: finance problem, product, real integrations and limits",
-      "note": "Devpost draft rewritten for the scopes PRD on b/story-scopes (stacked on PR #7): Leo's answer from public news (no refusal), grouping and quarantine, the scope builder, agents capped at their creator, live rule edits; refusals, lists, wall-crossings, deal status and exit checks removed. SHIPPED? markers now name the scopes rows in SPONSORS.md. Remaining: resolve every [[...]] marker at code freeze (the awk check prints nothing)."
+      "note": "Rewrote docs/DEVPOST.md for the integrated Billions world and verified providers. No unresolved claim markers, fabricated interview quote, uploaded video or unmeasured benchmark result; explicit media/submission handoff to C8/C10."
     },
     {
       "id": "B13",
       "owner": "B",
       "milestone": "M5",
       "priority": "must",
-      "state": "doing",
+      "state": "done",
       "title": "Small-team-to-company scale slide and sponsor README evidence",
-      "note": "Scale slide, SPONSORS.md, the README intro, product flow and sponsor sections rewritten for the scopes PRD on b/story-scopes (PR #16, stacked on PR #7): two tiers, scope builder order, 60 attacks / 30 tasks, missing-context rate. Statuses checked Sat 07:30 PDT: PRs #9, #10 and #12 now hold their scopes versions and are in review; #17 (writer group suggestions) is merged into PR #7; nothing new on main. Remaining: re-check statuses at the 21:00 sync and at code freeze; fill the evidence strip from a real bench run."
+      "note": "Updated SPONSORS.md, SCALE_SLIDE.md and README to current code and measured evidence, distinguishing Factory extraction, real macOS Droid acceptance, Claude preview agents, Moss and Jev. Full benchmark and production-scale claims remain explicitly pending."
     },
     {
       "id": "B14",
       "owner": "B",
       "milestone": "M4",
       "priority": "must",
-      "state": "doing",
+      "state": "done",
       "title": "Video script and voiceover opening on the question that doesn't leak",
-      "note": "Video script rewritten for the scopes PRD on b/story-scopes: opens on Leo's answer from public news and Maya's scope inspector, then grouping and quarantine, Priya's scope built live, agents inherit (the 'include everything about Falcon' agent gets nothing), Falcon announced as rule edits, the 60-attack chart; backup shots for the deal dying and Dan's promotion. Remaining: Edan records (C9); numbers from a real bench run."
+      "note": "VIDEO_SCRIPT.md follows Stonewall demo beats using actual Run/MCP and group-exclusion controls, exported-session ingest, public-term refiling and current runtime labels. Honest no-benchmark wording is ready; recording/upload remains C9."
     },
     {
       "id": "B15",
       "owner": "B",
       "milestone": "M6",
       "priority": "must",
-      "state": "doing",
+      "state": "done",
       "title": "Two-minute finance pitch and answers to judge questions",
-      "note": "Pitch rewritten for the scopes PRD on b/story-scopes: the PRD's 2-minute beats, attack box on a separate laptop where deals are still excluded (as Leo, or by creating an agent as Priya), backup scenarios, 23 judge answers incl. existence signals, Jev wrongly saying yes, misfiled facts and agent escalation. Remaining: C4's quote, measured numbers, lane A's reset command, rehearsal (C11)."
+      "note": "PITCH.md now has the two-minute Billions script and current judge answers, announcement/refiling, Stop, provider limits and recording fallback. Quote collection and timed rehearsal remain C4/C11; no invented results."
     },
     {
       "id": "B16",
@@ -314,18 +314,18 @@
       "owner": "B",
       "milestone": "M2",
       "priority": "must",
-      "state": "doing",
+      "state": "done",
       "title": "Claude fact writer with source, author, dates and history",
-      "note": "Group-suggesting writer merged (#17, #18); the worker and CLI pass GET /api/groups (fixtures/world/groups.json offline) into distill() and triage weighs the alias hits (b/integration-v2). Remaining: one live run of the Claude writer (no ANTHROPIC_API_KEY on Henry's machine)."
+      "note": "B28: writer resolves display names from Canon rather than captured metadata; Claude, Factory and heuristic paths receive the name. Real Claude emitted Dollar Bill rather than an identifier and omitted an assistant repeat of injected memory; Jev filing, MCP and restart were checked. Keep-score variability is documented. See docs/B_LANE_WRAPUP.md."
     },
     {
       "id": "B18",
       "owner": "B",
       "milestone": "M3",
       "priority": "must",
-      "state": "doing",
+      "state": "done",
       "title": "Route newly in-scope facts to agent inboxes; restart runs when a scope narrows",
-      "note": "Integrated on b/integration-v2 against A2's scope routes; unit-tested (routing.test.ts, dispatcher.test.ts). Remaining: exercise a live scope.updated (rule edit) during a run end to end."
+      "note": "B28: live Jev/Claude HTTP/SSE scope edit interrupted an active invocation and restarted its folder without the removed fact. Offline integration covers the same route/event path, while routing-addition tests remain in the dispatcher suite. Stop, missed events and restart persistence are covered separately. New code is local until review/deployment; docs/B_LANE_WRAPUP.md."
     },
     {
       "id": "B19",
@@ -352,7 +352,7 @@
       "priority": "must",
       "state": "done",
       "title": "Sponsor answers: Droid finance runs, Moss credentials, Jev access and track cap",
-      "note": "Resolve Q1–Q5; share keys directly with builders."
+      "note": "Resolve Q1\u2013Q5; share keys directly with builders."
     },
     {
       "id": "C2",
@@ -559,7 +559,7 @@
       "priority": "must",
       "state": "done",
       "title": "Test the local live-provider preview and close permission gaps",
-      "note": "docs/LOCAL_TEST_REPORT.md: 291 automated tests and both builds pass; 52 live HTTP/MCP checks pass. Factory → Jev capture produced 6 facts in 12 s (4 hot / 2 cold); Moss returned fresh facts. Fixed SSE grant filtering, cross-folder fact mutations and cross-client session overwrites. Rebuilt preview, verified source hashes and preserved 24 facts / 4 sessions across recreation. Browser visual QA unavailable (disabled in Work settings). Public Vultr hosting and finance scopes remain separate."
+      "note": "docs/LOCAL_TEST_REPORT.md: 291 automated tests and both builds pass; 52 live HTTP/MCP checks pass. Factory \u2192 Jev capture produced 6 facts in 12 s (4 hot / 2 cold); Moss returned fresh facts. Fixed SSE grant filtering, cross-folder fact mutations and cross-client session overwrites. Rebuilt preview, verified source hashes and preserved 24 facts / 4 sessions across recreation. Browser visual QA unavailable (disabled in Work settings). Public Vultr hosting and finance scopes remain separate."
     },
     {
       "id": "B25",
@@ -587,6 +587,15 @@
       "state": "done",
       "title": "Integrate outstanding PRs into the finance scope and capture pipeline",
       "note": "Integrated Edan PR34 with current main and preserved PR31 operations. 737 automated tests, typechecks and builds pass. Cross-HTTP capture/writer/triage/scope/MCP/restart test passes; 32 real HTTPS auth/privacy/MCP checks pass; Factory/Jev saved person-bound Axe fact and Claude desk-assistant completed two runtime invocations. Final integration PR records ancestry and supersedes old dispatch/triage PRs. Linux Droid dispatch, live Stop/schedules/docs and full finance benchmark remain outside the measured completion. Agent run/step/inbox and revoked-version telemetry now persist atomically and have a dedicated restart regression."
+    },
+    {
+      "id": "B28",
+      "owner": "B",
+      "milestone": "M5",
+      "priority": "must",
+      "state": "done",
+      "title": "Finish lane B freeze gaps, live agent acceptance and submission copy",
+      "note": "742 tests, all workspace typechecks and browser/extension builds pass. Added named writers, actual-seed position supersession, durable Stop with pending/replay/save guards, HTTP/SSE scope-change regression and canonical Droid/ApplyPatch fixes. Real Jev/Claude scope-stop checks and a two-step macOS Seatbelt Droid note completed; story and sponsor copy reconciled. Local codex/b-finish-pipeline branch; review/deployment and full finance benchmark remain. See docs/B_LANE_WRAPUP.md."
     }
   ],
   "tracks": [

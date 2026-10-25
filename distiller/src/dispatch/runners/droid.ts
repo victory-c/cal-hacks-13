@@ -18,10 +18,8 @@
 //   FACTORY_API_KEY     the API key, from the environment.
 //   Exit codes          0 when the run completes, non-zero when it stops early. 0 does not mean
 //                       the task succeeded, so we check out/ ourselves (the DONE line, files in out/).
-// UNVERIFIED: the docs name the stream-json event types and `toolName` but not the other field
-// names. mapDroidEvent() reads them defensively (text / content / message, parameters / input,
-// usage.input_tokens / inputTokens). Run one real `droid exec -o stream-json` at the booth and
-// fix the field list here if it differs; nothing outside this file depends on it.
+// Real CLI completion verified on macOS. Optional stream fields still vary, so mapDroidEvent()
+// reads text / content / message, parameters / input and usage counters defensively.
 //
 // Confinement. Nothing in Factory's docs says Droid's reads stay inside --cwd (`--auto low` allows
 // read-only inspection of files, folders and the environment), so code does what it can:
@@ -146,7 +144,9 @@ export class DroidRunner implements Runner {
     if (!env("FACTORY_API_KEY")) throw new Error("DroidRunner: FACTORY_API_KEY is not set. Put it in .env, or set DISPATCH_RUNTIME=claude|fake.");
     const bin = onPath("droid");
     if (!bin) throw new Error("DroidRunner: the droid binary is not on PATH (install: https://app.factory.ai/cli), or set DISPATCH_RUNTIME=claude|fake.");
-    this.bin = bin;
+    // npm exposes a symlink under .bin. Execute the same canonical file the Seatbelt
+    // profile allows, rather than trying to read a denied repository symlink first.
+    this.bin = realPath(bin);
     // The pinned 0.249.0 CLI does not list claude-sonnet-5-5. Let Factory select the account's
     // supported default unless the operator explicitly supplies a catalog id.
     this.model = opts.model ?? env("DISPATCH_DROID_MODEL");
@@ -159,7 +159,7 @@ export class DroidRunner implements Runner {
   }
 
   args(req: StepRequest): string[] {
-    return [DROID_FLAGS.subcommand, ...DROID_FLAGS.autonomy, ...DROID_FLAGS.output, "--disable-builtin-skills", "--only-tools", "Read,LS,Grep,Glob,Create,Edit", DROID_FLAGS.cwd, req.dir, ...(this.model ? [DROID_FLAGS.model, this.model] : []), req.prompt];
+    return [DROID_FLAGS.subcommand, ...DROID_FLAGS.autonomy, ...DROID_FLAGS.output, "--disable-builtin-skills", "--only-tools", "Read,LS,Grep,Glob,ApplyPatch", DROID_FLAGS.cwd, req.dir, ...(this.model ? [DROID_FLAGS.model, this.model] : []), req.prompt];
   }
 
   /** What is actually spawned: droid itself, or droid under sandbox-exec. */
@@ -282,7 +282,7 @@ export class DroidRunner implements Runner {
 }
 
 // ---------------------------------------------------------------------------------------------
-// stream-json -> AgentStep kinds. Field names beyond `type` and `toolName` are UNVERIFIED (above).
+// stream-json -> AgentStep kinds. Optional fields are parsed defensively across CLI versions.
 
 function str(...xs: unknown[]): string | undefined {
   for (const x of xs) {

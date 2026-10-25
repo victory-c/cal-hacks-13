@@ -608,13 +608,13 @@ describe("scopes REST surface, scope builder and handoff (A2, A4+A6, A7+A16)", (
   });
 
   test("POST /api/dispatch: the agent's creator or a moderator; body.by must be the caller", async () => {
-    const res = await api("/api/dispatch", { method: "POST", token: "tok-leo", json: { agent: "agt_leodesk", by: "leo" } });
+    const res = await api("/api/dispatch", { method: "POST", token: "tok-leo", json: { agent: "agt_leodesk", by: "leo", stop_generation: 999 } });
     assert.equal(res.status, 200);
     const { id } = await body<{ id: string }>(res);
     assert.match(id, /^dsp_[0-9a-f]+$/);
     const requested = events.find((e) => e.type === "dispatch.requested" && e.id === id);
     assert.ok(requested && requested.type === "dispatch.requested");
-    assert.deepEqual(requested.request, { agent: "agt_leodesk", by: "leo" });
+    assert.deepEqual(requested.request, { agent: "agt_leodesk", by: "leo", stop_generation: 0 }, "the server stamps the cancellation generation, ignoring client claims");
 
     const other = await api("/api/dispatch", { method: "POST", token: "tok-priya", json: { agent: "agt_leodesk", by: "priya" } });
     assert.equal(other.status, 403);

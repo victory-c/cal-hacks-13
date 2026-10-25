@@ -22,6 +22,8 @@ export interface DistillResult {
 
 /** What comes in with each item besides the item itself. */
 export interface DistillOptions {
+  /** Server-resolved name; captured metadata must never supply identity. */
+  principalName?: string;
   /**
    * The groups a draft may be filed into (GroupsResponse.groups from GET /api/groups; offline,
    * fixtures/world/groups.json). Passed per call, never baked into a prompt. Missing or empty:

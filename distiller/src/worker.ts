@@ -311,7 +311,9 @@ async function processSession(
     // the same list. Without one (404, failing, unusable) the writer gets none and every fact goes
     // to inbox. The writer's group is a hint in the drafts; triage still decides.
     const known = await loadGroups(opts.client, warnOnce);
-    const distilled = await timed(() => opts.distiller.distill(session, { groups: known.groups }));
+    const principalName = session.principal && opts.client.principalName
+      ? await opts.client.principalName(session.principal) : undefined;
+    const distilled = await timed(() => opts.distiller.distill(session, { groups: known.groups, ...(principalName ? { principalName } : {}) }));
     const { drafts, plan, simulated } = distilled.result;
     log(`session ${id}: ${opts.distiller.name} distilled ${drafts.length} drafts in ${distilled.ms} ms${simulated ? " (simulated)" : ""}`);
     if (plan) log(`session ${id}: plan: ${plan}`);

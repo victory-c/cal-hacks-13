@@ -207,21 +207,24 @@ export class Dispatcher {
    * no await before the run starts: a reason (the agent was deleted meanwhile) ends the run
    * cancelled before it reads the scope or runs a step.
    */
-  async dispatch(req: DispatchRequest, known?: Pick<Principal, "name" | "created_by">, stopped?: () => string | undefined): Promise<AgentRun> {
+  async dispatch(req: DispatchRequest, known?: Pick<Principal, "name" | "created_by">, stopped?: (generation: number) => string | undefined): Promise<AgentRun> {
     if (typeof req.agent !== "string" || !AGENT_ID_RE.test(req.agent)) throw new Error(`dispatch: "${String(req.agent)}" is not an agent id (safe lowercase principal id required)`);
+    const generation = await this.opts.client.getStopGeneration?.(req.agent) ?? 0;
+    const requestedGeneration = req.stop_generation ?? generation;
     const rule = await this.opts.client.getScopeRule(req.agent);
     const ok = rule !== null && rule.principal === req.agent && typeof rule.task === "string" && rule.task.trim() !== "";
     const created_by = known?.created_by ?? (ok && rule.set_by ? rule.set_by : req.by);
     const requestedTask = typeof req.task === "string" ? req.task.trim() : "";
     const profile: AgentProfile = { id: req.agent, name: known?.name ?? req.agent, created_by, task: ok ? (requestedTask || rule.task.trim()) : "" };
-    return this.start(profile, ok ? undefined : NO_RULE_REASON, stopped?.());
+    const cancelled = stopped?.(requestedGeneration) ?? (requestedGeneration < generation ? "Stopped by its creator or Compliance." : undefined);
+    return this.start(profile, ok ? undefined : NO_RULE_REASON, cancelled, requestedGeneration);
   }
 
   /**
    * Starts one run now. It executes in the background; settle() waits for it. With `cancelReason`
    * the run ends cancelled at once (with `failReason`, failed) and reads and runs nothing.
    */
-  start(profile: AgentProfile, failReason?: string, cancelReason?: string): AgentRun {
+  start(profile: AgentProfile, failReason?: string, cancelReason?: string, stopGeneration = 0): AgentRun {
     if (!AGENT_ID_RE.test(profile.id)) throw new Error(`start: "${profile.id}" is not an agent id (safe lowercase principal id required)`);
     const id = newRunId();
     const sandbox = createSandbox(id, { root: this.opts.root });
@@ -238,6 +241,7 @@ export class Dispatcher {
       steps: 0,
       restarts: 0,
       started_at: nowIso(),
+      stop_generation: stopGeneration,
     };
     const rec: RunRecord = {
       run,
@@ -307,6 +311,7 @@ export class Dispatcher {
         try {
           await this.writeFromScope(rec, CHECK_ONLY);
         } catch (err) {
+          if (rec.cancelReason) return false;
           warn(`run ${rec.run.id}: could not check its folder against the agent's scope after a reconnect: ${errorMessage(err)}`);
           // A later step was checked by the run's own read, made after the stream came back.
           if (inFlight && rec.step === inFlight && isActive(rec.run) && !rec.cancelReason) {
@@ -390,6 +395,7 @@ export class Dispatcher {
   routable(): RoutableRun[] {
     return [...this.runs.values()].map((rec) => ({
       run_id: rec.run.id,
+      stop_generation: rec.run.stop_generation,
       agent: rec.run.agent,
       created_by: rec.run.created_by,
       task: rec.run.task,
@@ -584,6 +590,11 @@ export class Dispatcher {
       // (resync() reads alongside the run's own loop), and a restart builds a new folder.
       const folder = rec.sandbox;
       const held = [...rec.factIds];
+      const stopGeneration = await this.opts.client.getStopGeneration?.(rec.run.agent) ?? 0;
+      if (stopGeneration > (rec.run.stop_generation ?? 0)) {
+        this.requestCancel(rec, "Stopped by its creator or Compliance.");
+        throw new CancelledError();
+      }
       const read = await this.opts.client.getScopeFacts(rec.run.agent);
       if (gen !== rec.scopeGen) continue;
       const facts = read === null ? null : this.usable(rec, read);
@@ -823,7 +834,7 @@ export class Dispatcher {
         { role: "user", content: `Task for ${rec.name} (agent ${run.agent}, created by ${run.created_by}): ${run.task}`, at: run.started_at },
         ...texts.map((t) => ({ role: "assistant" as const, content: `${t.file}\n\n${t.text}` })),
       ],
-      meta: { run_id: run.id, agent: run.agent, runtime: run.runtime, steps: run.steps, restarts: run.restarts, simulated },
+      meta: { run_id: run.id, agent: run.agent, runtime: run.runtime, steps: run.steps, restarts: run.restarts, stop_generation: run.stop_generation ?? 0, simulated },
       principal: run.created_by,
       kind: "ai_session",
     };

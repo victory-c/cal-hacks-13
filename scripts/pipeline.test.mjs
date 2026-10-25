@@ -23,7 +23,7 @@ test('HTTP capture → writer → triage → living scope → MCP; durable catch
     const value=await r.json();assert.equal(r.status,200,JSON.stringify(value));return value;
   };
   let writes=0;
-  const distiller={name:'heuristic',async distill(session){writes++;return {simulated:true,drafts:[{statement:'Public research holdings are 210000 shares',folder:'research/asset-managers',source:{client:session.client,session:session.id}}]};}};
+  const distiller={name:'heuristic',async distill(session,options){assert.equal(options.principalName,'Ben Kim');writes++;return {simulated:true,drafts:[{statement:'Public research holdings are 210000 shares',folder:'research/asset-managers',source:{client:session.client,session:session.id}}]};}};
   const worker=()=>createHandler({client:createClient({baseUrl:server.url,token:'test-distiller'}),distiller,judge:new FakeJudge({override:q=>q.type==='noul'?{id:q.id,type:q.type,p:q.id.startsWith('keep:')?0.95:0.01}:q.type==='choice'?{id:q.id,type:q.type,choice:q.id.startsWith('group:')?'research/asset-managers':q.id.startsWith('rel:')?'unrelated':'none',p:0.95}:undefined}),live:false});
   try {
     const captured=await call('/api/sessions',{id:'ses_aa1122',client:'claude-code',external:false,started_at:'2026-10-24T10:00:00Z',ended_at:'2026-10-24T10:01:00Z',messages:[{role:'user',content:'Public research holdings are 210000 shares'}]});

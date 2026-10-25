@@ -341,7 +341,7 @@ function agentCard(run: AgentRun): HTMLElement {
       h("div", { style: "flex: 1; min-width: 220px" }, h("div", { class: "aname" }, run.name), h("div", { class: "atask" }, run.task)),
       h("span", { class: run.status === "failed" ? "pill failed" : "pill" }, STATUS_LABELS[run.status]),
       run.status === "running"
-        ? api.mode === "mock" && h("button", { class: "ghost", type: "button", onclick: () => void attempt("stop the agent", () => api.stopAgent(run.id)) }, "Stop")
+        ? h("button", { class: "ghost", type: "button", onclick: () => void attempt("stop the agent", () => api.stopAgent(run.id)) }, "Stop")
         : h("button", { class: "btn", type: "button", disabled: busy || run.fact_count === 0, onclick: () => void attempt("start the agent", () => api.runAgent(run.id)) }, "Run"),
       h("button", { class: "mini", type: "button", onclick: () => { S.sel = run.id; closeRule(); renderPeople(); renderSelected(); el.people.scrollIntoView({ behavior: "smooth", block: "start" }); } }, "Scope")),
     h("div", { class: "live", "aria-live": "polite" }, h("span", { class: busy ? "dot on" : run.status === "done" ? "dot ok" : "dot", "aria-hidden": "true" }),

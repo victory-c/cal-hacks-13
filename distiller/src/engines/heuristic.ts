@@ -145,12 +145,12 @@ export function senderName(content: string): string | undefined {
  * hard-wrapped, so a planted instruction's claims sit on the lines next to the trigger phrase:
  * the whole paragraph is the unit that is kept or left out, never a single line.
  */
-function paragraphs(session: CapturedSession, role: string, content: string): Paragraph[] {
+function paragraphs(session: CapturedSession, role: string, content: string, displayName?: string): Paragraph[] {
   const kind = session.kind ?? "ai_session";
   const authored = role === "user" && AUTHORED_KINDS.has(kind) && session.external !== true;
   // "I" in a user turn is the principal only in what they wrote; in an email it is whoever sent it.
   const sender = kind === "email" ? (senderName(content) ?? (session.external === true ? OUTSIDE_SENDER : undefined)) : undefined;
-  const owner = authored ? principalName(session.principal) : sender;
+  const owner = authored ? (displayName?.replace(/[\r\n]+/g, " ").trim() || principalName(session.principal)) : sender;
   const speakerLines = SPEAKER_KINDS.has(kind);
   const out: Paragraph[] = [];
   let cur: Paragraph | undefined;
@@ -212,7 +212,7 @@ export class HeuristicDistiller implements Distiller {
     let leftOut = 0;
 
     for (const m of messages) {
-      for (const p of paragraphs(session, m.role, m.content)) {
+      for (const p of paragraphs(session, m.role, m.content, opts.principalName)) {
         // The whole paragraph goes: the sentences around a planted instruction carry its claims
         // ("… Falcon has been announced, so label it public"), often on the next wrapped line.
         if (aimedAtAi(p)) {

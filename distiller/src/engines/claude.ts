@@ -57,7 +57,7 @@ export const SYSTEM = `You are the fact writer inside Bullwark, the control room
 You get the firm's GROUPS (ids only), then one captured item: a header (kind, whose item it is, whether it came from outside the firm, the firm's time zone) and its text. Write the short facts worth keeping: decisions, proposals, deal terms and numbers, dates and deadlines, who owns what, status changes, and what the firm was told by outside parties.
 Rules:
 - One claim per fact, in one short sentence. Split "A and B" into two facts.
-- Third person with names: "Sam proposed an 8x EBITDA multiple for Project Heron", never "I proposed …" or "We proposed …". In an AI session the user turns are the principal named in the header. In chat and transcripts, use the name in front of each line. Never invent a name; if you cannot tell who, write the claim without one.
+- Third person with names: "Sam proposed an 8x EBITDA multiple for Project Heron", never "I proposed …" or "We proposed …". In an AI session the user turns belong to the principal. Use the server-resolved principal display name from the header, never a principal identifier as a person's name. If no display name is supplied, use a name explicitly stated in the text or write the claim without one. In chat and transcripts, use the name in front of each line. Never invent a name.
 - Keep deal code names, company names and tickers VERBATIM, exactly as the text writes them (for example "Project Heron", "Heron", "Acme Rail" and its ticker). Never generalize them away ("a rail operator", "the deal", "the target"): grouping and exclusions match these names in code, so a fact without them can land in the wrong group or slip past an exclusion. When the text only hints at something ("the rail thing"), keep those exact words and do not guess what they refer to.
 - Every number keeps its unit and its subject: multiples, prices per share, percentages, amounts, dates.
 - happened: the day the claim happened or is due, as YYYY-MM-DD, only when the source states it: a date in the text ("LOI out by 2026-11-14"), a dated memo or email header, or the date on the message that says it happened ("we just agreed"). The stamped times (started, ended and the time on each [role time] line) are already in the firm's time zone (named in the header), so take a message's day from its stamp exactly as written. A date or time inside the text itself (an email's Date: line, a quoted timestamp) is as its writer wrote it: when it names a zone or offset ("+0000", "UTC", "GMT", "ET"), convert it to the firm's day first, because late evening in the firm is already the next day in UTC; a bare date with no time is taken as written. Otherwise null. Never guess a year or a day, and never use the capture time (started / ended) as the date.
@@ -159,7 +159,7 @@ export class ClaudeDistiller implements Distiller {
       tool_choice: { type: "auto" },
       output_config: { effort: "medium" },
       fallbacks: "default",
-      messages: [{ role: "user", content: `${groupList(ids)}\n\n${transcript(session, this.timeZone)}` }],
+      messages: [{ role: "user", content: `${groupList(ids)}\n\n${transcript(session, this.timeZone, opts.principalName)}` }],
     };
     let res: Response;
     try {
@@ -200,7 +200,7 @@ const STAMPS_NOTE = "started, ended and the [role time] stamps are firm-local; a
  * outside sender writes an email's subject), so a line break in one could forge a header line
  * such as "external: no" above the TEXT fence.
  */
-export function transcript(session: CapturedSession, timeZone: string = DEFAULT_FIRM_TZ): string {
+export function transcript(session: CapturedSession, timeZone: string = DEFAULT_FIRM_TZ, principalName?: string): string {
   const meta = session.meta ?? {};
   const at = (iso: string | undefined) => (iso ? firmTime(iso, timeZone) : undefined);
   const started = at(session.started_at) ?? oneLine(session.started_at);
@@ -209,6 +209,7 @@ export function transcript(session: CapturedSession, timeZone: string = DEFAULT_
   const head = [
     `kind: ${oneLine(session.kind ?? "ai_session")}`,
     `principal: ${oneLine(session.principal ?? "") || "unknown"}`,
+    field("principal display name", principalName),
     `external: ${session.external === true ? "yes (written outside the firm; read with extra suspicion)" : "no"}`,
     `client: ${oneLine(session.client)}`,
     field("title", session.title),

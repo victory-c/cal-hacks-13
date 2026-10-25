@@ -82,6 +82,24 @@ export async function handleMemberRoute(deps: ScopesDeps, client: string, method
     });
     return reply(200, { agents });
   }
+  const control = /^\/api\/agents\/([^/]+)\/(stop|control)$/.exec(path);
+  if (control && (method === "POST" && control[2] === "stop" || method === "GET" && control[2] === "control")) {
+    const target = deps.world.principals.get(decodeURIComponent(control[1]));
+    if (control[2] === "control") {
+      if (!isInternal) throw new HttpError(403, "internal clients only");
+    } else if (!isModerator && (target?.kind !== "agent" || target.created_by !== callerId)) {
+      throw new HttpError(403, "only the agent's creator or a moderator may do this");
+    }
+    if (!target || target.kind !== "agent") throw new HttpError(404, "no such agent");
+    const generation = (deps.world.agentStops.get(target.id) ?? 0) + (control[2] === "stop" ? 1 : 0);
+    if (control[2] === "stop") {
+      deps.world.agentStops.set(target.id, generation);
+      // Persist before broadcasting: reconnect recovery must see the same cancellation.
+      await deps.world.flush();
+      deps.bus.emit({ type: "dispatch.stop_requested", agent: target.id, by: callerId, generation });
+    }
+    return reply(200, { generation, ...(control[2] === "stop" ? { status: "stop_requested" } : {}) });
+  }
   const run = /^\/api\/agents\/([^/]+)\/run$/.exec(path);
   if (run && method === "POST") {
     const target = deps.world.principals.get(decodeURIComponent(run[1]));
@@ -90,7 +108,7 @@ export async function handleMemberRoute(deps: ScopesDeps, client: string, method
     const body = await readJsonBody(req);
     if (!isRecord(body) || (body.task !== undefined && (typeof body.task !== "string" || !body.task.trim()))) throw new HttpError(400, "task must be a non-empty string");
     const id = `dsp_${newSessionId().slice(4)}`;
-    deps.bus.emit({ type: "dispatch.requested", id, request: { agent: target.id, by: callerId, ...(typeof body.task === "string" ? { task: body.task.trim() } : {}) } });
+    deps.bus.emit({ type: "dispatch.requested", id, request: { agent: target.id, by: callerId, stop_generation: deps.world.agentStops.get(target.id) ?? 0, ...(typeof body.task === "string" ? { task: body.task.trim() } : {}) } });
     return reply(200, { id });
   }
   return false;

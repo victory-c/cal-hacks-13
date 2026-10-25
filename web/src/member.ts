@@ -168,7 +168,7 @@ function agentCard(run: AgentRun): HTMLElement {
         h("div", { class: "atask" }, run.task)),
       h("span", { class: run.status === "failed" ? "pill failed" : "pill" }, STATUS_LABELS[run.status]),
       run.status === "running"
-        ? api.mode === "mock" && h("button", { class: "ghost", type: "button", onclick: () => void attempt("stop the agent", () => api.stopAgent(run.id)) }, "Stop")
+        ? h("button", { class: "ghost", type: "button", onclick: () => void attempt("stop the agent", () => api.stopAgent(run.id)) }, "Stop")
         : h("button", { class: "btn", type: "button", disabled: busy, onclick: () => void attempt("start the agent", () => api.runAgent(run.id)) }, "Run"),
       h("button", { class: "mini", type: "button", "aria-label": `Edit ${run.name}`, onclick: () => openAgentForm(run.id) }, "Edit")),
     h("div", { class: "live", "aria-live": "polite" }, h("span", { class: dotClass, "aria-hidden": "true" }), agentStatusLine(run, Date.now())),

@@ -67,6 +67,11 @@ export async function postSession(deps: ApiDeps, client: string, body: unknown):
   if (session.principal !== undefined && deps.world && !deps.world.principals.has(session.principal)) throw new HttpError(404, "no such principal");
   const existing = await deps.store.getSession(session.id);
   if (existing && (own !== undefined ? existing.principal !== session.principal : existing.client !== client || existing.principal !== session.principal)) throw new HttpError(403, "session belongs to another capture owner");
+  if (client === "dispatcher" && typeof session.meta?.agent === "string" && deps.world) {
+    const generation = deps.world.agentStops.get(session.meta.agent) ?? 0;
+    const observed = session.meta.stop_generation ?? 0;
+    if (typeof observed !== "number" || !Number.isSafeInteger(observed) || observed !== generation) throw new HttpError(409, "agent run was stopped");
+  }
   const { updated } = await deps.store.putSession(session);
   deps.bus.emit({
     type: "session.captured",

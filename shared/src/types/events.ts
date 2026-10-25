@@ -129,6 +129,7 @@ export type CanonEvent =
       inject_nothing: boolean;
     })
   | (Base & { type: "audit.logged"; entry: AuditEvent })
+  | (Base & { type: "dispatch.stop_requested"; agent: string; by: string; generation: number })
   | (Base & {
       /** Someone asked an agent profile to run (POST /api/dispatch). The dispatcher picks it up. */
       type: "dispatch.requested";
