@@ -47,15 +47,30 @@ presence only; it does not claim keys are valid or make paid API calls.
 
 ## Provider validation status
 
-The scaffold adapters are implemented. Offline tests cover Factory SDK lifecycle and structured
-outputs, Moss permission prefilters and canonical-ID checks, Jev's documented payloads, and browser
-preview authentication. Jev live requests (including save-time decisions) and Moss credential
-authentication passed. Factory's full CLI run and Moss's embedded search still require complete
-CLI/model downloads and live verification; credential presence alone is not proof of integration.
+Verified on October 24, 2026 against the running local Docker preview:
 
-The currently running local container may predate the source checkout. After a successful build,
-use `/health` and a fresh capture/query to establish which providers the running app actually uses.
-The finance scopes and dispatched agents in the PRDs remain separate implementation work.
+- Factory's pinned CLI 0.249.0 runs on both macOS and the Linux container. Live SDK extraction
+  succeeded, and a fresh captured session was processed by the container's `droid` worker.
+- Jev is the active judge at its documented default URL. The captured session produced five
+  stored facts with real Jev decisions; all five were retained cold under the existing threshold.
+- Moss's embedding model is installed in the persistent model-cache volume. Native hybrid search
+  passed on macOS and Linux, including a filter that excludes a synthetic private fact.
+- A real MCP request used Moss candidates and Jev relevance to return four existing hot facts
+  (259 estimated tokens). This verifies retrieval independently of the new cold facts.
+- Anthropic's explicitly selectable extraction fallback also completed a live request.
+
+`/health` reports `judge: "jev"` and `retriever: "moss"`; the worker's `distill.finished`
+event confirms `engine: "droid"`. The original facts and sessions were preserved. Provider
+verification does not implement finance scopes, scoped-agent dispatch, or a shared Vultr VM.
+
+The Docker build checks the CLI executable and caches npm packages. If an unreliable connection
+truncates a large CLI download, put an integrity-verified matching-platform tarball from the
+official npm registry in a separate directory under the filename `factory-cli.tgz`, then supply that directory:
+`docker build --build-context factory-cli-cache=/path/to/package-cache -t cal-hacks-13-app .`.
+This optional context contains a public package, never API keys; npm checks it against the lockfile.
+[Named build contexts](https://docs.docker.com/reference/cli/docker/buildx/build/#build-context)
+provide the optional package input. Normal builds use the persistent npm cache and need no additional context. API keys belong only
+in the runtime `.env.preview` file.
 
 ## Local rehearsal
 

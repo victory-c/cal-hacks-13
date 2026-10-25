@@ -1,6 +1,6 @@
 {
   "project": "Bullwark",
-  "updated": "2026-10-24T22:46:11Z",
+  "updated": "2026-10-25T00:32:50Z",
   "team": [
     {
       "id": "A",
@@ -521,9 +521,9 @@
       "owner": "B",
       "milestone": "M2",
       "priority": "must",
-      "state": "doing",
+      "state": "done",
       "title": "Factory and Moss scaffold adapters; verified Jev contract and preview login",
-      "note": "Renumbered from this branch's original B18 to preserve main's live agent-routing task. SDK adapters implemented; offline checks pass, Jev live requests and Moss authentication verified. Factory CLI/model downloads and full live activation remain pending. Does not implement finance scopes or agent dispatch."
+      "note": "Activated the local Docker preview with Factory/Droid extraction, Jev judging and Moss hybrid retrieval. Repaired and integrity-verified CLI packages; cached the Moss model; preserved existing data. Fresh capture produced five Jev-judged cold facts; real MCP context returned four hot facts (259 estimated tokens). Anthropic fallback extraction also passed live. Finance scopes and dispatched agents remain separate tasks; Vultr deployment is B21."
     },
     {
       "id": "B23",

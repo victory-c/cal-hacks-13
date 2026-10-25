@@ -9,3 +9,7 @@ tmp
 output
 *.log
 .claude
+
+# Human-only material is excluded from runtime images.
+.archive
+docs/history
