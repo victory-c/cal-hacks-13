@@ -6,7 +6,7 @@ import { after, before, describe, test } from "node:test";
 
 import type { CapturedSession, Fact } from "@canon/shared";
 
-import { FileStore } from "./store.ts";
+import { FileStore, SessionOwnerError } from "./store.ts";
 
 const base: Fact = {
   id: "fct_0001aaaa",
@@ -94,6 +94,47 @@ describe("FileStore", () => {
     assert.equal(back?.ended_at, "2026-10-24T03:20:00.000Z");
     assert.equal(await store.getSession("ses_ffff"), undefined);
     assert.equal(store.counts().sessions, 1);
+  });
+
+  test("putSession applies the caller's ownership rule to the stored session, even for a store that has not loaded the archive", async (t) => {
+    const own = await mkdtemp(join(tmpdir(), "canon-store-owner-"));
+    t.after(() => rm(own, { recursive: true, force: true }));
+    const store = new FileStore(own);
+    const session: CapturedSession = {
+      id: "ses_00cd",
+      client: "claude-code",
+      started_at: "2026-10-24T03:12:00.000Z",
+      messages: [{ role: "user", content: "original" }],
+    };
+    const sameClient = (incoming: CapturedSession) => (existing: CapturedSession) => existing.client === incoming.client;
+    assert.deepEqual(await store.putSession(session, sameClient(session)), { updated: false });
+    const intruder = { ...session, client: "chatgpt", messages: [{ role: "user" as const, content: "replacement" }] };
+    await assert.rejects(store.putSession(intruder, sameClient(intruder)), (err: unknown) => err instanceof SessionOwnerError && err.sessionId === "ses_00cd");
+    await assert.rejects(new FileStore(own).putSession(intruder, sameClient(intruder)), SessionOwnerError);
+    assert.deepEqual(await store.getSession("ses_00cd"), session);
+    assert.equal(store.sessionClient("ses_00cd"), "claude-code");
+    const update = { ...session, ended_at: "2026-10-24T03:20:00.000Z" };
+    assert.deepEqual(await new FileStore(own).putSession(update, sameClient(update)), { updated: true });
+  });
+
+  test("concurrent first writes of one id with an ownership rule: exactly one wins and owns it", async (t) => {
+    const own = await mkdtemp(join(tmpdir(), "canon-store-race-"));
+    t.after(() => rm(own, { recursive: true, force: true }));
+    const store = new FileStore(own);
+    const mk = (client: string, principal: string): CapturedSession => ({
+      id: "ses_00ce",
+      client,
+      principal,
+      started_at: "2026-10-24T03:12:00.000Z",
+      messages: [{ role: "user", content: `from ${client}` }],
+    });
+    const put = (s: CapturedSession) => store.putSession(s, (existing) => existing.client === s.client && existing.principal === s.principal);
+    const results = await Promise.allSettled([put(mk("claude-code", "dan")), put(mk("chatgpt", "priya"))]);
+    assert.deepEqual(results.map((r) => r.status), ["fulfilled", "rejected"]);
+    assert.ok(results[1].status === "rejected" && results[1].reason instanceof SessionOwnerError);
+    assert.deepEqual(await store.getSession("ses_00ce"), mk("claude-code", "dan"));
+    assert.equal(store.sessionClient("ses_00ce"), "claude-code");
+    assert.equal(store.sessionPrincipal("ses_00ce"), "dan");
   });
 
   test("rejects a session id that is not ses_<hex>, so no path traversal", async () => {

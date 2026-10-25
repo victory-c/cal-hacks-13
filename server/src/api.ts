@@ -25,6 +25,7 @@ import type {
 import type { EventBus } from "./events.ts";
 import { HttpError, isRecord } from "./http.ts";
 import type { Retriever } from "./retrieval/index.ts";
+import { SessionOwnerError } from "./store.ts";
 import type { FileStore } from "./store.ts";
 import type { ScopeState } from "./scopes.ts";
 
@@ -65,9 +66,18 @@ export async function postSession(deps: ApiDeps, client: string, body: unknown):
     if (session.principal !== undefined && client !== "ingest" && !(INTERNAL_CLIENTS as readonly string[]).includes(client)) throw new HttpError(403, "this capture token cannot name a principal");
   }
   if (session.principal !== undefined && deps.world && !deps.world.principals.has(session.principal)) throw new HttpError(404, "no such principal");
-  const existing = await deps.store.getSession(session.id);
-  if (existing && (own !== undefined ? existing.principal !== session.principal : existing.client !== client || existing.principal !== session.principal)) throw new HttpError(403, "session belongs to another capture owner");
-  const { updated } = await deps.store.putSession(session);
+  // Only the capture owner may update a session: per-person clients by principal, other clients
+  // by client and principal. The store applies this rule inside the same per-id lock as the
+  // write, so two first writes of one id cannot both win.
+  const mayReplace = (existing: CapturedSession) =>
+    own !== undefined ? existing.principal === session.principal : existing.client === client && existing.principal === session.principal;
+  let updated: boolean;
+  try {
+    ({ updated } = await deps.store.putSession(session, mayReplace));
+  } catch (err) {
+    if (err instanceof SessionOwnerError) throw new HttpError(403, "session belongs to another capture owner");
+    throw err;
+  }
   deps.bus.emit({
     type: "session.captured",
     session: { id: session.id, client: session.client, title: session.title, messages: session.messages.length, ended: !!session.ended_at },
