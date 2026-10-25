@@ -9,8 +9,7 @@
 
 import { existsSync, readFileSync } from "node:fs";
 import { resolve } from "node:path";
-import { fileURLToPath } from "node:url";
-import { buildSession, gitInfo, parseTranscript, readDotEnv } from "./lib.mjs";
+import { buildSession, gitInfo, parseTranscript, resolveEnv } from "./lib.mjs";
 
 const DEFAULT_URL = "http://localhost:4100";
 // Same value as the server's dev fallback (server/src/auth.ts DEV_CLIENT_TOKENS) and .env.example,
@@ -87,18 +86,8 @@ async function main() {
  * No principal anywhere → none is sent, and the session's facts have no author.
  */
 function resolveConfig() {
-  const candidates = [];
-  if (process.env.CANON_REPO_ROOT) candidates.push(resolve(process.env.CANON_REPO_ROOT, ".env"));
-  candidates.push(fileURLToPath(new URL("../../.env", import.meta.url)));
-
-  let fileEnv = {};
-  for (const path of candidates) {
-    if (existsSync(path)) {
-      fileEnv = readDotEnv(path);
-      break;
-    }
-  }
-  const pick = (name) => process.env[name] || fileEnv[name] || "";
+  const config = resolveEnv(["CANON_URL", "CANON_PERSON_TOKEN", "CANON_PRINCIPAL", "CANON_TOKEN_INGEST", "CANON_TOKEN_CLAUDE_CODE"]);
+  const pick = (name) => config[name];
   const personToken = pick("CANON_PERSON_TOKEN");
   // A person token owns its captures on the server. A local principal setting must not spoof
   // someone else or override that binding. Explicit attribution is for operator ingest only.

@@ -35,6 +35,7 @@ test("commands hit the contract routes with the contract bodies, ids encoded", a
     "POST /api/facts/fct_1/retire": new Response(null, { status: 204 }),
     "POST /api/items": { item_id: "ses_1" },
     "POST /api/agents": { id: "agt_1", build_id: "bld_1" },
+    "PUT /api/principals/agt_1/rule": { build_id: "agt_1" },
     "DELETE /api/agents/agt_1": new Response(null, { status: 204 }),
     "POST /api/agents/agt_1/stop": {},
   });
@@ -44,14 +45,16 @@ test("commands hit the contract routes with the contract bodies, ids encoded", a
   assert.deepEqual(await client.addItem({ kind: "note", source: "My notes", text: "Fees fell again" }), { item_id: "ses_1" });
   const body = { name: "Fee tracker", task: "Track fees", exclusions: { groups: [], labels: [], text: ["firm ops"] }, docs: ["summary" as const], schedule: "Only when I press Run" as const };
   assert.deepEqual(await client.createAgent(body), { id: "agt_1", build_id: "bld_1" });
+  assert.deepEqual(await client.updateAgent("agt_1", { ...body, task: "Track public fees" }), { build_id: "agt_1" });
   await client.deleteAgent("agt_1");
   await client.stopAgent("agt_1");
   assert.deepEqual(canon.calls.map((c) => `${c.method} ${c.path}`), [
-    "PATCH /api/facts/fct%2Fodd", "POST /api/facts/fct_1/retire", "POST /api/items", "POST /api/agents", "DELETE /api/agents/agt_1", "POST /api/agents/agt_1/stop",
+    "PATCH /api/facts/fct%2Fodd", "POST /api/facts/fct_1/retire", "POST /api/items", "POST /api/agents", "PUT /api/principals/agt_1/rule", "DELETE /api/agents/agt_1", "POST /api/agents/agt_1/stop",
   ]);
   assert.deepEqual(canon.calls[0]!.body, { statement: "Edited" });
   assert.deepEqual(canon.calls[2]!.body, { kind: "note", source: "My notes", text: "Fees fell again" });
   assert.deepEqual(canon.calls[3]!.body, body);
+  assert.deepEqual(canon.calls[4]!.body, { task: "Track public fees", preserve_exclusions: true });
   assert.equal(canon.calls[3]!.headers["content-type"], "application/json");
   assert.equal(canon.calls[1]!.headers["content-type"], undefined, "no body, no content type");
 });

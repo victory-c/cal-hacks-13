@@ -1,6 +1,6 @@
 {
   "project": "Bullwark",
-  "updated": "2026-10-25T06:03:56.778Z",
+  "updated": "2026-10-25T06:46:23.683Z",
   "team": [
     {
       "id": "A",
@@ -602,9 +602,9 @@
       "owner": "A",
       "milestone": "M3",
       "priority": "must",
-      "state": "doing",
+      "state": "done",
       "title": "Core loop on main: e2e test, CORS for PATCH/PUT, URL-token redaction, doctor and hook follow-ups",
-      "note": "Branch a/loop-on-main. Done: e2e/ workspace (7 tests, real server + distiller handler + hooks), CORS allows PUT/PATCH, unparseable URLs no longer echoed/logged with ?token=, startServer exposes living and restored. Left: doctor connector checks, hooks resolveEnv + worktree .env, install.mjs --mcp, benchmark results. See docs/LANE-A-HANDOFF.md."
+      "note": "Completed on a/loop-on-main after merging current main. The 7-case real-HTTP core loop verifies capture, distillation, living scopes, before-prompt injection, all MCP tools, restart recovery and non-disclosure. Doctor now checks token identity, MCP and all three Claude Code hooks without printing credentials; hooks share worktree-aware env lookup; install.mjs configures Stop, SessionEnd, UserPromptSubmit and safe POSIX/PowerShell MCP commands. Closed rule/group consistency gaps, preserved hidden moderator exclusions on creator edits, removed invented new-member defaults and redacted intermediate scope counts. Jev/Moss boundaries are covered offline; the prior Jev benchmark's eight judge-only flags were evaluator false positives over public facts, so proposition-level leak judging and neutral response framing now prevent topic-overlap flags. No Moss or current provider key was available for a fresh live comparison. Focused suites, typechecks, doctor and e2e pass."
     }
   ],
   "tracks": [

@@ -305,7 +305,9 @@ function principalEvents(deps: RouterDeps, principal: string): EventFilter {
       case "scope.updated": case "scope.changed": return event.principal === principal || ownsAgent(event.principal);
       case "scope.stage": case "scope.build": {
         if (event.principal !== principal && !ownsAgent(event.principal)) return false;
-        const size = deps.world.scopes.get(event.principal)?.fact_ids.length ?? 0;
+        // Intermediate counts are measured against Canon's private candidate universe. A member
+        // may see timing/progress for their own build, but only the final in-scope size.
+        const size = event.stage === "done" ? deps.world.scopes.get(event.principal)?.fact_ids.length ?? 0 : 0;
         return { ...event, remaining: size, ...(event.type === "scope.build" ? { counts: { remaining: size } } : {}) };
       }
       case "principal.changed": return event.principal.created_by === principal;

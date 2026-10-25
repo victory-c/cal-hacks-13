@@ -72,10 +72,9 @@ export class CanonClient implements MemberApi {
 
   async updateAgent(id: string, body: AgentBody): Promise<{ build_id: string }> {
     const path = encodeURIComponent(id);
-    // The live dispatcher currently edits tasks and exclusions, while naming and schedules are
-    // fixed after creation. Preserve group and label barriers the text-only editor cannot show.
-    const previous = await this.call<{ exclude: { groups: string[]; labels: string[] } }>("GET", `/api/scope-rules/${path}`);
-    return this.call("PUT", `/api/principals/${path}/rule`, { task: body.task, exclusions: { ...body.exclusions, groups: previous.exclude.groups, labels: previous.exclude.labels } });
+    // Member edits are task-only. Canon preserves every existing exclusion server-side, including
+    // moderator-set barriers that must never be returned to this client.
+    return this.call("PUT", `/api/principals/${path}/rule`, { task: body.task, preserve_exclusions: true });
   }
 
   /** PROPOSED: DELETE /api/agents/:id. */

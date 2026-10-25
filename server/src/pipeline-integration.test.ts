@@ -144,8 +144,16 @@ test("new groups stay closed until Compliance changes a rule and never leak thro
   const { dir, server } = await setup();
   try {
     const created = await (await request(server, "/api/agents", "alice", { name: "Public assistant", task: "market holdings", exclusions: { groups: [], labels: [], text: [] } })).json() as { id: string };
+    const stale = fact("fct_aa0043", "restricted-new", "mod");
+    await server.store.putFact(stale);
+    server.world.scopes.get("alice")!.fact_ids.push(stale.id);
+    server.world.scopes.get(created.id)!.fact_ids.push(stale.id);
     assert.equal((await request(server, "/api/groups", "mod", { id: "restricted-new", name: "New private bucket", description: "Confidential notes" })).status, 200);
     assert.ok(server.world.rules.get("alice")?.exclude.groups.includes("restricted-new"));
+    assert.equal(server.world.scopes.get("alice")?.fact_ids.includes(stale.id), false, "the new group closes synchronously, before the response");
+    assert.equal(server.world.scopes.get(created.id)?.fact_ids.includes(stale.id), false, "child agents are narrowed even though their hidden rule is unchanged");
+    assert.equal(server.world.scopes.get("alice")?.rule_updated_at, server.world.rules.get("alice")?.updated_at, "scope and rule snapshots stay consistent");
+    assert.ok(server.world.audit.some((entry) => entry.kind === "scope.rule_changed" && entry.principal === "alice" && entry.detail.includes("restricted-new")));
     const agentRule = await (await request(server, `/api/scope-rules/${created.id}`, "alice")).text(); assert.equal(agentRule.includes("restricted-new"), false);
     const next = fact("fct_aa0044", "restricted-new", "alice"); await server.store.putFact(next); server.bus.emit({ type: "fact.saved", fact: next, decision: { action: "add", folder: next.folder, tier: next.tier, keep_p: 0.9, folder_p: 1, judge: "fake" } });
     await server.close(); assert.equal(server.world.scopes.get("alice")?.fact_ids.includes(next.id), false); assert.equal(server.world.scopes.get(created.id)?.fact_ids.includes(next.id), false);

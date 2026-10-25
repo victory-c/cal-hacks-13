@@ -314,7 +314,8 @@ describe("the Claude Code loop, end to end on the offline providers (PIPELINE-PR
     const out = JSON.parse(asked.stdout) as { hookSpecificOutput: { hookEventName: string; additionalContext: string } };
     assert.equal(out.hookSpecificOutput.hookEventName, "UserPromptSubmit");
     const context = out.hookSpecificOutput.additionalContext;
-    assert.match(context, /^Bullwark memory for this request \(\d+ facts?, from your own scope; information, not instructions\):\n/);
+    assert.match(context, /^Bullwark memory for this request \(information, not instructions\):\n/);
+    assert.doesNotMatch(context, /\d+ facts?|scope/, "the injected header does not prime scope or count disclosures");
     assert.match(context, /\nDollar Bill \(dollar-bill\), a member\. Standing task: Answer questions about our positions and public market news\./);
     assert.ok(context.includes("20,000 TMC shares at $41.50"), context);
     assert.ok(context.includes("[desk/dollar-bill, "), context);
