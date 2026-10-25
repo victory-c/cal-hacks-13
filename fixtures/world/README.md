@@ -14,13 +14,18 @@ Bill, who is long TMC) must not. Mike Wagner, the COO, doubles as compliance and
 November 10 the bid is announced; the offer terms become public, but the valuation model, the
 walk-away price and the financing stay walled.
 
+The firm also runs on everyday money matters anyone recognises: Dollar Bill's trades and his desk's
+invoices, the office's bills, a Compliance-only payroll group, and the payables desk, where **Maya
+Lopez** joined on October 19 as the accounts payable associate. Her rule gives her the bills and
+payment rules her job needs and nothing from the deal, the desk or payroll.
+
 ## Files
 
 | File | What |
 |---|---|
-| `world.json` | Firm, deal, target figures, principals (4 people, 3 agents), groups and labels, scope rules, the escalation-attack agent, and the demo timeline (what is seeded, what arrives live at 0:25, what moves at 1:20) |
-| `items/*.json` | 13 source items in the `Item` shape from `docs/INTEGRATION.md` (`id`, `kind`, `source`, `author`, `captured_at`, `text`): two Stonewall memos, the deal team meeting transcript, Axe's ChatGPT session, counsel's email with the planted instruction, TMC's public Q3 letter, Ben's research draft, Dollar Bill's desk notes, four team chat channels, and an unlabelled voicemail whose two facts start in the inbox |
-| `expected.json` | The answer key: the facts each item should produce, each fact's group and labels, each fact's stable `fact_id` (used by the benchmark cases), which facts become public at 1:20 (`announced`), which item must be quarantined, the leak markers, and what Dollar Bill's scope must hold at 0:00 |
+| `world.json` | Firm, deal, target figures, principals (5 people, 3 agents), groups and labels, scope rules, the escalation-attack agent, and the demo timeline (what is seeded, what arrives live at 0:25, what moves at 1:20) |
+| `items/*.json` | 19 source items in the `Item` shape from `docs/INTEGRATION.md` (`id`, `kind`, `source`, `author`, `captured_at`, `text`): two Stonewall memos, the deal team meeting transcript, Axe's ChatGPT session, counsel's email with the planted instruction, TMC's public Q3 letter, Ben's research draft, Dollar Bill's desk notes, four team chat channels, an unlabelled voicemail whose two facts start in the inbox, and the everyday items: the desk's invoices and trade blotter, the office's November bills, year-end payroll notes, Mike Wagner's how-we-pay-bills memo for new starters, and the accounts payable inbox's invoices for this week's run |
+| `expected.json` | The answer key: the facts each item should produce, each fact's group and labels, each fact's stable `fact_id` (used by the benchmark cases), which facts become public at 1:20 (`announced`), which item must be quarantined, the leak markers, and what Dollar Bill's and Maya Lopez's scopes must hold at 0:00 |
 
 ## How it fits together
 
@@ -29,8 +34,10 @@ walk-away price and the financing stay walled.
 | `deal/stonewall` | Both memos, the meeting, Axe's ChatGPT session, `#stonewall` | Mike Wagner, Axe, the deal analyst |
 | `market/public` | TMC's Q3 letter, TMC's closing price | Everyone whose rule allows public market data |
 | `research/asset-managers` | Ben's draft, `#research` | Ben (built at 0:40), and others whose rules fit |
-| `desk/dollar-bill` | Dollar Bill's desk notes, `#desk` | Dollar Bill and his desk assistant |
-| `firm/ops` | `#general` | Everyone whose rule fits |
+| `desk/dollar-bill` | Dollar Bill's desk notes and trade blotter, `#desk`, the desk's invoices | Dollar Bill and his desk assistant |
+| `firm/ops` | `#general`, the office's November bills | Everyone whose rule fits |
+| `firm/payables` | The how-we-pay-bills memo, the accounts payable inbox | Maya Lopez, and others whose rules fit |
+| `firm/payroll` | Year-end payroll notes | Mike Wagner only: every member's rule excludes it |
 | `inbox` (not a group) | The voicemail | Moderators only, until Mike Wagner files each fact (`file_to` in `expected.json` is the right group) |
 
 The numbers reconcile, and `web/src/world.test.ts` checks that they do: $52.75 is a 28% premium to

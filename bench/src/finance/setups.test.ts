@@ -86,7 +86,7 @@ describe("finance setups", () => {
         assert.equal(info.retriever, "keyword");
         assert.equal(info.simulated, true, "a fake judge or keyword retriever must label the setup simulated");
         assert.equal(info.judge_requested, "claude");
-        assert.deepEqual(info.scope_builds?.map((b) => b.principal).sort(), ["axe", "ben", "dollar-bill"]);
+        assert.deepEqual(info.scope_builds?.map((b) => b.principal).sort(), ["axe", "ben", "dollar-bill", "maya"]);
         assert.ok(info.scope_builds!.every((b) => b.ms >= 0));
 
         const { task, attack } = examples();

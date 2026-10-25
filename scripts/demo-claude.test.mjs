@@ -6,7 +6,10 @@ import net from "node:net";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 
-import { knownTokens, launchEnv, parseArgs, whoIs } from "./demo-claude.mjs";
+import { existsSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+
+import { ALLOWED_TOOLS, knownTokens, launchEnv, parseArgs, prepareWorkspace, shellArgs, whoIs, workspaceFiles } from "./demo-claude.mjs";
 
 const script = join(dirname(fileURLToPath(import.meta.url)), "demo-claude.mjs");
 
@@ -90,4 +93,33 @@ test("CLI --dry-run names the person and their task, and never prints the token"
     assert.match(listed.stdout, /dollar-bill\s+Dollar Bill \(member\)/);
     assert.doesNotMatch(listed.stdout, /distiller/, "workers are not listed as people");
   } finally { await canon.close(); }
+});
+
+test("the workspace holds only the person's guide, the hooks by absolute path and the canon server", () => {
+  const person = { id: "maya", kind: "person", name: "Maya Lopez", task: "Run the weekly vendor payment run." };
+  const files = workspaceFiles(person, "/repo");
+  assert.deepEqual(Object.keys(files).sort(), [".claude/settings.json", ".mcp.json", "CLAUDE.md"]);
+  const settings = JSON.parse(files[".claude/settings.json"]);
+  assert.equal(settings.hooks.UserPromptSubmit[0].hooks[0].command, 'node "/repo/hooks/claude-code/canon-context.mjs"');
+  for (const event of ["Stop", "SessionEnd"]) assert.equal(settings.hooks[event][0].hooks[0].command, 'node "/repo/hooks/claude-code/canon-capture.mjs"');
+  assert.deepEqual(settings.permissions.allow, ALLOWED_TOOLS);
+  assert.ok(!ALLOWED_TOOLS.includes("mcp__canon__canon_save"), "the hooks capture the session; saving stays an explicit choice");
+  const mcp = JSON.parse(files[".mcp.json"]).mcpServers.canon;
+  assert.equal(mcp.url, "${CANON_URL}/mcp");
+  assert.equal(mcp.headers.Authorization, "Bearer ${CANON_PERSON_TOKEN}", "the token comes from the environment, never written to disk");
+  assert.match(files["CLAUDE.md"], /^# Working as Maya Lopez\n/);
+  assert.match(files["CLAUDE.md"], /Their task: Run the weekly vendor payment run\./);
+
+  const base = mkdtempSync(join(tmpdir(), "demo-ws-"));
+  try {
+    const dir = prepareWorkspace(person, base);
+    assert.equal(dir, join(base, "maya"));
+    assert.ok(existsSync(join(dir, ".claude", "settings.json")));
+    assert.match(readFileSync(join(dir, "CLAUDE.md"), "utf8"), /Maya Lopez/);
+  } finally { rmSync(base, { recursive: true, force: true }); }
+});
+
+test("shellArgs quotes args with spaces or quotes on Windows only", () => {
+  assert.deepEqual(shellArgs(["-p", 'Is the "Ironclad" invoice paid?', "--model", "opus"], "win32"), ["-p", '"Is the ""Ironclad"" invoice paid?"', "--model", "opus"]);
+  assert.deepEqual(shellArgs(["-p", "two words"], "linux"), ["-p", "two words"]);
 });

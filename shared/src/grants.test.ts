@@ -29,13 +29,13 @@ describe("DEMO_GRANTS", () => {
   test("has the demo AI clients, the synthetic-world people and the internal workers", () => {
     assert.deepEqual(
       DEMO_GRANTS.map((g) => g.client).sort(),
-      ["axe", "ben", "chatgpt", "claude-code", "dispatcher", "distiller", "dollar-bill", "ingest", "teammate-cursor", "wags"],
+      ["axe", "ben", "chatgpt", "claude-code", "dispatcher", "distiller", "dollar-bill", "ingest", "maya", "teammate-cursor", "wags"],
     );
     assert.ok(aiClients.length >= 3);
   });
 
   test("the synthetic-world people act for their own principal and hold no folder grants", () => {
-    for (const person of ["wags", "axe", "ben", "dollar-bill"]) {
+    for (const person of ["wags", "axe", "ben", "dollar-bill", "maya"]) {
       const g = grantFor(DEMO_GRANTS, person);
       assert.ok(g, `${person} must have a grant`);
       assert.equal(g.principal, person);

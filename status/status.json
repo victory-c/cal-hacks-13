@@ -1,6 +1,6 @@
 {
   "project": "Bullwark",
-  "updated": "2026-10-25T14:29:24.215Z",
+  "updated": "2026-10-25T17:05:18.812Z",
   "team": [
     {
       "id": "A",
@@ -641,6 +641,15 @@
       "state": "done",
       "title": "Memory layers: top of mind vs background, so only current, relevant context is served",
       "note": "server/src/memory-layers.ts. A hot fact in a scope is top of mind or background. Background = out of date (Jev, once a day per fact, sees the group newest first: past deadlines, finished events, figures a newer fact replaced; re-checked for the whole group when one of its facts is saved), idle (salience = keep score x (0.3 + 0.7 x half-life 14 days since last used or learned); every served fact is a use), or moved there by the person (POST /api/facts/:id/layer top|background|auto; agents follow their creator). Handoff: one batch carries relevance, currency and does-it-ask-specifically; a background fact is served only at 0.7 and above, else cut background (inspector: In the background). Member view: Top of mind / Background / All tabs with counts, greyed background rows with the reason, usage line, Move to background / Bring back / Let Bullwark decide. Live Jev on the host moved the replaced 180k position, a past close and a finished trade to the background. Tests: memory-layers.test.ts (scoring, HTTP path, restart, group re-check), web logic tests."
+    },
+    {
+      "id": "A28",
+      "owner": "A",
+      "milestone": "M5",
+      "priority": "must",
+      "state": "done",
+      "title": "Demo: a new hire (Maya Lopez, accounts payable) with everyday bills memories, and Claude Code sessions that see only the person's memory",
+      "note": "fixtures/world: Maya Lopez (maya, token dev-maya) joined Oct 19; rule set by Mike Wagner: run the weekly vendor payment run, excluding deal/*, firm/payroll and the desk. New group firm/payables (Bills and payments) from a how-we-pay-bills memo (Friday run, Wednesday 5 pm cutoff, over $10,000 needs Mike, net 30, call back on the on-file number before a bank change, expenses) and the AP inbox (Brightline $2,400, Ironclad $12,600, Northgate $3,150 plus its new-bank-account request); Dollar Bill gains a trade blotter (Halcyon buy and stop-loss, Redwood sale). Live Jev + Moss: Maya's 0:00 scope is 10 facts (the payment rules, the four invoice facts, November rent; no expenses, trades or payroll); a Bank change check agent on Bills and payments holds exactly 2 (the Northgate request and the call-back rule) and reports in ~20-28 s. npm run demo:claude now opens the person's own workspace (<tmp>/bullwark-demo/<person>/: CLAUDE.md, hooks by absolute path, canon MCP with read tools allowed) instead of the repo, where Claude had read the raw fixtures off disk; args after -- are quoted for cmd on Windows. Known: a prompt asking the AI to write or send something (\"write me an email to Ironclad\") and an agent report of numbered orders were quarantined by the injection check (p 0.69, 0.65); a status update or a descriptive summary passes (0.10-0.28)."
     },
     {
       "id": "B28",

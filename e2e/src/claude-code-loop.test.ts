@@ -266,8 +266,8 @@ describe("the Claude Code loop, end to end on the offline providers (PIPELINE-PR
 
     // The worker's own account of the run, with measured times.
     const distil = logs.filter((l) => /heuristic distilled \d+ drafts in \d+ ms \(simulated\)/.test(l));
-    // Six groups: Stonewall, research, public market, the desk, firm operations, payroll and HR.
-    const triaged = logs.filter((l) => /fake triaged \d+ drafts against \d+ facts and 6 groups in \d+ ms/.test(l));
+    // Seven groups: Stonewall, research, public market, the desk, firm operations, bills and payments, payroll and HR.
+    const triaged = logs.filter((l) => /fake triaged \d+ drafts against \d+ facts and 7 groups in \d+ ms/.test(l));
     const saved = logs.filter((l) => /saved \d+, retired 0, filed 0 quarantine items, relayed \d+ events in \d+ ms/.test(l));
     assert.equal(distil.length, 2, logs.join("\n"));
     assert.equal(triaged.length, 2, logs.join("\n"));

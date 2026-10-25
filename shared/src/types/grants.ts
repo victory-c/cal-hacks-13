@@ -41,4 +41,5 @@ export const DEMO_GRANTS: readonly Grant[] = [
   { client: "axe", read: [], write: [], principal: "axe" },
   { client: "ben", read: [], write: [], principal: "ben" },
   { client: "dollar-bill", read: [], write: [], principal: "dollar-bill" },
+  { client: "maya", read: [], write: [], principal: "maya" },
 ];

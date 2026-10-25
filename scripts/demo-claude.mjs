@@ -17,9 +17,16 @@
 // Before launching it asks that server who the token is (GET /api/me). Only a person opens a
 // session: an internal worker token (distiller, dispatcher, ingest, …) has no principal and is
 // refused. The token is never printed.
+//
+// The session opens in the person's own empty workspace (<tmp>/bullwark-demo/<person>/), not in
+// this repo: there Claude could read the raw demo world off disk (every group, every person's
+// facts) instead of answering from the person's memory. The workspace holds only a CLAUDE.md, the
+// hooks (this checkout's scripts, by absolute path) and the canon MCP server with its read tools
+// allowed.
 
 import { spawn } from "node:child_process";
-import { existsSync, readFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -58,6 +65,53 @@ export function knownTokens(env, dotenv) {
 /** The environment for the launched claude process: the caller's, with the loop switched on as `token`. */
 export function launchEnv(base, { token, url }) {
   return { ...base, CANON_PERSON_TOKEN: token, CANON_URL: url, CANON_CAPTURE: "1", CANON_CONTEXT: "1" };
+}
+
+/** The canon tools a demo session may call without asking. canon_save is left out: the hooks already capture the session. */
+export const ALLOWED_TOOLS = ["mcp__canon__canon_whoami", "mcp__canon__canon_context", "mcp__canon__canon_search"];
+
+/** A person's demo workspace: path relative to the workspace → contents. */
+export function workspaceFiles(person, repoRoot = root) {
+  const hook = (name) => {
+    const script = join(repoRoot, "hooks", "claude-code", name).replace(/\\/g, "/");
+    return [{ hooks: [{ type: "command", command: `node "${script}"`, timeout: 15 }] }];
+  };
+  const settings = {
+    hooks: { Stop: hook("canon-capture.mjs"), SessionEnd: hook("canon-capture.mjs"), UserPromptSubmit: hook("canon-context.mjs") },
+    permissions: { allow: ALLOWED_TOOLS },
+    enableAllProjectMcpServers: true,
+  };
+  // Claude Code expands these from the launched process's environment (launchEnv).
+  const mcp = { mcpServers: { canon: { type: "http", url: "${CANON_URL}/mcp", headers: { Authorization: "Bearer ${CANON_PERSON_TOKEN}" } } } };
+  const guide = [
+    `# Working as ${person.name}`,
+    "",
+    `You are ${person.name}'s work assistant at Axe Capital.${person.task ? ` Their task: ${person.task}` : ""}`,
+    "",
+    `What you know about the firm is ${person.name}'s Bullwark memory: the memory added before each prompt, and the canon tools (canon_context, canon_search) when you need more. Answer from that memory. There are no project files here to look through. If the memory does not cover something, say it is not in your memory.`,
+    "",
+  ].join("\n");
+  return {
+    ".claude/settings.json": `${JSON.stringify(settings, null, 2)}\n`,
+    ".mcp.json": `${JSON.stringify(mcp, null, 2)}\n`,
+    "CLAUDE.md": guide,
+  };
+}
+
+/** Writes the person's workspace (again on every launch, so it follows this checkout) and returns its path. */
+export function prepareWorkspace(person, base = join(tmpdir(), "bullwark-demo")) {
+  const dir = join(base, person.id);
+  for (const [rel, text] of Object.entries(workspaceFiles(person))) {
+    mkdirSync(dirname(join(dir, rel)), { recursive: true });
+    writeFileSync(join(dir, rel), text);
+  }
+  return dir;
+}
+
+/** cmd.exe joins a shell spawn's args with spaces, so on Windows any arg with spaces or quotes is quoted. */
+export function shellArgs(args, platform = process.platform) {
+  if (platform !== "win32") return args;
+  return args.map((a) => (a === "" || /[\s"&|<>^%]/.test(a) ? `"${a.replace(/"/g, '""')}"` : a));
 }
 
 /** GET /api/me with the token: a person record, or a reason it cannot open a session. */
@@ -107,9 +161,11 @@ async function main() {
   console.log(`  memory before every prompt · this session saved as ${person.name}'s · canon MCP tools act as ${person.name}`);
   if (person.task) console.log(`  their task: ${person.task}`);
   if (args.dryRun) return;
+  const workspace = prepareWorkspace(person);
+  console.log(`  workspace: ${workspace} (memory only, no repo files)`);
 
-  const child = spawn("claude", args.claudeArgs, {
-    cwd: root,
+  const child = spawn("claude", shellArgs(args.claudeArgs), {
+    cwd: workspace,
     env: launchEnv(process.env, { token, url }),
     stdio: "inherit",
     // claude is a .cmd shim on Windows, which only a shell can start.

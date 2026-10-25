@@ -23,6 +23,9 @@ import voicemail from "../../../fixtures/world/items/itm_voicemail.json" with { 
 import deskInvoices from "../../../fixtures/world/items/itm_desk_invoices.json" with { type: "json" };
 import officeBills from "../../../fixtures/world/items/itm_office_bills.json" with { type: "json" };
 import payrollNotes from "../../../fixtures/world/items/itm_payroll_notes.json" with { type: "json" };
+import apHandbook from "../../../fixtures/world/items/itm_ap_handbook.json" with { type: "json" };
+import apInvoices from "../../../fixtures/world/items/itm_ap_invoices.json" with { type: "json" };
+import deskTrades from "../../../fixtures/world/items/itm_desk_trades.json" with { type: "json" };
 
 import type { AgentRun, DocType, Fact, ItemKind } from "../member/contract.ts";
 import { sentences, writeDoc } from "../member/mock.ts";
@@ -34,7 +37,7 @@ interface RawItem { id: string; kind: string; source: string; author: string; ca
 interface KeyFact { group: string; labels: string[]; statement: string; fact_id: string; announced: boolean }
 
 const ITEMS: Record<string, RawItem> = Object.fromEntries(
-  [axeChatgpt, chatDeal, chatDesk, chatGeneral, chatResearch, counselEmail, deskNotes, researchDraft, swMeeting, swTerms, swValuation, tmcLetter, voicemail, deskInvoices, officeBills, payrollNotes].map((i) => [i.id, i as RawItem]),
+  [axeChatgpt, chatDeal, chatDesk, chatGeneral, chatResearch, counselEmail, deskNotes, researchDraft, swMeeting, swTerms, swValuation, tmcLetter, voicemail, deskInvoices, officeBills, payrollNotes, apHandbook, apInvoices, deskTrades].map((i) => [i.id, i as RawItem]),
 );
 const KEY = expected.facts as Record<string, KeyFact>;
 const KEY_ITEMS = expected.items as Record<string, { facts: string[] }>;

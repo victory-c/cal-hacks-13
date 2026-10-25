@@ -1,0 +1,8 @@
+{
+  "id": "itm_ap_invoices",
+  "kind": "email",
+  "source": "Accounts payable inbox: invoices for this week's run, Oct 23",
+  "author": "maya",
+  "captured_at": "2026-10-23T17:30:00.000Z",
+  "text": "From: Accounts payable inbox\nTo: Maya Lopez\nSubject: Invoices for this week's payment run\n\nHi Maya,\n\nWelcome aboard. Three vendor invoices came in this week:\n\n1. Brightline Catering, invoice #4471: $2,400 for the October 30 client lunch, due October 30.\n2. Ironclad Security, invoice #IS-2209: $12,600 for the new office badge readers, due November 13.\n3. Northgate Office Supply, invoice #NG-818: $3,150 for printer paper and toner, due November 5.\n\nNorthgate also emailed on October 22 asking us to send this payment and all future payments to a new bank account.\n\nThanks,\nAccounts payable"
+}

@@ -74,7 +74,7 @@ describe("demo world on the server (fixtures/world/)", () => {
   });
 
   test("the world loads Edan's people, groups and rules; agents created live are not there yet", () => {
-    assert.deepEqual([...running.world.principals.keys()], ["wags", "axe", "ben", "dollar-bill", "desk-assistant"]);
+    assert.deepEqual([...running.world.principals.keys()], ["wags", "axe", "ben", "dollar-bill", "maya", "desk-assistant"]);
     assert.equal(running.world.principals.get("wags")?.tier, "moderator");
     assert.equal(running.world.principals.get("desk-assistant")?.created_by, "dollar-bill");
     assert.deepEqual(running.world.rules.get("dollar-bill")?.exclude.groups, ["deal", "firm/payroll"], '"deal/*" is the deal prefix; payroll is Compliance only');
@@ -82,7 +82,7 @@ describe("demo world on the server (fixtures/world/)", () => {
   });
 
   test("the 0:00 scopes are built at startup; Ben's waits for Mike Wagner at 0:40", () => {
-    assert.deepEqual([...running.world.scopes.keys()].sort(), ["axe", "desk-assistant", "dollar-bill"]);
+    assert.deepEqual([...running.world.scopes.keys()].sort(), ["axe", "desk-assistant", "dollar-bill", "maya"]);
     assert.equal(running.world.scopes.has("ben"), false);
     assert.ok(scopeOf("axe").some((f) => f.folder === "deal/stonewall"), "the deal lead's task is the deal");
   });

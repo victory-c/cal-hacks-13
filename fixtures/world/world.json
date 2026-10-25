@@ -75,6 +75,15 @@
       "email": "dollarbill@axecapital.example"
     },
     {
+      "id": "maya",
+      "kind": "person",
+      "name": "Maya Lopez",
+      "full_name": "Maya Lopez",
+      "role": "Operations associate, accounts payable (joined October 19)",
+      "tier": "member",
+      "email": "maya@axecapital.example"
+    },
+    {
       "id": "deal-analyst",
       "kind": "agent",
       "name": "Deal analyst",
@@ -125,6 +134,12 @@
       "id": "firm/ops",
       "display": "Firm operations",
       "description": "Scheduling, offsites, tools, office bills, rent, vendors and admin.",
+      "code_names": []
+    },
+    {
+      "id": "firm/payables",
+      "display": "Bills and payments",
+      "description": "Vendor invoices, the weekly payment run, approval limits, vendor bank details and expense claims.",
       "code_names": []
     },
     {
@@ -190,6 +205,23 @@
       }
     },
     {
+      "principal": "maya",
+      "set_by": "wags",
+      "task": "Run the weekly vendor payment run: which invoices to pay, who has to approve them, and the checks before money goes out.",
+      "exclusions": {
+        "groups": [
+          "deal/*",
+          "firm/payroll",
+          "desk/dollar-bill"
+        ],
+        "labels": [],
+        "text": [
+          "anything about pending deals"
+        ]
+      },
+      "demo_beat": "0:00"
+    },
+    {
       "principal": "deal-analyst",
       "set_by": "axe",
       "task": "Draft the Stonewall bid memo and run a simple valuation in Python.",
@@ -250,9 +282,12 @@
         "itm_voicemail",
         "itm_desk_invoices",
         "itm_office_bills",
-        "itm_payroll_notes"
+        "itm_payroll_notes",
+        "itm_ap_handbook",
+        "itm_ap_invoices",
+        "itm_desk_trades"
       ],
-      "note": "Loaded before the demo starts. Ben has no scope yet; Mike Wagner builds it at 0:40. itm_voicemail's two facts are in the inbox, waiting for Mike Wagner to file them."
+      "note": "Loaded before the demo starts. Ben has no scope yet; Mike Wagner builds it at 0:40. itm_voicemail's two facts are in the inbox, waiting for Mike Wagner to file them. Maya Lopez, the new accounts payable associate, joined on October 19; her scope is built at startup from Mike Wagner's rule."
     },
     {
       "at": "0:00",

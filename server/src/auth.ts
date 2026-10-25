@@ -13,7 +13,7 @@ import type { Grant } from "@canon/shared";
 export const DEV_CLIENT_TOKENS =
   "claude-code=dev-claude-code,chatgpt=dev-chatgpt,teammate-cursor=dev-teammate-cursor,distiller=dev-distiller," +
   // Scopes (A2): the second internal worker and one client per synthetic-world person.
-  "dispatcher=dev-dispatcher,wags=dev-wags,axe=dev-axe,ben=dev-ben,dollar-bill=dev-dollar-bill," +
+  "dispatcher=dev-dispatcher,wags=dev-wags,axe=dev-axe,ben=dev-ben,dollar-bill=dev-dollar-bill,maya=dev-maya," +
   // The ingest CLI (hooks/ingest/, lane B): posts raw sessions only.
   "ingest=dev-ingest";
 

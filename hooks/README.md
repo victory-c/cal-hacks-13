@@ -119,14 +119,20 @@ context. Then open Claude Code as one synthetic person with the launcher at the 
 ```bash
 npm run demo:claude                          # list the people this .env's tokens open
 npm run demo:claude -- dollar-bill           # Claude Code as Dollar Bill against CANON_URL
+npm run demo:claude -- maya                  # as Maya Lopez, the new accounts payable associate
 npm run demo:claude -- axe --url https://…   # against a shared server; --token <t> for a handed-out token
 ```
 
 It asks the server who the token is (`GET /api/me`, refusing worker tokens), prints the person
-and their task (never the token), and starts `claude` in the repo with `CANON_PERSON_TOKEN`,
-`CANON_URL`, `CANON_CAPTURE=1` and `CANON_CONTEXT=1` set for that process only, so the hooks and
-the `canon` MCP server in `.mcp.json` all act as that person. Two launchers in two terminals are two
-people on the same server. Arguments after `--` go to `claude`.
+and their task (never the token), and starts `claude` with `CANON_PERSON_TOKEN`, `CANON_URL`,
+`CANON_CAPTURE=1` and `CANON_CONTEXT=1` set for that process only. It opens in the person's own
+workspace, `<tmp>/bullwark-demo/<person>/`, not in the repo, where Claude could read the raw demo
+world off disk. The workspace holds a short `CLAUDE.md` naming the person, this checkout's hooks by
+absolute path, and the `canon` MCP server with its read tools allowed, so everything Claude knows
+comes from that person's memory. Claude Code applies a folder's tool permissions only once the
+folder is trusted, so launch each person once before a demo and accept the trust prompt. Two
+launchers in two terminals are two people on the same server. Arguments after `--` go to `claude`
+(quoted for `cmd` on Windows).
 
 To capture **every** project on your machine (the real product), install at user scope:
 
