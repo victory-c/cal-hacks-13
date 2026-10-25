@@ -6,7 +6,7 @@
 // Layout under the data dir:   facts/<folder>/<id>.md     sessions/<id>.json
 
 import { randomBytes } from "node:crypto";
-import { mkdir, readdir, readFile, rename, rm, writeFile } from "node:fs/promises";
+import { mkdir, open, readdir, readFile, rename, rm } from "node:fs/promises";
 import { basename, dirname, join } from "node:path";
 
 import { SESSION_ID_RE, factPath, folderAllows, parseFactFile, serializeFactFile, validateFact } from "@canon/shared";
@@ -33,6 +33,14 @@ export class FileStore {
     this.sessionIds.clear();
     this.sessionClients.clear();
     let skipped = 0;
+
+    // Tmp files orphaned by a crash mid-writeAtomic: the real file (if any) is intact, so sweep them.
+    for (const root of [join(this.dir, "facts"), join(this.dir, "sessions")]) {
+      for (const tmp of await listFiles(root, ".tmp")) {
+        console.warn(`[store] removing orphaned tmp file ${tmp}`);
+        await rm(tmp, { force: true });
+      }
+    }
 
     for (const file of await listFiles(join(this.dir, "facts"), ".md")) {
       try {
@@ -137,11 +145,21 @@ function assertSessionId(id: string): void {
   if (!SESSION_ID_RE.test(id)) throw new Error(`session id must match ${SESSION_ID_RE} (got ${JSON.stringify(id)})`);
 }
 
-/** Write to a sibling tmp file, then rename: readers never see a half-written file. */
+/**
+ * Write to a sibling tmp file, fsync, then rename: readers never see a half-written file, and a
+ * crash right after the rename cannot leave a truncated one (the archive must never lose a
+ * session). A tmp orphaned by a crash before the rename is swept on the next loadAll().
+ */
 async function writeAtomic(file: string, text: string): Promise<void> {
   await mkdir(dirname(file), { recursive: true });
   const tmp = `${file}.${randomBytes(4).toString("hex")}.tmp`;
-  await writeFile(tmp, text, "utf8");
+  const fh = await open(tmp, "w");
+  try {
+    await fh.writeFile(text, "utf8");
+    await fh.sync();
+  } finally {
+    await fh.close();
+  }
   await rename(tmp, file);
 }
 
@@ -154,7 +172,8 @@ async function listFiles(root: string, ext: string): Promise<string[]> {
     if ((err as NodeJS.ErrnoException).code === "ENOENT") return [];
     throw err;
   }
-  return names.filter((n) => n.endsWith(ext) && !n.endsWith(`.tmp`)).map((n) => join(root, n)).sort();
+  // writeAtomic tmp names end in ".tmp", never in ".md"/".json", so they only match ext ".tmp".
+  return names.filter((n) => n.endsWith(ext)).map((n) => join(root, n)).sort();
 }
 
 function message(err: unknown): string {

@@ -28,7 +28,8 @@ export interface Responder {
   readonly name: string;
   readonly model?: string;
   readonly simulated: boolean;
-  answer(context: string, question: string): Promise<Answered>;
+  /** `system` overrides the default system prompt (the finance setups carry their own). */
+  answer(context: string, question: string, system?: string): Promise<Answered>;
 }
 
 const DEFAULT_MODEL = "claude-sonnet-5-5";
@@ -65,11 +66,11 @@ export class ClaudeResponder implements Responder {
     this.baseUrl = env("ANTHROPIC_BASE_URL", DEFAULT_BASE_URL).replace(/\/+$/, "");
   }
 
-  async answer(context: string, question: string): Promise<Answered> {
+  async answer(context: string, question: string, system?: string): Promise<Answered> {
     const body = {
       model: this.model,
       max_tokens: this.maxTokens,
-      system: SYSTEM,
+      system: system ?? SYSTEM,
       messages: [{ role: "user", content: `CONTEXT:\n${context.trim() === "" ? "(empty)" : context}\n\nQUESTION:\n${question}` }],
     };
     const { result: json, ms } = await timed(async () => {
@@ -125,7 +126,7 @@ export class EchoResponder implements Responder {
   readonly name = "echo";
   readonly simulated = true;
 
-  async answer(context: string, question: string): Promise<Answered> {
+  async answer(context: string, question: string, _system?: string): Promise<Answered> {
     const preview = context.length > 600 ? `${context.slice(0, 600)}…` : context;
     const text = `SIMULATED — no model was called. Question: ${question}\nContext received (${context.length} chars, est. ${estimateTokens(context)} tokens):\n${preview || "(empty)"}`;
     return { text, ms: 0, simulated: true };

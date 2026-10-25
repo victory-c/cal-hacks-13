@@ -1,14 +1,20 @@
-// `npm run seed -w server`: copies server/fixtures/ into the data dir so the demo has facts and a
-// session on a fresh machine. Existing files are never overwritten. Every fixture fact is parsed
-// first, so a broken fixture fails here and not at 4 AM in the server log.
+// `npm run seed -w server`: copies server/fixtures/ into the data dir, then writes the demo world's
+// facts and raw items (fixtures/world/, see world.ts), so the demo has facts and sessions on a fresh
+// machine. Existing files are never overwritten. Every fixture fact is parsed first, so a broken
+// fixture fails here and not at 4 AM in the server log.
 
-import { copyFile, mkdir, readdir, readFile } from "node:fs/promises";
+import { copyFile, mkdir, readdir, readFile, writeFile } from "node:fs/promises";
 import { dirname, join, relative, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
-import { dataDir, loadEnv, parseFactFile } from "@canon/shared";
+import { dataDir, factPath, loadEnv, parseFactFile, serializeFactFile } from "@canon/shared";
+
+import { loadDemoWorld } from "./world.ts";
+import type { WorldMoment } from "./world.ts";
 
 export const FIXTURES_DIR = fileURLToPath(new URL("../fixtures/", import.meta.url));
+/** The earlier Harbor Lane / Project Falcon facts, seeded only for the server tests' Falcon world. */
+export const FALCON_FIXTURES_DIR = fileURLToPath(new URL("../fixtures/falcon/", import.meta.url));
 
 export interface SeedResult {
   facts: number;
@@ -16,9 +22,28 @@ export interface SeedResult {
   skipped: number;
 }
 
-export async function seedDataDir(target: string, fixtures: string = FIXTURES_DIR): Promise<SeedResult> {
+/**
+ * Copies `fixtures` (facts/ and sessions/; null skips them) into `target`, then the demo world's
+ * facts and items at `world` ("seed": what is loaded before the demo starts; "all": every
+ * non-quarantined item, the benchmark's world; false: none).
+ */
+export async function seedDataDir(target: string, fixtures: string | null = FIXTURES_DIR, world: WorldMoment | false = "seed"): Promise<SeedResult> {
   const result: SeedResult = { facts: 0, sessions: 0, skipped: 0 };
+  if (fixtures !== null) await copyFixtures(target, fixtures, result);
+  if (world === false) return result;
+  const demo = loadDemoWorld({ moment: world });
+  for (const fact of demo.facts) {
+    if (await writeIfMissing(join(target, factPath(fact)), serializeFactFile(fact))) result.facts++;
+    else result.skipped++;
+  }
+  for (const session of demo.sessions) {
+    if (await writeIfMissing(join(target, "sessions", `${session.id}.json`), JSON.stringify(session, null, 2) + "\n")) result.sessions++;
+    else result.skipped++;
+  }
+  return result;
+}
 
+async function copyFixtures(target: string, fixtures: string, result: SeedResult): Promise<void> {
   for (const rel of await listRelative(join(fixtures, "facts"), ".md")) {
     const src = join(fixtures, "facts", rel);
     parseFactFile(await readFile(src, "utf8")); // throws with the file's problem
@@ -31,7 +56,18 @@ export async function seedDataDir(target: string, fixtures: string = FIXTURES_DI
     if (await copyIfMissing(src, join(target, "sessions", rel))) result.sessions++;
     else result.skipped++;
   }
-  return result;
+}
+
+/** The "wx" flag makes "skip existing" atomic, like copyIfMissing. */
+async function writeIfMissing(dest: string, content: string): Promise<boolean> {
+  await mkdir(dirname(dest), { recursive: true });
+  try {
+    await writeFile(dest, content, { flag: "wx" });
+    return true;
+  } catch (err) {
+    if ((err as NodeJS.ErrnoException).code === "EEXIST") return false;
+    throw err;
+  }
 }
 
 async function listRelative(root: string, ext: string): Promise<string[]> {

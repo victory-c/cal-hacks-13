@@ -18,3 +18,6 @@ bench/results/raw/
 
 # Local human tracking material; excluded from ordinary file discovery.
 /.archive/
+
+# Local agent-loop scratch state; never commit it.
+.hermes-loop/

@@ -18,9 +18,11 @@ Bullwark decides what to show; Canon decides who may see what. They meet only th
 - **Working agreement:** [`CLAUDE.md`](CLAUDE.md)
 - **Progress:** [`STATUS.md`](STATUS.md), generated from [`status/status.json`](status/status.json)
 
-The current code is a working capture, distillation and retrieval scaffold. Tiers, scopes, the
-scope builder, audit records and agent runs are planned work; existing folder grants do not
-establish those protections. Package READMEs describe implemented behavior.
+Tiers, scope rules, the scope builder, living scopes, agent profiles, handoffs and the audit log
+run in `server/` with tests, on labelled simulated providers when keys are absent. The server
+still seeds the earlier Harbor Lane world from `server/fixtures/` until it moves to
+`fixtures/world/`, and not every console API in `docs/INTEGRATION.md` exists yet. Package
+READMEs describe implemented behavior.
 
 ## Quick start
 
@@ -29,7 +31,7 @@ npm install            # Node 22+, see .nvmrc
 cp .env.example .env   # optional; without keys, providers are labelled simulated
 npm run doctor
 npm run seed -w server # optional development fixtures; skips existing files
-npm run dev            # server :4100, distiller worker, frontend :4200
+npm run dev            # server :4100, distiller worker, agent dispatcher, frontend :4200
 ```
 
 | URL | What runs today |
@@ -94,7 +96,7 @@ implementation ownership.
 After editing `status/status.json`, run `npm run status` and commit the generated board with
 the work. Keep credentials in `.env`; share keys directly between teammates.
 
-## Integration evidence
+## Sponsor tracks and integration evidence
 
 - **Anthropic:** Claude fact writing and briefs are the product plan. Existing Claude adapters
   are in `distiller/src/engines/claude.ts`, `shared/src/judge/claude.ts` and `bench/src/responder.ts`.

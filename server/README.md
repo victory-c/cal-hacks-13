@@ -9,13 +9,13 @@ scopes; do not claim information barriers from this scaffold.
 
 ```bash
 npm run dev -w server         # tsx watch, http://127.0.0.1:4100 (CANON_PORT)
-npm run seed -w server        # optional: copy fixtures/ into the data dir (CANON_DATA_DIR, default data/), skip existing
+npm run seed -w server        # optional: scaffold fixtures/ + the demo world into the data dir (CANON_DATA_DIR, default data/), skip existing
 npm run typecheck -w server && npm test -w server    # ~0.5 s, offline, boots its own server on port 0
 ```
 
 Reads `.env` via `loadEnv()` (see `.env.example`). With no `CANON_CLIENT_TOKENS` the dev tokens from
 `.env.example` are used, with a warning. Binds to 127.0.0.1 only. **A store with no facts is seeded
-from `fixtures/` at start-up** (`src/index.ts`), so a fresh clone demos without a separate seed step;
+at start-up** (`src/index.ts`) with the scaffold `fixtures/` and the demo world's 0:00 facts (below), so a fresh clone demos without a separate seed step;
 `npm run seed` is for re-seeding a store you emptied by hand. The store is scanned once at boot: a
 file you add in Obsidian while the server runs shows up after a restart. Start-up failures (port in
 use, bad `JUDGE_PROVIDER`, broken `CANON_GRANTS_FILE`) are one `[server] ...` line, not a stack trace.
@@ -32,6 +32,54 @@ use, bad `JUDGE_PROVIDER`, broken `CANON_GRANTS_FILE`) are one `[server] ...` li
 | `GET /api/sessions/:id` | bearer | One archived session. **Only the client that captured it and the internal `distiller` may read it** (403 otherwise): raw transcripts have no folder scoping |
 | `POST /api/facts` | bearer | Distiller files decided facts (`PostFactsBody`). Needs write grants on the destination and on existing facts being overwritten or retired (403 + `access.denied`). The entire batch is authorized before writing. Each `decision` is validated (action, `supersedes` id, tier/folder equal to the fact's, probabilities in [0, 1], judge name) and rebuilt before it is broadcast. `supersede`/`merge` re-writes the old fact as `cold` (never deletes) and emits `fact.retired` |
 | `POST\|GET\|DELETE /mcp` | bearer | MCP Streamable HTTP, stateless: fresh `McpServer` per request, scoped to the token's grant |
+| `GET /api/groups` | moderator, internal | `GroupsResponse` (triage reads it to file facts) |
+| `GET\|POST /api/principals`, `POST /api/principals/:id/tier` | moderator | People, tiers and agents. Adding a member takes a `rule` and builds their scope (exclusions applied in code) |
+| `GET\|PUT /api/scope-rules/:principal` | moderator; the creator for their own agents | A member never reads their own rule (the exclusions are never shown). `PUT` rebuilds the scope through the full pipeline and cascades to the member's agents |
+| `GET /api/scopes/:principal`, `GET /api/scopes/:principal/facts` | moderator, internal | The fixed fact-id list, and the facts themselves (an agent's sandbox) |
+| `POST /api/agents`, `DELETE /api/agents/:id` | any person for themselves; delete also moderator | The agent's scope is built from its creator's scope only and checked in code to be a subset |
+| `GET\|POST /api/quarantine`, `POST /api/quarantine/:id/release` | GET + release moderator; POST internal | Held captures; release is 409 when already released |
+| `GET /api/audit?principal=&since=` | moderator | `AuditResponse` |
+| `POST /api/handoff` | internal | `HandoffBody` → `HandoffResult`: candidates only ever come from inside the fixed scope, budget cut, pinned profile (never the exclusions), audit row + `handoff.served`. **Stub relevance: keyword overlap, not Moss + Jev** |
+| `POST /api/dispatch` | the agent's creator or a moderator | `DispatchRequest` → `{ id }`, emits `dispatch.requested`; `by` must be the caller |
+| `POST /api/events` | internal | Re-broadcast one `RELAYED_EVENTS` event on `/events` (the server stamps `at`) |
+| `POST /api/facts/:id/file` | moderator | Refile a fact `{ group, labels? }` (INTEGRATION.md), e.g. the announced Stonewall terms to `market/public` at 1:20. A scope whose rule now excludes it loses it in code; then it joins the scopes it now fits through the living-scope checks. Emits `fact.filed`; audit `fact.filed` |
+
+**The demo world (`src/world.ts`).** The server runs on Edan's Axe Capital / Project Stonewall world
+in `../fixtures/world/` (C20): people, groups (code names become aliases), labels and scope rules
+from `world.json` (`deal/*` is the `deal` prefix), and the answer key's facts from `expected.json`,
+with their stable `fact_id`s (the ones `bench/tasks/finance/` cites), groups, labels, the item's
+author, and one raw session per item in the cold archive. Several items can state one fact; the
+first item listed is its source. `seed` holds the items loaded before the demo; `all` (the
+benchmark) adds the 0:25 items; the quarantined counsel email never becomes facts. **Scopes are
+never copied from a fixture:** at start-up the server builds the 0:00 ones (Axe, Dollar Bill, his
+desk assistant) with the configured judge and retriever (`buildInitialScopes`, audited as actor
+`server`); Ben's waits for Wags at 0:40 and the 1:00 agents are created live. A scope draws only
+from facts filed in one of the world's groups, so the scaffold's `career/` and `projects/` notes
+join none. A moderator has no scope record: their handoff draws from every hot fact. The server
+tests still run on the earlier Falcon world (`../distiller/fixtures/world/`, `fixtures/falcon/`,
+`FALCON_TEST_GRANTS`), whose prebuilt scope snapshot pins their expectations.
+
+**Scopes tier enforcement (A2, `src/scopes.ts`).** The caller's principal is its grant's `principal`
+or the client id itself (`maya=dev-maya` → `maya`). Moderator routes answer every non-moderator with
+one constant `403 { "error": "moderators only" }` **before anything is looked up**, so the same bytes
+come back whether the target exists or not — no refusals that reveal, no existence signals. World
+state (people, rules, scopes, quarantine, audit) lives in memory per server, loaded from the demo
+world (above); facts come from the regular store.
+
+**Scope builder and living scopes (A4+A6, `src/scopes.ts` + `src/scope-judge.ts`).** A build is:
+excluded groups (prefix) and labels removed **in code** → one retriever query for the task, result
+re-filtered against the post-exclusion pool in code → one batched `judge.ask()` per Jev decision
+(group-under-exclusion, then per candidate fact-under-exclusion + helps-with-task), thresholds from
+`TRIAGE_THRESHOLDS` applied in code, a "maybe" on an exclusion counts as excluded → a fixed list of
+fact ids. Every stage is a `scope.stage` event with its **measured** time; every build writes a
+`scope.built` audit row. A member's own facts join unless an exclusion removes them; an agent's base
+is its creator's scope only and the subset is re-checked right before the write (violation = loud
+500). On `fact.saved`, the fact joins each scope that clears the same checks (inbox facts join
+none); on `fact.retired` it leaves every scope — both audited (`fact.joined_scope` /
+`fact.left_scope`). Without credentials the keyword retriever stands in for Moss and the fake judge
+answers the scope questions from keyword overlap (`simulatedScopeAnswers`); both are labelled
+simulated in the audit detail. **Benchmark numbers still require the real providers before any
+measured barrier-performance claim.**
 
 Auth is `Authorization: Bearer <token>`; tokens map to clients via `CANON_CLIENT_TOKENS`. A missing or
 unknown token is `401 { error }` (on the two "optional" routes a *missing* token gives the public view
@@ -42,8 +90,9 @@ sees `private/`).
 
 **MCP tools** (`src/mcp.ts`): `canon_context`, `canon_search`, `canon_save`, `canon_whoami`, input shapes
 as in `shared/src/types/mcp.ts`. Every result has `content[0].text = JSON.stringify(output)` and
-`structuredContent = output`. A folder outside the grant is an `isError` result:
-`refused: <client> cannot read <folder>. Call canon_whoami to see your folders.`
+`structuredContent = output`. A `canon_search` folder outside the grant is dropped silently: the
+result is an ordinary (possibly empty) list, never a refusal, and moderators see the probe as an
+`access.denied` event.
 
 ## Data layout (`CANON_DATA_DIR`, gitignored, opens in Obsidian)
 
@@ -74,8 +123,11 @@ for the distiller. `src/seed.ts` copies `fixtures/` (sample data, see `fixtures/
 
 ## Stub vs real, in one list
 
-- **Simulated:** the `fake` judge (no keys), the `keyword` retriever (no Moss creds). Both are named
-  in `GET /health` and in the start-up log so the dashboard can label them.
+- **Simulated:** the `fake` judge (no keys; for scope builds it answers from keyword overlap, see
+  `src/scope-judge.ts`), the `keyword` retriever (no Moss creds). Both are named in `GET /health`,
+  in the start-up log and in the `scope.built` audit detail so the dashboard can label them.
+- **Stub:** handoff relevance (`POST /api/handoff`) is keyword overlap inside the fixed scope, not
+  Moss + Jev yet (task A7).
 - **Real:** everything else above. Latency numbers in `context.served` (`latency_ms`, `retrieval_ms`,
   `judge_ms`) are wall-clock measurements; `tokens` is `estimateTokens()` and must be shown as "est.".
 

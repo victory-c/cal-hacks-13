@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 // Runs the dev stack in one terminal, each process prefixed with its name.
-// Usage: npm run dev                 → server + distiller + web
+// Usage: npm run dev                 → server + distiller + dispatch + web
 //        npm run dev -- server web   → just those
 //        npm run dev -- all          → everything incl. the status board
 
@@ -9,13 +9,15 @@ import { spawn } from "node:child_process";
 const procs = {
   server: ["npm", ["run", "dev", "-w", "server"]],
   distiller: ["npm", ["run", "dev", "-w", "distiller"]],
+  // The agent dispatcher (distiller/src/dispatch/): runs agents on dispatch.requested.
+  dispatch: ["npm", ["run", "dispatch", "-w", "distiller"]],
   web: ["npm", ["run", "dev", "-w", "web"]],
   status: ["node", ["status/serve.mjs"]],
 };
-const colors = { server: 36, distiller: 33, web: 35, status: 32 };
+const colors = { server: 36, distiller: 33, dispatch: 34, web: 35, status: 32 };
 
 let picked = process.argv.slice(2);
-if (picked.length === 0) picked = ["server", "distiller", "web"];
+if (picked.length === 0) picked = ["server", "distiller", "dispatch", "web"];
 if (picked.includes("all")) picked = Object.keys(procs);
 const unknown = picked.filter((p) => !procs[p]);
 if (unknown.length) {
@@ -26,7 +28,13 @@ if (unknown.length) {
 const width = Math.max(...picked.map((p) => p.length));
 const children = picked.map((name) => {
   const [cmd, args] = procs[name];
-  const child = spawn(cmd, args, { stdio: ["ignore", "pipe", "pipe"], env: process.env });
+  // On Windows `npm` is npm.cmd, which Node only spawns through a shell. The args are fixed above,
+  // so the shell sees no user input.
+  const child = spawn(cmd, args, {
+    stdio: ["ignore", "pipe", "pipe"],
+    env: process.env,
+    shell: process.platform === "win32",
+  });
   const tag = `\x1b[${colors[name]}m${name.padEnd(width)}\x1b[0m │ `;
   const pipe = (stream, out) => {
     let buf = "";

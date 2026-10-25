@@ -1,8 +1,8 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { KNOWN_CLIENTS, SESSION_ID_RE } from "@canon/shared";
+import { KNOWN_CLIENTS, SESSION_ID_RE, SOURCE_KINDS } from "@canon/shared";
 import type { TurnsMessage } from "./protocol.ts";
-import { clientFor, fnv1a32, sessionIdFor, TITLE_MAX, titleFrom, toCapturedSession } from "./session.ts";
+import { clientFor, fnv1a32, normalizePrincipal, sessionIdFor, TITLE_MAX, titleFrom, toCapturedSession } from "./session.ts";
 
 const msg: TurnsMessage = {
   kind: "turns",
@@ -61,6 +61,45 @@ test("toCapturedSession: id, client, messages in index order, meta, title fallba
   assert.deepEqual(s.meta, { url: msg.url, site: "chatgpt" });
   assert.equal(s.title, "How do I debounce a MutationObserver?");
   assert.equal("ended_at" in s, false);
+  assert.equal(s.kind, "ai_session");
+  assert.equal("principal" in s, false);
+});
+
+test("toCapturedSession v2: kind ai_session, principal trimmed and lowercased, blank means none", () => {
+  const s = toCapturedSession(msg, "2026-10-24T03:12:00.000Z", undefined, " Dan ");
+  assert.equal(s.principal, "dan");
+  assert.equal(s.kind, "ai_session");
+  assert.ok(SOURCE_KINDS.includes(s.kind!));
+  assert.equal("principal" in toCapturedSession(msg, "2026-10-24T03:12:00.000Z", undefined, "   "), false);
+  assert.equal("principal" in toCapturedSession(msg, "2026-10-24T03:12:00.000Z", undefined, "dan.okafor@harborlane.com"), false, "an email is not an id");
+});
+
+// The same table is in hooks/test/capture.test.mjs: the hook, the ingest CLI and the extension
+// write one id the same way. Security rule: the principal decides access, so a name or an email is
+// never turned into an id (its first token made "Leo Chen" Leo Brandt, and gave Dan the ids
+// "okafor" and "d"); only an id is kept, and an agent id is kept whole.
+test("normalizePrincipal: only an id is kept; names and emails are not guessed into one", () => {
+  const table: [unknown, string][] = [
+    [" Dan ", "dan"],
+    ["dan", "dan"],
+    ["agt_research_1", "agt_research_1"],
+    ["AGT_Research_1", "agt_research_1"],
+    ["agt_deal-analyst", "agt_deal-analyst"],
+    ["AGT_Deal-Analyst", "agt_deal-analyst"],
+    ["agt-desk-2", ""],
+    ["Dan Okafor", ""],
+    ["dan.okafor@harborlane.com", ""],
+    ["Dan Okafor <DAN.OKAFOR@harborlane.com>", ""],
+    ["Leo Chen <leo.chen@harborlane.com>", ""],
+    ["Okafor, Dan", ""],
+    ["D. Okafor", ""],
+    ["Maya (Compliance)", ""],
+    ["   ", ""],
+    ["42", ""],
+    [7, ""],
+  ];
+  for (const [input, want] of table) assert.equal(normalizePrincipal(input), want, JSON.stringify(input));
+  assert.notEqual(normalizePrincipal("agt_deal-analyst"), normalizePrincipal("agt_desk-2"), "two agents, two ids");
 });
 
 test("toCapturedSession: msg.title wins, ended_at only when ended", () => {

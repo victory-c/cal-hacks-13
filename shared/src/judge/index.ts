@@ -16,7 +16,7 @@ export type { FakeJudgeOptions } from "./fake.ts";
 const JUDGE_NAMES: readonly JudgeName[] = ["jev", "claude", "fake"];
 
 /**
- * Provider order: opts.provider, else JUDGE_PROVIDER, else "jev" when JEV_API_KEY is set, else
+ * Provider order: opts.provider, else JUDGE_PROVIDER, else "jev" when JEV_API_KEY (or TYPESAFE_API_KEY) is set, else
  * "claude" when ANTHROPIC_API_KEY is set, else "fake". Logs which one so the console says
  * "simulated" when it is.
  */
@@ -41,7 +41,7 @@ function resolveProvider(explicit?: JudgeName): JudgeName {
     }
     return pick as JudgeName;
   }
-  if (env("JEV_API_KEY")) return "jev";
+  if (env("JEV_API_KEY") || env("TYPESAFE_API_KEY")) return "jev";
   if (env("ANTHROPIC_API_KEY")) return "claude";
   return "fake";
 }

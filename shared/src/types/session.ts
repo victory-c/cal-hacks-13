@@ -3,6 +3,10 @@
 
 import type { ClientId } from "./fact.ts";
 
+/** What kind of item this is. AI sessions come from the hook / extension; the rest from ingest. */
+export const SOURCE_KINDS = ["ai_session", "memo", "chat", "transcript", "email", "note"] as const;
+export type SourceKind = (typeof SOURCE_KINDS)[number];
+
 export type MessageRole = "user" | "assistant" | "system" | "tool";
 
 export interface SessionMessage {
@@ -35,4 +39,14 @@ export interface CapturedSession {
   /** Full message list so far. Clients re-send the whole list; the server replaces. */
   messages: SessionMessage[];
   meta?: SessionMeta;
+  /**
+   * Whose context this is (principal id: `dan`). It becomes each fact's `author`, and a member's
+   * own facts join their scope, so the server binds it to a per-person client's principal (see
+   * ROUTES.sessions). Missing = unknown: triage treats it cautiously and sets no author.
+   */
+  principal?: string;
+  /** Missing = "ai_session". */
+  kind?: SourceKind;
+  /** True when the text came from outside the firm (the target's lawyers). Triage reads it with extra suspicion. */
+  external?: boolean;
 }

@@ -74,6 +74,9 @@ const CLIENT_LABELS = {
   "gemini-cli": "Gemini CLI",
   "teammate-cursor": "Teammate · Cursor",
   distiller: "Distiller",
+  ingest: "Ingest",
+  dispatcher: "Dispatcher",
+  compliance: "Compliance",
 } satisfies Record<(typeof KNOWN_CLIENTS)[number], string> & Record<string, string>;
 
 /** Human name for a client id; unknown ids are shown as-is. */

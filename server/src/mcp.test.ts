@@ -137,22 +137,21 @@ describe("MCP tool bodies", () => {
     }
   });
 
-  test("canon_search searches granted folders and refuses one outside the grant", async () => {
+  test("canon_search searches granted folders and silently drops one outside the grant", async () => {
     events.length = 0;
-    const ok = await runSearch(deps, { query: "hook" });
-    assert.ok(ok.ok);
-    assert.deepEqual(ok.output.facts.map((f) => f.id).sort(), [A.id, B.id, C.id]);
+    const all = await runSearch(deps, { query: "hook" });
+    assert.deepEqual(all.facts.map((f) => f.id).sort(), [A.id, B.id, C.id]);
 
     const narrowed = await runSearch(deps, { query: "hook", folders: ["projects"] });
-    assert.ok(narrowed.ok);
     assert.deepEqual(
-      narrowed.output.facts.map((f) => f.id),
+      narrowed.facts.map((f) => f.id),
       [B.id],
     );
 
-    const refused = await runSearch(deps, { query: "hook", folders: ["career", "private"] });
-    assert.ok(!refused.ok);
-    assert.equal(refused.refused, "refused: claude-code cannot read private. Call canon_whoami to see your folders.");
+    // No refusal and no existence signal: the ungranted folder is just not searched.
+    const mixed = await runSearch(deps, { query: "hook", folders: ["career", "private"] });
+    assert.deepEqual(mixed, await runSearch(deps, { query: "hook", folders: ["career"] }));
+    assert.deepEqual(await runSearch(deps, { query: "hook", folders: ["private"] }), { facts: [] });
     const denied = events.find((e) => e.type === "access.denied");
     assert.ok(denied && denied.type === "access.denied");
     assert.equal(denied.folder, "private");
@@ -168,6 +167,7 @@ describe("MCP tool bodies", () => {
     assert.equal(session?.client, "claude-code");
     assert.deepEqual(session?.messages, [{ role: "user", content: "Prefer Postgres over SQLite for anything multi-user" }]);
     assert.equal(session?.meta?.folder_hint, "projects/canon");
+    assert.equal(session?.principal, undefined, "an operator grant names no principal, so none is guessed");
     assert.ok(session?.ended_at);
     const captured = events.find((e) => e.type === "session.captured");
     assert.ok(captured && captured.type === "session.captured");
@@ -175,6 +175,13 @@ describe("MCP tool bodies", () => {
     assert.equal(captured.session.ended, true);
     // Nothing went to hot facts.
     assert.equal(deps.store.counts().facts, 0);
+  });
+
+  test("canon_save binds a per-person client's principal, like POST /api/sessions", async () => {
+    const dan: Grant = { client: "dan", read: [], write: [], principal: "dan" };
+    const out = await runSave({ ...deps, client: "dan", grant: dan }, { text: "LOI call moved to Monday", folder: "deal/falcon" });
+    const session = await deps.store.getSession(out.session_id);
+    assert.equal(session?.principal, "dan", "the saved memory is the principal's own");
   });
 
   test("canon_whoami returns the grant", () => {

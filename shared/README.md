@@ -4,9 +4,12 @@
 other package imports it (`import { ... } from "@canon/shared"`, never a relative path). Pure
 TypeScript, zero dependencies, runs under `tsx` with no build step.
 
-The existing folder-based contracts remain the implemented interface. Principals and tiers,
-groups and labels, scope rules, scopes and audit events are planned extensions (A1), not fields
-available to consumers yet. Coordinate with both builders before changing them.
+The scopes contract (A1) adds two tiers, principals and agent profiles, groups (a fact's
+`folder` is its group, now any slug path such as `deal/falcon`) and labels, scope rules, scopes,
+quarantine, audit events and agent-run types (`src/types/scopes.ts`, `src/types/agents.ts`,
+optional `labels`, `author` and `happened` on facts). They are types only: the server's scope
+builder and scope filtering are separate work, and folder grants remain what the server enforces
+today. Coordinate with both builders before changing them.
 
 ## Frozen vs free
 
@@ -52,11 +55,11 @@ const { result, ms } = await timed(() => judge.ask(state, questions));
 
 | `JUDGE_PROVIDER` | Class | Real? | Needs |
 |---|---|---|---|
-| `jev` | `JevJudge` | Yes. Official keyed question/answer contract; live requests verified. | `JEV_API_KEY`; optional `JEV_API_URL` (default `https://api.typesafe.ai/v1/systemone`) |
+| `jev` | `JevJudge` | Yes. `POST /v1/systemone` (`jev-latest`) as documented at docs.typesafe.ai/api/system-one.md: questions keyed `q0…`, choices as `criteria`, at most 255 options sent (the first, safe one always), 429/529 retried twice. | `JEV_API_KEY` (or `TYPESAFE_API_KEY`); `JEV_API_URL` and `JEV_MODEL` optional |
 | `claude` | `ClaudeJudge` | Yes. `claude-haiku-5-5`, one forced `answer` tool call, raw Messages API over `fetch`. | `ANTHROPIC_API_KEY` |
 | `fake` | `FakeJudge` | **No, simulated.** Deterministic keyword heuristic; logs that it is simulated. | nothing |
 
-Unset, `createJudge` picks `jev` if `JEV_API_KEY` is set, else `claude` if `ANTHROPIC_API_KEY`
+Unset, `createJudge` picks `jev` if `JEV_API_KEY` or `TYPESAFE_API_KEY` is set, else `claude` if `ANTHROPIC_API_KEY`
 is set, else `fake`. A missing key for an explicit provider fails at construction with the
 variable's name. Both network judges read responses defensively: a missing or malformed answer
 becomes a neutral default (`p` 0.5 / `options[0]` / midpoint) with one `console.warn`.

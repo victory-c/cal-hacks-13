@@ -26,12 +26,22 @@ describe("folderAllows", () => {
 describe("DEMO_GRANTS", () => {
   const aiClients = DEMO_GRANTS.filter((g) => !(INTERNAL_CLIENTS as readonly string[]).includes(g.client));
 
-  test("has the three demo AI clients plus the internal distiller", () => {
+  test("has the demo AI clients, the synthetic-world people and the internal workers", () => {
     assert.deepEqual(
       DEMO_GRANTS.map((g) => g.client).sort(),
-      ["chatgpt", "claude-code", "distiller", "teammate-cursor"],
+      ["axe", "ben", "chatgpt", "claude-code", "dispatcher", "distiller", "dollar-bill", "ingest", "teammate-cursor", "wags"],
     );
     assert.ok(aiClients.length >= 3);
+  });
+
+  test("the synthetic-world people act for their own principal and hold no folder grants", () => {
+    for (const person of ["wags", "axe", "ben", "dollar-bill"]) {
+      const g = grantFor(DEMO_GRANTS, person);
+      assert.ok(g, `${person} must have a grant`);
+      assert.equal(g.principal, person);
+      assert.deepEqual(g.read, []);
+      assert.deepEqual(g.write, []);
+    }
   });
 
   test("no AI client reads or writes private/ or the inbox; only INTERNAL_CLIENTS may", () => {

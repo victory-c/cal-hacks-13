@@ -74,9 +74,13 @@ events, grants, judge questions and REST bodies. Keep these and their consumers 
 
 Facts currently use markdown frontmatter plus an optional body, stored at
 `data/facts/<folder>/<id>.md`; raw sessions are `data/sessions/<id>.json`. The serializer and
-validator in `shared/src/fact-file.ts` define the exact format. Folder grants in the scaffold
-are not scopes. The tiers, groups, labels, scope rules, scopes, audit events and console APIs
-described in the PRD must be added and tested before access claims are made.
+validator in `shared/src/fact-file.ts` define the exact format. A fact's `folder` is its group
+(`deal/stonewall`, `market/public`, `inbox`). The scopes contract (A1) adds `scopes.ts`
+(tiers, principals, groups, scope rules, scopes, quarantine, audit), `agents.ts` (agent runs,
+steps, inboxes), optional `labels`, `author` and `happened` on facts, and the scope events and
+REST bodies. Folder grants in the scaffold are not scopes, and types are not enforcement: access
+claims rest on the server's tested scope builder, scope filtering and audit, and the console APIs
+in `docs/INTEGRATION.md` must be added and tested the same way.
 
 The scaffold worker may include optional `distillation: { session_id, engine, plan?, duration_ms }`
 in `POST /api/facts`. Only the internal `distiller` client may attribute a run; successful writes
@@ -94,7 +98,7 @@ mention, count or name anything outside a scope; `canon_whoami` shows the task, 
 npm install                 # Node 22+, see .nvmrc
 npm run doctor              # preflight
 npm run seed -w server      # optional, existing development fixtures
-npm run dev                 # server :4100, distiller, frontend :4200
+npm run dev                 # server :4100, distiller, dispatcher, frontend :4200
 npm run check               # status validation, workspace typechecks and tests
 npm run build               # browser bundles
 ```

@@ -12,9 +12,13 @@ import type { CanonEvent } from "@canon/shared";
 export type EventInput = CanonEvent extends infer E ? (E extends { at: string } ? Omit<E, "at"> & { at?: string } : never) : never;
 
 type Listener = (e: CanonEvent) => void;
-/** True when a subscriber may see this event. */
-export type EventFilter = (e: CanonEvent) => boolean;
-export type EventProjection = (e: CanonEvent) => CanonEvent;
+/** True when a subscriber may see this event, false when not, or a redacted copy to send instead. */
+export type EventFilter = (e: CanonEvent) => boolean | CanonEvent;
+
+function viewOf(filter: EventFilter, e: CanonEvent): CanonEvent | undefined {
+  const v = filter(e);
+  return v === true ? e : v === false ? undefined : v;
+}
 
 const HEARTBEAT_MS = 15_000;
 
@@ -55,17 +59,20 @@ export class EventBus {
   }
 
   /** Writes one SSE frame per entry with the ring id as the SSE id. */
-  private writeReplay(res: ServerResponse, filter: EventFilter, project: EventProjection): void {
-    for (const r of this.ring) if (filter(r.event)) res.write(formatSseEvent(project(r.event), String(r.id)));
+  private writeReplay(res: ServerResponse, filter: EventFilter): void {
+    for (const r of this.ring) {
+      const v = viewOf(filter, r.event);
+      if (v) res.write(formatSseEvent(v, String(r.id)));
+    }
   }
 
   /**
    * Turns `res` into an SSE stream: replay, then live events, with a comment heartbeat every 15 s
    * so proxies and browsers keep the connection open. Cleans up when the client goes away.
-   * `filter` drops events this subscriber may not see (the router passes one for tokenless
-   * callers); ids keep their ring positions, so Last-Event-ID still lines up.
+   * `filter` drops events this subscriber may not see, or returns a redacted copy to send instead
+   * (the router passes one for tokenless callers and strips plans for everyone but the distiller); ids keep their ring positions, so Last-Event-ID still lines up.
    */
-  attachSse(res: ServerResponse, filter: EventFilter = () => true, project: EventProjection = e => e): () => void {
+  attachSse(res: ServerResponse, filter: EventFilter = () => true): () => void {
     res.writeHead(200, {
       "Content-Type": "text/event-stream; charset=utf-8",
       "Cache-Control": "no-cache, no-transform",
@@ -73,10 +80,11 @@ export class EventBus {
       "Access-Control-Allow-Origin": "*",
     });
     res.write(": canon events\n\n");
-    this.writeReplay(res, filter, project);
+    this.writeReplay(res, filter);
     // Live events after the replay carry the same monotonically increasing id.
     const unsubscribe = this.subscribe((e) => {
-      if (filter(e)) res.write(formatSseEvent(project(e), String(this.seq)));
+      const v = viewOf(filter, e);
+      if (v) res.write(formatSseEvent(v, String(this.seq)));
     });
     const heartbeat = setInterval(() => res.write(": ping\n\n"), HEARTBEAT_MS);
     heartbeat.unref();
@@ -90,6 +98,6 @@ export class EventBus {
 }
 
 /** Convenience for the router. */
-export function attachSse(res: ServerResponse, bus: EventBus, filter?: EventFilter, project?: EventProjection): () => void {
-  return bus.attachSse(res, filter, project);
+export function attachSse(res: ServerResponse, bus: EventBus, filter?: EventFilter): () => void {
+  return bus.attachSse(res, filter);
 }

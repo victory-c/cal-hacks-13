@@ -1,4 +1,4 @@
-# Work split: context with walls for small finance teams
+# Work split: task-built scopes for small finance teams
 
 **Updated Sat 10/24.** This file defines ownership and build order for `docs/BULLWARK-PRD.md` (the
 product and frontend, lane C plus B's story), `docs/CANON-PRD.md` (the agentic backend, lanes A and B)
@@ -72,17 +72,11 @@ The security core and the largest lane. Henry has the most Claude usage.
 
 ### C · Edan Wong: frontend, QA and logistics (`web/`, `status/`, `bench/tasks/`, `fixtures/world/`)
 
-1. **Synthetic world, generated first** (`fixtures/world/`, Bullwark PRD demo script): Axe Capital,
-   Project Stonewall, Taylor Mason Capital, Wags (moderator), Axe, Ben Kim and Dollar Bill (members),
-   two Stonewall memos, a week of chat, one transcript, Axe's ChatGPT session, Taylor Mason's public Q3
-   letter, Ben's research draft, Dollar Bill's desk notes, and counsel's email with the planted
-   instruction, plus an answer key of the facts each item should produce. Everyone builds against it.
-
-2. **Moderator console:**
-   - people and tiers (add people, promote to moderator)
-   - scope builder (task + exclusions, each stage and its measured time)
-   - scope inspector (what any person's or agent's scope holds)
-   - live event feed
+1. **Moderator console:**
+   - people and tiers
+   - scope builder (task + exclusions, each stage with its measured time)
+   - scope inspector (which facts each person and agent holds, and why)
+   - live event feed and quarantine
    - one lane per Droid agent
    - handoff inspector (candidates, Jev's probability for each, what was kept and cut, final tokens)
    - live token, latency and cost counter

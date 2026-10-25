@@ -9,12 +9,19 @@ export interface Grant {
   client: ClientId;
   read: Folder[];
   write: Folder[];
+  /**
+   * The principal this client acts for (`leo` for the desk assistant's token). The permission
+   * filter checks that principal's entitlements against each fact's wall, on top of folders.
+   */
+  principal?: string;
 }
 
 /** Internal workers that run on your own machine, not AI clients. Only these may write `private/`. */
-export const INTERNAL_CLIENTS = ["distiller"] as const;
+export const INTERNAL_CLIENTS = ["distiller", "dispatcher"] as const;
 
-const ALL_FOLDERS: Folder[] = ["career", "projects", "team", "private", "inbox"];
+// The scaffold's folders plus the synthetic finance world's top groups: triage files facts into
+// deal/falcon, market/public, … so the distiller's grant must cover them.
+const ALL_FOLDERS: Folder[] = ["career", "projects", "team", "private", "inbox", "deal", "market", "desk", "firm", "research"];
 
 /** Demo defaults. The server loads these unless CANON_GRANTS_FILE points at a JSON override. */
 export const DEMO_GRANTS: readonly Grant[] = [
@@ -23,4 +30,15 @@ export const DEMO_GRANTS: readonly Grant[] = [
   { client: "teammate-cursor", read: ["team"], write: [] },
   // The distiller worker files decided facts into every folder (POST /api/facts).
   { client: "distiller", read: ALL_FOLDERS, write: ALL_FOLDERS },
+  // The ingest CLI (hooks/ingest/) only posts raw sessions; it holds no folder access and no
+  // principal, so as an operator client it may name each item's principal (the memo's author).
+  { client: "ingest", read: [], write: [] },
+  // Scopes (A2): one token per synthetic-world person and the dispatcher. Direct folder reads/
+  // writes stay deny-by-default; their only access is through their scope (server/src/scopes.ts).
+  { client: "dispatcher", read: [], write: [] },
+  // The demo world (fixtures/world/): Axe Capital.
+  { client: "wags", read: [], write: [], principal: "wags" },
+  { client: "axe", read: [], write: [], principal: "axe" },
+  { client: "ben", read: [], write: [], principal: "ben" },
+  { client: "dollar-bill", read: [], write: [], principal: "dollar-bill" },
 ];

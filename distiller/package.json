@@ -8,6 +8,7 @@
     "dev": "tsx watch src/index.ts",
     "start": "tsx src/index.ts",
     "distill": "tsx src/cli.ts",
+    "dispatch": "tsx src/dispatch/index.ts",
     "typecheck": "tsc --noEmit -p .",
     "test": "node --import tsx --test \"src/**/*.test.ts\""
   },

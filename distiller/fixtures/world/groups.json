@@ -1,0 +1,29 @@
+{
+  "groups": [
+    {
+      "id": "deal/falcon",
+      "description": "Project Falcon: Harbor Lane's client Corvane Freight Holdings plans to acquire Nimbus Logistics. Confidential deal terms, process and diligence.",
+      "aliases": ["Project Falcon", "Falcon", "Nimbus", "Nimbus Logistics", "NMBL"]
+    },
+    {
+      "id": "research/logistics",
+      "description": "Harbor Lane research on the logistics and freight sector, written from public information.",
+      "aliases": []
+    },
+    {
+      "id": "market/public",
+      "description": "Public market news, filings and prices.",
+      "aliases": []
+    },
+    {
+      "id": "desk/trading",
+      "description": "The trading desk's positions, trade ideas and notes.",
+      "aliases": ["Larkspur Cold Chain", "LKSP"]
+    },
+    {
+      "id": "firm/ops",
+      "description": "Firm operations: tools, scheduling, office and admin.",
+      "aliases": []
+    }
+  ]
+}

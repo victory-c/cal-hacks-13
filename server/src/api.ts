@@ -1,7 +1,7 @@
 // REST handlers: the capture clients and the distiller write here, the dashboard reads here.
 // Each function validates its input and throws HttpError; the router does the HTTP plumbing.
 
-import { FACT_ID_RE, INTERNAL_CLIENTS, SESSION_ID_RE, TIERS, canWrite, grantFor, validateFact } from "@canon/shared";
+import { FACT_ID_RE, SESSION_ID_RE, SOURCE_KINDS, TIERS, canWrite, grantFor, validateFact } from "@canon/shared";
 import type {
   CapturedSession,
   Fact,
@@ -18,6 +18,7 @@ import type {
   SaveAction,
   SaveDecision,
   SessionMessage,
+  SourceKind,
   Tier,
 } from "@canon/shared";
 
@@ -54,9 +55,21 @@ export async function postSession(deps: ApiDeps, client: string, body: unknown):
   if (session.client !== client) {
     throw new HttpError(403, `body.client is "${session.client}" but the token belongs to "${client}"`);
   }
+  // Only the client that first captured a session may update it.
   const existing = await deps.store.getSession(session.id);
   if (existing && existing.client !== client) {
     throw new HttpError(403, `${client} cannot update session ${session.id}`);
+  }
+  // The principal becomes each distilled fact's author and the author's facts join their scope,
+  // so a per-person client (its grant names a principal) is bound to its own: a mismatch is
+  // rejected, a missing one is filled in. Operator and internal clients (ingest, dispatcher)
+  // may set it — e.g. the dispatcher posts an agent's outputs with principal = the agent's creator.
+  const own = grantFor(deps.grants, client)?.principal;
+  if (own !== undefined) {
+    if (session.principal !== undefined && session.principal !== own) {
+      throw new HttpError(403, `body.principal is "${session.principal}" but client "${client}" captures for "${own}"`);
+    }
+    session.principal = own;
   }
   const { updated } = await deps.store.putSession(session);
   deps.bus.emit({
@@ -67,24 +80,21 @@ export async function postSession(deps: ApiDeps, client: string, body: unknown):
 }
 
 /**
- * GET /api/sessions/:id. Raw transcripts are the most sensitive thing in the store and the cold
- * archive has no folder scoping, so only the session's own client and the internal workers
- * (the distiller) may read one.
+ * GET /api/sessions/:id. Raw transcripts are the most sensitive thing in the store: a session
+ * holds more than any one scope, so the router lets only moderators and internal clients this
+ * far (ROUTES.sessions), and the denial is sent before the id is even parsed.
  */
-export async function getSession(deps: ApiDeps, client: string, id: string): Promise<CapturedSession> {
+export async function getSession(deps: ApiDeps, id: string): Promise<CapturedSession> {
   if (!SESSION_ID_RE.test(id)) throw new HttpError(400, `session id must match ${SESSION_ID_RE}`);
   const session = await deps.store.getSession(id);
   if (!session) throw new HttpError(404, `no session ${id} in the archive`);
-  if (session.client !== client && !(INTERNAL_CLIENTS as readonly string[]).includes(client)) {
-    throw new HttpError(403, `${client} cannot read session ${id}: it was captured by "${session.client}"`);
-  }
   return session;
 }
 
 /** Keeps the known keys of CapturedSession and rejects anything malformed with a precise message. */
 function parseSession(body: unknown): CapturedSession {
   if (!isRecord(body)) throw new HttpError(400, "body must be a CapturedSession object");
-  const { id, client, started_at, ended_at, title, messages, meta } = body;
+  const { id, client, started_at, ended_at, title, messages, meta, principal, kind, external } = body;
   if (typeof id !== "string" || !SESSION_ID_RE.test(id)) throw new HttpError(400, `id must match ${SESSION_ID_RE}`);
   if (typeof client !== "string" || client.trim() === "") throw new HttpError(400, "client must be a non-empty string");
   if (typeof started_at !== "string" || started_at === "") throw new HttpError(400, "started_at must be an ISO 8601 string");
@@ -92,6 +102,9 @@ function parseSession(body: unknown): CapturedSession {
   if (title !== undefined && typeof title !== "string") throw new HttpError(400, "title must be a string");
   if (!Array.isArray(messages)) throw new HttpError(400, "messages must be an array of { role, content }");
   if (meta !== undefined && !isRecord(meta)) throw new HttpError(400, "meta must be an object");
+  if (principal !== undefined && (typeof principal !== "string" || principal.trim() === "")) throw new HttpError(400, "principal must be a principal id (dan, agt_…)");
+  if (kind !== undefined && (typeof kind !== "string" || !(SOURCE_KINDS as readonly string[]).includes(kind))) throw new HttpError(400, `kind must be ${SOURCE_KINDS.join("|")}`);
+  if (external !== undefined && typeof external !== "boolean") throw new HttpError(400, "external must be a boolean");
 
   const clean: SessionMessage[] = messages.map((m, i) => {
     if (!isRecord(m) || typeof m.role !== "string" || !ROLES.includes(m.role as MessageRole)) {
@@ -107,6 +120,9 @@ function parseSession(body: unknown): CapturedSession {
   if (ended_at !== undefined) session.ended_at = ended_at;
   if (title !== undefined) session.title = title;
   if (meta !== undefined) session.meta = meta;
+  if (principal !== undefined) session.principal = principal;
+  if (kind !== undefined) session.kind = kind as SourceKind;
+  if (external !== undefined) session.external = external;
   return session;
 }
 
@@ -149,8 +165,11 @@ function parseDecision(raw: unknown, fact: Fact, where: string): SaveDecision {
  * POST /api/facts: the distiller files decided facts. All entries and existing facts they
  * mutate are authorized before any write. "supersede"/"merge" retires the old fact to cold
  * (Jev never deletes) and emits fact.retired; every new fact emits fact.saved.
+ *
+ * `groups` are the server's own group ids (GET /api/groups). The distiller files triaged facts
+ * into them on top of its folder grant; it can never write a group the server does not list.
  */
-export async function postFacts(deps: ApiDeps, client: string, body: unknown): Promise<PostFactsResponse> {
+export async function postFacts(deps: ApiDeps, client: string, body: unknown, groups: readonly string[] = []): Promise<PostFactsResponse> {
   const grant = grantFor(deps.grants, client);
   if (!grant) throw new HttpError(403, `no grants for client "${client}"`);
   if (!isRecord(body) || !Array.isArray(body.facts)) throw new HttpError(400, "body must be { facts: [{ fact, decision }] }");
@@ -171,7 +190,8 @@ export async function postFacts(deps: ApiDeps, client: string, body: unknown): P
   });
 
   const requireWrite = (folder: Folder, existing = false) => {
-    if (!canWrite(grant, folder)) {
+    const listedGroup = client === "distiller" && groups.includes(folder);
+    if (!canWrite(grant, folder) && !listedGroup) {
       deps.bus.emit({ type: "access.denied", client, tool: "POST /api/facts", folder });
       throw new HttpError(403, existing ? `${client} cannot modify an existing fact` : `${client} cannot write ${folder}`);
     }

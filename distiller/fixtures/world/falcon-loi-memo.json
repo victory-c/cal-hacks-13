@@ -1,0 +1,20 @@
+{
+  "id": "ses_10240007",
+  "client": "ingest",
+  "kind": "memo",
+  "principal": "dan",
+  "started_at": "2026-10-28T14:30:00.000Z",
+  "ended_at": "2026-10-28T14:30:00.000Z",
+  "title": "Project Falcon: LOI delivered (draft v4, final per Friday discussion)",
+  "meta": {
+    "file": "Falcon_LOI_update_v4_FINAL.docx",
+    "author": "Dan"
+  },
+  "messages": [
+    {
+      "role": "user",
+      "content": "HARBOR LANE PARTNERS | PRIVILEGED & CONFIDENTIAL\nPROJECT FALCON: LOI DELIVERED (DRAFT v4, FINAL per Friday discussion)\n\nTo: Falcon deal team\nCc: Maya (compliance)\nFrom: Dan\nDate: 2026-10-28\nRe: LOI out this morning; closing the open items from v3\n\n1. LOI delivered to the Nimbus board this morning, 2026-10-28, ahead of their board meeting tomorrow, 2026-10-29. Terms as discussed: $38.50 per NMBL share in cash, 45 days exclusivity, no financing condition.\n\n2. Break fee: resolved at 2.75% of equity value, splitting the difference with Corvane's GC from Friday's call. Closes the open item from v3.\n\n3. Earnout: confirmed removed from the model. Corvane's GC signed off; no earnout language in the LOI.\n\n4. Diligence:\n- Quality of earnings: Ashby & Rowe kickoff moved up, starts 2026-10-29.\n- Customer concentration: Nimbus agreed to a call with their top customer (22% of revenue, contract renews 2027-03-31), scheduled 2026-11-03. [Dan: get Corvane on that call too]\n- Labor: Memphis hub union contract (expires 2027-06-30) confirmed stable, no early renegotiation planned per management.\n- Real estate: of the three hubs on leases rolling in 2027, Memphis auto-renews absent 180 days' notice from either side; the other two remain open and are now part of the QoE scope.\n\n5. Timeline unchanged: target signing mid-December, announce alongside Nimbus Q4 results if timing allows.\n\n6. Wall: same as v3. Maya keeps the Falcon wall list. Do NOT discuss Falcon on #hl-floor or with research or the desk.",
+      "at": "2026-10-28T14:30:00.000Z"
+    }
+  ]
+}

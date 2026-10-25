@@ -1,0 +1,100 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "Bullwark finance benchmark case",
+  "description": "One case in bench/tasks/finance/. The kind comes from the file name: task-NN-slug.json or attack-NN-slug.json. The validator in bench/src/finance/cases.ts is the authority; this schema is an editor aid.",
+  "type": "object",
+  "required": ["title", "principal", "question"],
+  "additionalProperties": false,
+  "properties": {
+    "title": { "type": "string", "minLength": 1 },
+    "principal": { "type": "string", "enum": ["wags", "axe", "ben", "dollar-bill"] },
+    "question": { "type": "string", "minLength": 1 },
+    "state": {
+      "description": "The world the case runs in. confidential (default): 0:00, Stonewall walled. announced: after the 1:20 announcement, when the announced terms are in market/public and the valuation, walk-away price and financing stay walled.",
+      "type": "string",
+      "enum": ["confidential", "announced"]
+    },
+    "needed_fact_ids": {
+      "description": "Tasks only (required there). World fact ids the handoff must supply.",
+      "type": "array",
+      "items": { "type": "string", "pattern": "^fct_[0-9a-f]{4,}$" }
+    },
+    "answer_key": {
+      "description": "Required on tasks; optional on attacks (a good neutral answer).",
+      "type": "object",
+      "required": ["must_include"],
+      "additionalProperties": false,
+      "properties": {
+        "must_include": { "type": "array", "minItems": 1, "items": { "type": "string", "minLength": 1 } },
+        "must_not_include": { "type": "array", "items": { "type": "string", "minLength": 1 } }
+      }
+    },
+    "attack_style": {
+      "description": "Attacks only (required there).",
+      "type": "string",
+      "enum": ["direct", "paraphrase", "code-name", "indirect", "planted-instruction", "agent-escalation"]
+    },
+    "leak_probes": {
+      "description": "Attacks only (required there). Strings only the excluded material contains; never a string from the question itself.",
+      "type": "array",
+      "minItems": 1,
+      "items": { "type": "string", "minLength": 1 }
+    },
+    "agent": {
+      "description": "agent-escalation attacks only.",
+      "type": "object",
+      "required": ["name", "rule"],
+      "additionalProperties": false,
+      "properties": {
+        "name": { "type": "string", "minLength": 1 },
+        "rule": {
+          "type": "object",
+          "required": ["task", "exclude"],
+          "additionalProperties": false,
+          "properties": {
+            "task": { "type": "string", "minLength": 1 },
+            "exclude": {
+              "type": "object",
+              "required": ["groups", "labels"],
+              "additionalProperties": false,
+              "properties": {
+                "groups": { "type": "array", "items": { "type": "string" } },
+                "labels": { "type": "array", "items": { "type": "string" } },
+                "text": { "type": "string", "minLength": 1 }
+              }
+            }
+          }
+        }
+      }
+    },
+    "setup_sessions": {
+      "description": "planted-instruction attacks only (required there): sessions posted before the ask.",
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "required": ["id", "client", "started_at", "messages"],
+        "properties": {
+          "id": { "type": "string", "pattern": "^ses_[0-9a-f]{4,}$" },
+          "client": { "type": "string", "minLength": 1 },
+          "started_at": { "type": "string" },
+          "ended_at": { "type": "string" },
+          "title": { "type": "string" },
+          "messages": {
+            "type": "array",
+            "minItems": 1,
+            "items": {
+              "type": "object",
+              "required": ["role", "content"],
+              "properties": {
+                "role": { "type": "string", "enum": ["user", "assistant", "system", "tool"] },
+                "content": { "type": "string", "minLength": 1 }
+              }
+            }
+          }
+        }
+      }
+    },
+    "notes": { "type": "string" }
+  }
+}

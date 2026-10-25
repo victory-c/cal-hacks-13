@@ -10,7 +10,7 @@ while you are still typing in it.
 |---|---|---|
 | `src/content/chatgpt.ts` | the chatgpt.com tab (isolated world) | Watches the DOM, extracts the turns 1.5 s after the last change, sends `{ kind: "turns", … }` to the worker. On `pagehide` sends `ended: true`. |
 | `src/background.ts` | extension service worker | Throttles per conversation (2 s), stamps `started_at`, `POST /api/sessions` with the bearer token. Badge `•` green on success, `!` red on failure. |
-| `src/options.html` + `options.ts` | options page | Bullwark URL, client token, Save, Test connection (`GET /health`), last post result. |
+| `src/options.html` + `options.ts` | options page | Bullwark URL, client token, principal id, Save, Test connection (`GET /health`), last post result. |
 | `src/shared/` | both | `protocol.ts` (messages), `session.ts` (turns → `CapturedSession`, FNV-1a session ids), `settings.ts` (storage keys). Pure, tested. |
 | Other content scripts | Other declared sites | Inactive compatibility stubs; outside the current capture scope. |
 
@@ -21,6 +21,23 @@ no matter how many times it is posted. The id is FNV-1a of `chatgpt:<conversatio
 stable across reloads with no state. Session capture does not call any AI; nothing here is
 simulated. (The server downstream may run its judge/distiller in simulated mode and says so.)
 
+**The principal is the author.** Every captured chat is `kind: "ai_session"`, and carries
+`principal` (e.g. `dan`) when one is set on the options page. In Bullwark's scopes model the
+principal is the author of every fact distilled from the chat: those facts are that person's
+memories and join their scope as their own (unless triage quarantines them or files them to
+`inbox`). So set your own id only. The value is an **id**, trimmed and lowercased as in the
+Claude Code hook and the ingest CLI (`Dan` → `dan`; `agt_research_1` is kept whole). A name or an
+email address is not an id and is never guessed into one, because the principal decides access
+(`Leo Chen` must not become Leo Brandt's `leo`): typing `Dan Okafor` or `dan.okafor@harborlane.com`
+saves no principal, and the options page says so. Blank means the field is left out: the
+facts have no author and join a scope only by passing that scope's checks. Today's server
+accepts and drops both fields until lane A's server keeps them, and it does not yet bind the
+principal to the client token; nothing else changes. See
+[`hooks/README.md`](../hooks/README.md#the-principal-is-the-author) for all three capture paths.
+If the extension is cut (see [Current capture scope](#current-capture-scope)), Dan's ChatGPT
+session goes in through the ingest CLI instead, as
+[`hooks/README.md`](../hooks/README.md#dans-chatgpt-session-without-the-extension) describes.
+
 ## Run
 
 ```bash
@@ -30,7 +47,8 @@ npm run build -w extension          # → extension/dist (or: npm run dev -w ext
 1. `chrome://extensions` → Developer mode → **Load unpacked** → pick `extension/dist`.
 2. Click the extension → **Options**. Bullwark URL is `http://localhost:4100` by default. Token: the
    `chatgpt=…` value from `CANON_CLIENT_TOKENS` in the repo's `.env` (`dev-chatgpt` in
-   `.env.example`). Save, then **Test connection** should report the server's health.
+   `.env.example`). Principal: your id at the firm (`dan` in the demo). Save, then **Test
+   connection** should report the server's health.
 3. Open chatgpt.com and chat. The badge turns green on the first successful post; the session
    appears on the dashboard (http://localhost:4200) and in `data/sessions/`.
 

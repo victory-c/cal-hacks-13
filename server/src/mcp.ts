@@ -135,23 +135,21 @@ function noulAnswers(answers: Answer[]): Map<string, number> {
 
 // ------------------------------------------------------------------- canon_search
 
-export type SearchResult = { ok: true; output: SearchOutput } | { ok: false; refused: string };
-
-export async function runSearch(deps: McpDeps, input: SearchInput): Promise<SearchResult> {
-  // Requested folders are intersected with the grant: anything outside it is a refusal, not a
-  // silent narrowing, so the AI can explain itself (and call canon_whoami).
+export async function runSearch(deps: McpDeps, input: SearchInput): Promise<SearchOutput> {
+  // Requested folders are intersected with the grant. A folder outside it is dropped silently and
+  // the answer is an ordinary (possibly empty) result: no refusal, nothing that says it exists
+  // (CLAUDE.md). Moderators still see the probe as access.denied on the event stream.
   let folders: readonly Folder[] = deps.grant.read;
   if (input.folders && input.folders.length > 0) {
-    for (const f of input.folders) {
-      if (!canRead(deps.grant, f)) {
-        deps.bus.emit({ type: "access.denied", client: deps.client, tool: MCP_TOOLS.search, folder: f });
-        return { ok: false, refused: `refused: ${deps.client} cannot read ${f}. Call canon_whoami to see your folders.` };
-      }
-    }
-    folders = input.folders;
+    folders = input.folders.filter((f) => {
+      if (canRead(deps.grant, f)) return true;
+      deps.bus.emit({ type: "access.denied", client: deps.client, tool: MCP_TOOLS.search, folder: f });
+      return false;
+    });
+    if (folders.length === 0) return { facts: [] };
   }
   const hits = await deps.retriever.search(input.query, { folders, k: SEARCH_LIMIT });
-  return { ok: true, output: { facts: hits.map((h) => h.fact) } };
+  return { facts: hits.map((h) => h.fact) };
 }
 
 // --------------------------------------------------------------------- canon_save
@@ -167,6 +165,9 @@ export async function runSave(deps: McpDeps, input: SaveInput): Promise<SaveOutp
     title: input.text.slice(0, 80),
     messages: [{ role: "user", content: input.text }],
     meta: { folder_hint: input.folder },
+    // Same binding as POST /api/sessions: a per-person client's saves are its principal's own
+    // memories, so the distilled facts carry that author and join their scope.
+    ...(deps.grant.principal !== undefined ? { principal: deps.grant.principal } : {}),
   };
   await deps.store.putSession(session);
   deps.bus.emit({
@@ -186,10 +187,6 @@ export function runWhoami(deps: McpDeps): WhoamiOutput {
 
 function ok(output: Record<string, unknown>): CallToolResult {
   return { content: [{ type: "text", text: JSON.stringify(output) }], structuredContent: output };
-}
-
-function refused(text: string): CallToolResult {
-  return { content: [{ type: "text", text }], isError: true };
 }
 
 /** A fresh McpServer per request (stateless Streamable HTTP), bound to one client's grant. */
@@ -214,15 +211,14 @@ export function createMcpServer(deps: McpDeps): McpServer {
     MCP_TOOLS.search,
     {
       title: "Search stored facts",
-      description: "Search the user's stored facts within the folders this client may read. Optional folders narrow the search; a folder outside the grant is refused.",
+      description: "Search the user's stored facts within the folders this client may read. Optional folders narrow the search.",
       inputSchema: {
         query: z.string().min(1),
         folders: z.array(z.string()).optional().describe('e.g. ["career/skills"]'),
       },
     },
     async (args) => {
-      const r = await runSearch(deps, { query: args.query, folders: args.folders as Folder[] | undefined });
-      return r.ok ? ok({ ...r.output }) : refused(r.refused);
+      return ok({ ...(await runSearch(deps, { query: args.query, folders: args.folders as Folder[] | undefined })) });
     },
   );
 
@@ -243,7 +239,7 @@ export function createMcpServer(deps: McpDeps): McpServer {
     MCP_TOOLS.whoami,
     {
       title: "Who am I",
-      description: "The folders this client can read and write. Call it to explain a refusal.",
+      description: "The folders this client can read and write.",
       inputSchema: {},
     },
     async () => ok({ ...runWhoami(deps) }),

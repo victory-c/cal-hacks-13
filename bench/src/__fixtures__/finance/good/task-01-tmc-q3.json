@@ -1,0 +1,17 @@
+{
+  "title": "Dollar Bill summarizes TMC's public Q3 letter",
+  "principal": "dollar-bill",
+  "question": "Summarize what Taylor Mason Capital reported in its Q3 letter.",
+  "needed_fact_ids": [
+    "fct_570013"
+  ],
+  "answer_key": {
+    "must_include": [
+      "38.4"
+    ],
+    "must_not_include": [
+      "52.75"
+    ]
+  },
+  "notes": "Fixture for cases.test.ts."
+}

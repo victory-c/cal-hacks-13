@@ -4,7 +4,7 @@
 //
 // Rule from CLAUDE.md: batch every candidate into ONE request (one `state`, many questions).
 
-import type { Folder, Tier } from "./fact.ts";
+import type { Folder, GroupId, Tier } from "./fact.ts";
 
 export type JudgeName = "jev" | "claude" | "fake";
 
@@ -45,5 +45,69 @@ export interface SaveDecision {
   supersedes?: string;
   keep_p: number;
   folder_p: number;
+  judge: JudgeName;
+  /** The full triage behind this decision. The handoff inspector and audit read it. */
+  triage?: TriageDecision;
+}
+
+// ---------------------------------------------------------------------------------------------
+// Scopes: save-time triage, scope build, live update, handoff and routing questions (PRD "Where
+// Jev decides"). Generous when saving (the cold archive is the safety net), strict when building
+// scopes and handing over, cautious on exclusions and injection: a "maybe" counts as yes.
+
+export const TRIAGE_THRESHOLDS = {
+  /** Save: "worth remembering?" Below this the item is archive-only (no fact). */
+  KEEP: 0.35,
+  /** Save: "which group?" A pick below this confidence, or "unsure", files the fact in `inbox` (moderators only). */
+  GROUP_CONFIDENT: 0.6,
+  /** Save: "instructions aimed at an AI?" At or above: quarantine the whole item. */
+  INJECTION: 0.3,
+  /** Scope build: "does group g fall under this exclusion?" Any real chance: exclude the whole group in code. */
+  EXCLUDE_GROUP: 0.2,
+  /** Scope build / live update: "does fact i fall under this exclusion?" Maybe counts as yes. */
+  EXCLUDE_FACT: 0.3,
+  /** Scope build / live update: "does fact i help with this task?" Yes joins the scope. */
+  IN_SCOPE: 0.7,
+  /** Handoff: "does this request need stored context at all?" Below: send only the pinned profile. */
+  NEEDS_CONTEXT: 0.5,
+  /** Handoff: "does fact i help with this request?" Same bar as v1 RELEVANT. */
+  RELEVANT: 0.7,
+  /** Routing: "does running agent k need this new fact now?" */
+  ROUTE_NEEDS: 0.6,
+} as const;
+
+/** How a new fact relates to the closest existing ones. Drives the version history. */
+export const RELATIONS = ["same", "replaces", "adds_detail", "contradicts", "unrelated"] as const;
+export type Relation = (typeof RELATIONS)[number];
+
+/** Sentinel answers for the "which group?" choice, next to the existing group ids. */
+export const GROUP_NEW = "new" as const;
+export const GROUP_UNSURE = "unsure" as const;
+
+/**
+ * fact: write it in its group. archive_only: below the keep bar, raw stays in the cold archive.
+ * quarantine: instructions aimed at an AI; nothing from the item joins any scope until a
+ * moderator releases it. inbox: written to the `inbox` group (moderators only) because nobody
+ * could place it; it joins no member scope, not even its author's, until a moderator files it.
+ */
+export type TriageOutcome = "fact" | "archive_only" | "quarantine" | "inbox";
+
+/** Every save-time answer for one draft fact, plus what code did with them. */
+export interface TriageDecision {
+  outcome: TriageOutcome;
+  keep_p: number;
+  /** The group the fact was filed in (`inbox` when unsure). */
+  group: GroupId;
+  group_p: number;
+  /** Jev picked "new": the proposed new group id, filed in `inbox` until a moderator accepts it. */
+  new_group?: GroupId;
+  labels: string[];
+  /** Asked once per captured item; copied onto each of its drafts. */
+  injection_p: number;
+  relation: Relation;
+  /** The existing fact it relates to, when relation is not "unrelated". */
+  relation_to?: string;
+  /** One line on why it landed where it did ("code: alias Falcon; jev deal/falcon 0.91"). Moderators only. */
+  reason: string;
   judge: JudgeName;
 }

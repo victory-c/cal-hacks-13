@@ -16,11 +16,14 @@ import type { CanonEvent, CapturedSession, Fact, HealthResponse, SaveDecision } 
 import { startServer } from "./app.ts";
 import type { RunningServer } from "./app.ts";
 import { KeywordRetriever } from "./retrieval/keyword.ts";
+import { FALCON_TEST_GRANTS, loadWorldFixtures } from "./scopes.ts";
 
 const tokens = new Map([
   ["tok-cc", "claude-code"],
   ["tok-gpt", "chatgpt"],
   ["tok-dist", "distiller"],
+  ["tok-maya", "maya"], // the moderator's own client (FALCON_TEST_GRANTS binds it to principal maya)
+  ["tok-dan", "dan"], // a member's per-person client
 ]);
 
 const session: CapturedSession = {
@@ -88,7 +91,7 @@ describe("server over HTTP", () => {
   before(async () => {
     console.info = () => {};
     dir = await mkdtemp(join(tmpdir(), "canon-app-"));
-    running = await startServer({ port: 0, dataDir: dir, tokens, grants: [...DEMO_GRANTS], judge: new FakeJudge(), retriever: new KeywordRetriever(), log: () => {} });
+    running = await startServer({ port: 0, dataDir: dir, tokens, grants: [...DEMO_GRANTS, ...FALCON_TEST_GRANTS], judge: new FakeJudge(), retriever: new KeywordRetriever(), world: loadWorldFixtures(), log: () => {} });
     events = [];
     running.bus.subscribe((e) => events.push(e));
   });
@@ -140,21 +143,59 @@ describe("server over HTTP", () => {
     assert.deepEqual(captured.map((e) => (e.type === "session.captured" ? e.session.ended : null)), [false, true]);
   });
 
-  test("GET /api/sessions/:id: only the capturing client and the distiller may read a transcript", async () => {
+  test("GET /api/sessions/:id: moderators and internal clients only — a raw session holds more than any one scope", async () => {
     assert.equal((await api(`/api/sessions/${session.id}`)).status, 401);
-    const res = await api(`/api/sessions/${session.id}`, { token: "tok-cc" });
-    assert.equal(res.status, 200);
+    const res = await api(`/api/sessions/${session.id}`, { token: "tok-maya" });
+    assert.equal(res.status, 200, "the moderator's client reads the archive");
     const body = (await res.json()) as CapturedSession;
     assert.equal(body.ended_at, "2026-10-24T03:30:00.000Z");
     assert.equal(body.messages.length, 2);
     assert.equal((await api(`/api/sessions/${session.id}`, { token: "tok-dist" })).status, 200, "internal worker");
 
-    const other = await api(`/api/sessions/${session.id}`, { token: "tok-gpt" });
-    assert.equal(other.status, 403);
-    assert.match(((await other.json()) as { error: string }).error, /chatgpt cannot read session .* captured by "claude-code"/);
+    // Even the capturing client is denied, with the same bytes whether the session exists or not:
+    // the 403 is decided before the id is parsed, so nothing is named, counted or hinted at.
+    const deny = async (id: string, token: string) => {
+      const r = await api(`/api/sessions/${id}`, { token });
+      assert.equal(r.status, 403, `${token} on ${id}`);
+      assert.deepEqual(await r.json(), { error: "moderators only" });
+    };
+    await deny(session.id, "tok-cc");
+    await deny(session.id, "tok-gpt");
+    await deny("ses_ffffffff", "tok-gpt");
+    await deny("..%2F..%2Fetc", "tok-gpt");
 
-    assert.equal((await api("/api/sessions/ses_ffffffff", { token: "tok-cc" })).status, 404);
-    assert.equal((await api("/api/sessions/..%2F..%2Fetc", { token: "tok-cc" })).status, 400);
+    assert.equal((await api("/api/sessions/ses_ffffffff", { token: "tok-maya" })).status, 404, "a moderator may learn a session is missing");
+    assert.equal((await api("/api/sessions/..%2F..%2Fetc", { token: "tok-maya" })).status, 400);
+  });
+
+  test("POST /api/sessions: a per-person client is bound to its own principal; operators may set one", async () => {
+    const mine: CapturedSession = {
+      id: "ses_e2e000da",
+      client: "dan",
+      started_at: "2026-10-24T09:00:00.000Z",
+      messages: [{ role: "user", content: "Falcon diligence notes from this morning's call" }],
+      kind: "note",
+    };
+    const mismatch = await api("/api/sessions", { method: "POST", json: { ...mine, principal: "leo" }, token: "tok-dan" });
+    assert.equal(mismatch.status, 403, "naming someone else's principal is rejected");
+    assert.match(((await mismatch.json()) as { error: string }).error, /captures for "dan"/);
+
+    assert.equal((await api("/api/sessions", { method: "POST", json: mine, token: "tok-dan" })).status, 200);
+    const stored = (await (await api(`/api/sessions/${mine.id}`, { token: "tok-maya" })).json()) as CapturedSession;
+    assert.equal(stored.principal, "dan", "a missing principal is filled in from the client's grant");
+    assert.equal(stored.kind, "note", "kind survives the round trip");
+
+    // An operator client (the hook's CANON_PRINCIPAL, the ingest CLI's author) names the principal itself.
+    const memo: CapturedSession = { ...session, id: "ses_e2e000db", principal: "dan", kind: "memo", external: true };
+    assert.equal((await api("/api/sessions", { method: "POST", json: memo, token: "tok-cc" })).status, 200);
+    const storedMemo = (await (await api(`/api/sessions/${memo.id}`, { token: "tok-dist" })).json()) as CapturedSession;
+    assert.equal(storedMemo.principal, "dan");
+    assert.equal(storedMemo.kind, "memo");
+    assert.equal(storedMemo.external, true);
+
+    for (const bad of [{ kind: "tweet" }, { principal: "" }, { external: "yes" }]) {
+      assert.equal((await api("/api/sessions", { method: "POST", json: { ...memo, ...bad }, token: "tok-cc" })).status, 400, JSON.stringify(bad));
+    }
   });
 
   test("a request target Node accepts but the URL parser rejects is a 400, not a crash", async () => {
@@ -260,7 +301,7 @@ describe("server over HTTP", () => {
     assert.equal((await api("/api/facts", { token: "wrong" })).status, 401, "an unknown token is not downgraded to the public view");
 
     const grants = (await (await api("/api/grants")).json()) as { grants: unknown[] };
-    assert.equal(grants.grants.length, DEMO_GRANTS.length);
+    assert.equal(grants.grants.length, DEMO_GRANTS.length + FALCON_TEST_GRANTS.length);
   });
 
   /**
@@ -328,7 +369,7 @@ describe("server over HTTP", () => {
     await transport.close();
   });
 
-  test("MCP endpoint through the SDK client: tools, whoami, refusal, context, save", async () => {
+  test("MCP endpoint through the SDK client: tools, whoami, no refusal, context, save", async () => {
     const client = new Client({ name: "test", version: "0.0.0" });
     const transport = new StreamableHTTPClientTransport(new URL(`${running.url}/mcp`), {
       requestInit: { headers: { authorization: "Bearer tok-cc" } },
@@ -345,9 +386,10 @@ describe("server over HTTP", () => {
       assert.deepEqual(whoami.structuredContent, { client: "claude-code", read: ["projects", "career"], write: ["projects"] });
       assert.deepEqual(JSON.parse(whoami.content[0].text ?? ""), whoami.structuredContent);
 
-      const refused = (await client.callTool({ name: "canon_search", arguments: { query: "typescript", folders: ["private"] } })) as ToolResult;
-      assert.equal(refused.isError, true);
-      assert.equal(refused.content[0].text, "refused: claude-code cannot read private. Call canon_whoami to see your folders.");
+      // An ungranted folder is not refused: the search just has nothing there.
+      const outside = (await client.callTool({ name: "canon_search", arguments: { query: "typescript", folders: ["private"] } })) as ToolResult;
+      assert.notEqual(outside.isError, true);
+      assert.deepEqual(outside.structuredContent, { facts: [] });
       assert.ok(events.some((e) => e.type === "access.denied" && e.tool === "canon_search" && e.folder === "private"));
 
       const search = (await client.callTool({ name: "canon_search", arguments: { query: "TypeScript Node" } })) as ToolResult;
@@ -370,5 +412,97 @@ describe("server over HTTP", () => {
     } finally {
       await client.close();
     }
+  });
+});
+
+describe("POST /api/facts into scope groups", () => {
+  let dir: string;
+  let running: RunningServer;
+
+  const groupTokens = new Map([...tokens, ["tok-leo", "leo"], ["tok-maya", "maya"], ["tok-dsp", "dispatcher"]]);
+
+  before(async () => {
+    dir = await mkdtemp(join(tmpdir(), "canon-groups-"));
+    running = await startServer({ port: 0, dataDir: dir, tokens: groupTokens, grants: [...DEMO_GRANTS, ...FALCON_TEST_GRANTS], judge: new FakeJudge(), retriever: new KeywordRetriever(), world: loadWorldFixtures(), log: () => {} });
+  });
+  after(async () => {
+    await running.close();
+    await rm(dir, { recursive: true, force: true });
+  });
+
+  const post = (token: string, fact: Fact) =>
+    fetch(`${running.url}/api/facts`, {
+      method: "POST",
+      headers: { authorization: `Bearer ${token}`, "content-type": "application/json" },
+      body: JSON.stringify({ facts: [{ fact, decision: decision("add", undefined, fact.folder) }] }),
+    });
+
+  test("the distiller files into the server's listed groups, never a folder outside its grant and the list", async () => {
+    const inGroup: Fact = { ...factA, id: "fct_9a0b0001", folder: "deal/falcon" };
+    assert.equal((await post("tok-dist", inGroup)).status, 200);
+    assert.equal(running.store.getFact(inGroup.id)?.folder, "deal/falcon");
+
+    const unlisted: Fact = { ...factA, id: "fct_9a0b0002", folder: "legal/osprey" };
+    assert.equal((await post("tok-dist", unlisted)).status, 403);
+    assert.equal(running.store.getFact(unlisted.id), undefined);
+
+    const other: Fact = { ...inGroup, id: "fct_9a0b0003" };
+    assert.equal((await post("tok-gpt", other)).status, 403, "only the distiller files into groups");
+    assert.equal(running.store.getFact(other.id), undefined);
+  });
+
+  const factIds = async (token?: string) => {
+    const res = await fetch(`${running.url}/api/facts`, token ? { headers: { authorization: `Bearer ${token}` } } : {});
+    return ((await res.json()) as { facts: Fact[] }).facts.map((f) => f.id);
+  };
+
+  /** Every SSE data frame the stream replays (the ring holds what the tests above emitted). */
+  const replayed = async (token?: string): Promise<CanonEvent[]> => {
+    const ctrl = new AbortController();
+    const res = await fetch(`${running.url}/events`, { signal: ctrl.signal, headers: token ? { authorization: `Bearer ${token}` } : {} });
+    const reader = res.body!.getReader();
+    let text = "";
+    const deadline = Date.now() + 300;
+    while (Date.now() < deadline) {
+      const chunk = await Promise.race([reader.read(), new Promise<null>((r) => setTimeout(() => r(null), 100))]);
+      if (!chunk || chunk.done) break;
+      text += new TextDecoder().decode(chunk.value);
+    }
+    ctrl.abort();
+    return text
+      .split("\n")
+      .filter((l) => l.startsWith("data: "))
+      .map((l) => JSON.parse(l.slice(6)) as CanonEvent);
+  };
+
+  test("a deal fact reaches neither a tokenless caller nor a member: not in GET /api/facts, not on /events", async () => {
+    assert.ok(!(await factIds()).includes("fct_9a0b0001"), "tokenless");
+    assert.ok(!(await factIds("tok-leo")).includes("fct_9a0b0001"), "member");
+    assert.ok((await factIds("tok-dist")).includes("fct_9a0b0001"), "the distiller reads the groups it files into");
+
+    const deal = (events: CanonEvent[]) => events.filter((e) => e.type === "fact.saved" && e.fact.folder === "deal/falcon");
+    assert.equal(deal(await replayed()).length, 0, "tokenless stream");
+    assert.equal(deal(await replayed("tok-leo")).length, 0, "member stream");
+    assert.equal(deal(await replayed("tok-maya")).length, 1, "a moderator sees it");
+  });
+
+  test("the public stream drops scopes events and strips titles", async () => {
+    running.bus.emit({ type: "session.captured", session: { id: "ses_9a0b0001", client: "chatgpt", title: "Falcon LOI terms", messages: 2, ended: true } });
+    running.bus.emit({ type: "triage.decided", session_id: "ses_9a0b0001", statement: "Falcon at $38.50", decision: "fact" } as never);
+    const pub = await replayed();
+    assert.ok(!JSON.stringify(pub).includes("Falcon"), JSON.stringify(pub));
+    assert.ok(pub.some((e) => e.type === "session.captured" && e.session.id === "ses_9a0b0001"), "the capture itself still shows");
+    assert.ok(JSON.stringify(await replayed("tok-dist")).includes("Falcon LOI terms"), "internal workers see everything");
+  });
+
+  test("the dispatcher reads an agent's scope rule but cannot change it", async () => {
+    const rule = await fetch(`${running.url}/api/scope-rules/agt_leodesk`, { headers: { authorization: "Bearer tok-dsp" } });
+    assert.equal(rule.status, 200);
+    const put = await fetch(`${running.url}/api/scope-rules/agt_leodesk`, {
+      method: "PUT",
+      headers: { authorization: "Bearer tok-dsp", "content-type": "application/json" },
+      body: JSON.stringify(await rule.json()),
+    });
+    assert.equal(put.status, 403);
   });
 });

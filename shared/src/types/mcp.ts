@@ -64,8 +64,18 @@ export interface SaveOutput {
   session_id: string;
 }
 
+/**
+ * Scopes: a member's whoami shows who they are and their task, never their exclusions, group
+ * names or counts of anything hidden. `read`/`write` are the scaffold's folder grants; leave
+ * them out for members, since a list of groups is an existence signal.
+ */
 export interface WhoamiOutput {
   client: ClientId;
-  read: Folder[];
-  write: Folder[];
+  principal?: string;
+  name?: string;
+  tier?: "moderator" | "member";
+  /** The task from their scope rule. */
+  task?: string;
+  read?: Folder[];
+  write?: Folder[];
 }

@@ -1,0 +1,32 @@
+{
+  "rules": [
+    {
+      "principal": "dan",
+      "task": "Advise Corvane Freight Holdings on Project Falcon and get the LOI out by 2026-10-28",
+      "exclude": { "groups": [], "labels": [] },
+      "set_by": "maya",
+      "updated_at": "2026-10-24T12:00:00.000Z"
+    },
+    {
+      "principal": "priya",
+      "task": "Write the logistics sector note from public market data",
+      "exclude": { "groups": ["deal"], "labels": [], "text": "anything about pending deals" },
+      "set_by": "maya",
+      "updated_at": "2026-10-24T12:00:00.000Z"
+    },
+    {
+      "principal": "leo",
+      "task": "Run the trading desk's book from its positions and public information",
+      "exclude": { "groups": ["deal"], "labels": [] },
+      "set_by": "maya",
+      "updated_at": "2026-10-24T12:00:00.000Z"
+    },
+    {
+      "principal": "agt_leodesk",
+      "task": "Answer Leo's questions about our positions and public news",
+      "exclude": { "groups": ["deal"], "labels": [] },
+      "set_by": "leo",
+      "updated_at": "2026-10-24T12:05:00.000Z"
+    }
+  ]
+}
