@@ -3,7 +3,7 @@
 // for Moss and Jev, sentence splitting for the fact writer, and timed steps for Droid. Everything
 // it returns follows docs/INTEGRATION.md, so switching to Canon is `?data=canon`.
 
-import type { AddItemBody, AgentBody, AgentOutput, AgentRun, DocType, Fact, Me, MemberApi, MemberEvent, ScopeExclusions } from "./contract.ts";
+import type { AddItemBody, AgentBody, AgentOutput, AgentRun, DocType, Fact, Me, MemberApi, MemberEvent, MemoryLayer, ScopeExclusions } from "./contract.ts";
 import { GROUP_NAMES, ITEMS, ME, seedAgents, seedFacts } from "./fixture.ts";
 import { docLabel } from "./logic.ts";
 
@@ -166,8 +166,19 @@ export class MockCanon implements MemberApi {
   }
 
   private snapshot(a: AgentState): AgentRun {
-    a.run = { ...a.run, fact_count: a.factIds.length, pending: a.pendingIds.length };
+    a.run = { ...a.run, fact_count: a.factIds.length, pending: a.pendingIds.length, memory_groups: this.memoryGroups(a) };
     return structuredClone(a.run);
+  }
+
+  /** Ben's own groups, and which ones this agent remembers, as Canon's member view reports them. */
+  private memoryGroups(a: AgentState): NonNullable<AgentRun["memory_groups"]> {
+    const groups = [...new Set(this.store.filter((f) => f.status === "hot").map((f) => f.group))];
+    return groups.map((id) => ({
+      id,
+      name: GROUP_NAMES[id] ?? id,
+      included: !a.exclusions.groups.some((p) => id === p || id.startsWith(`${p}/`)),
+      count: this.store.filter((f) => f.group === id && a.factIds.includes(f.id)).length,
+    }));
   }
 
   private later(a: AgentState, ms: number, fn: () => void): void {
@@ -184,7 +195,24 @@ export class MockCanon implements MemberApi {
   }
 
   async facts(): Promise<Fact[]> {
-    return structuredClone(this.store.filter((f) => f.status === "hot"));
+    return structuredClone(this.store.filter((f) => f.status === "hot").map((f) => this.layered(f)));
+  }
+
+  /** Ben's pins, else a past deadline sits in the background (Canon asks Jev; the mock reads the wording). */
+  private pins = new Map<string, MemoryLayer>();
+  private layered(f: Fact): Fact {
+    const pin = this.pins.get(f.id);
+    if (pin) return { ...f, layer: pin, layer_reason: pin === "top" ? "pinned" : "moved" };
+    if (/(was|were) due/i.test(f.statement)) return { ...f, layer: "background", layer_reason: "past_date" };
+    return { ...f, layer: "top", layer_reason: "current" };
+  }
+
+  async setLayer(id: string, layer: MemoryLayer | "auto"): Promise<Fact> {
+    const f = this.store.find((x) => x.id === id && x.status === "hot");
+    if (!f) throw err(404, "not found");
+    if (layer === "auto") this.pins.delete(id);
+    else this.pins.set(id, layer);
+    return structuredClone(this.layered(f));
   }
 
   async groupNames(): Promise<Record<string, string>> {
@@ -257,7 +285,9 @@ export class MockCanon implements MemberApi {
       task: body.task, leave_out: body.exclusions.text.join("; "), docs: body.docs, schedule: body.schedule,
       outputs: [], finished_at: null, fact_count: 0, pending: 0,
     };
-    const a: AgentState = { run, factIds: [], seen: [], pendingIds: [], timers: [], exclusions: structuredClone(body.exclusions) };
+    const exclusions = structuredClone(body.exclusions);
+    exclusions.groups = [...new Set([...exclusions.groups, ...(body.exclude_groups ?? [])])];
+    const a: AgentState = { run, factIds: [], seen: [], pendingIds: [], timers: [], exclusions };
     this.agentsById.set(id, a);
     return { id, build_id: this.build(a) };
   }
@@ -266,7 +296,7 @@ export class MockCanon implements MemberApi {
     const a = this.agent(id);
     const wasRunning = a.run.status === "running" || a.run.status === "restarting";
     this.clear(a);
-    a.exclusions = structuredClone(body.exclusions);
+    a.exclusions = { ...structuredClone(body.exclusions), groups: body.exclude_groups ? [...body.exclude_groups] : a.exclusions.groups };
     // Until the rebuilt scope exists, nothing from the old scope remains a usable document.
     a.run = { ...a.run, name: body.name, task: body.task, leave_out: body.exclusions.text.join("; "), docs: body.docs, schedule: body.schedule, outputs: [], files: [], finished_at: null, inbox: [] };
     if (wasRunning) {
@@ -310,11 +340,12 @@ export class MockCanon implements MemberApi {
     this.agentsById.delete(id);
   }
 
-  async runAgent(id: string): Promise<void> {
+  async runAgent(id: string, task?: string): Promise<void> {
     const a = this.agent(id);
     if (a.run.status === "building" || a.run.status === "restarting" || a.run.status === "running") throw err(409, "busy");
     this.clear(a);
-    const tw = stems(a.run.task);
+    const assignment = task?.trim() || a.run.task;
+    const tw = stems(assignment);
     const mine = this.store.filter((f) => f.status === "hot" && a.factIds.includes(f.id)).sort((x, y) => relevance(y, tw) - relevance(x, tw));
     const fresh = mine.filter((f) => !a.seen.includes(f.id));
     const consumed = new Set(mine.map((f) => f.id));
@@ -323,7 +354,7 @@ export class MockCanon implements MemberApi {
     if (a.pendingIds.length) texts.push(`Picked up ${a.pendingIds.length} new ${a.pendingIds.length === 1 ? "memory" : "memories"}`);
     for (const d of docs) texts.push(`Writing ${docLabel(d).toLowerCase()}`);
     a.pendingIds = a.pendingIds.filter((id) => !consumed.has(id));
-    a.run = { ...a.run, status: "running", steps: [], inbox: [] };
+    a.run = { ...a.run, status: "running", steps: [], inbox: [], run_task: assignment, started_at: this.at(), documents: [], memories: [] };
     this.emit({ type: "agent.started", at: this.at(), run: this.snapshot(a) });
     texts.forEach((text, i) => {
       this.later(a, this.stepMs * (i + 1), () => {
@@ -335,8 +366,10 @@ export class MockCanon implements MemberApi {
     this.later(a, this.stepMs * (texts.length + 1), () => {
       const at = this.at();
       const outputs = docs.map((d) => writeDoc(d, mine, fresh, docs));
+      const documents = outputs.map((o) => ({ file: `out/${o.type}.md`, title: o.title, text: [`# ${o.title}`, "", ...o.lines.map((l) => `- ${l.text}`)].join("\n"), at }));
+      const memories = [{ file: "out/memories/progress.md", text: `Made ${outputs.length === 1 ? "a document" : `${outputs.length} documents`} from ${mine.length} ${mine.length === 1 ? "memory" : "memories"} (simulated).`, at }];
       a.run = {
-        ...a.run, status: "done", outputs, finished_at: at,
+        ...a.run, status: "done", outputs, documents, memories, finished_at: at,
         steps: [...a.run.steps.map((s) => ({ ...s, status: "done" as const })), { id: this.id("stp"), text: `Finished · made ${outputs.length} ${outputs.length === 1 ? "document" : "documents"}`, status: "done", at }],
         files: outputs.map((o) => `${o.type}.md`),
       };

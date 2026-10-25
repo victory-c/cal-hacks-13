@@ -146,3 +146,168 @@ export function feedText(ev: MemberEvent, agentName: (id: string) => string | un
     default: return null;
   }
 }
+
+// ---------- agents at work
+
+/** A file name as a reader would say it: "out/tmc_brief-v2.md" → "tmc brief v2". */
+export function fileLabel(file: string): string {
+  return file.replace(/^.*\//, "").replace(/\.[^.]+$/, "").replace(/[-_]+/g, " ").trim() || file;
+}
+
+function clipWords(text: string, max: number): string {
+  return text.length <= max ? text : `${text.slice(0, max - 1).replace(/\s+\S*$/, "")}…`;
+}
+
+/**
+ * One agent step in the creator's words. Canon's steps are runtime log lines ("read_file
+ * facts/fct_570013.md"); this says what the agent is doing ("Reading “TMC's assets under
+ * management…”"). `statementOf` looks a fact up in the member's own memory: an agent's scope is
+ * inside its creator's, so every fact it reads is one they can see. Anything not recognised is
+ * the agent's own words (its plan or result summary) and is shown as written.
+ */
+export function friendlyStep(step: { text: string; kind?: string; file?: string }, statementOf: (id: string) => string | undefined): string {
+  const t = step.text.trim();
+  let m: RegExpExecArray | null;
+  if ((m = /^facts\/ holds (\d+) fact file/.exec(t))) return `Gathered ${plural(Number(m[1]), "memory", "memories")} it may use`;
+  if (/^No facts/.test(t)) return "Found nothing in its memory for this yet";
+  if (/^brief\.md written/.test(t)) return "Wrote itself a brief";
+  if (/^read_file brief\.md/.test(t)) return "Reading its brief";
+  if (/^list_files facts/.test(t)) return "Looking through its memories";
+  if (/^list_files out/.test(t)) return "Checking its work so far";
+  if (/^list_files/.test(t)) return "Looking around its folder";
+  if ((m = /^read_file facts\/(fct_[0-9a-f]+)\.md/.exec(t))) {
+    const statement = statementOf(m[1]!);
+    return statement ? `Reading “${clipWords(statement, 90)}”` : "Reading a memory";
+  }
+  if (/^read_file out\/plan\.md/.test(t)) return "Re-reading its plan";
+  if ((m = /^read_file (\S+)/.exec(t))) return `Reading ${fileLabel(m[1]!)}`;
+  if (/^wrote out\/plan\.md/.test(t)) return "Made a plan";
+  if (/^wrote out\/memories\//.test(t)) return "Writing a note for your memory";
+  if ((m = /^wrote (out\/\S+)/.exec(t))) return `Writing ${fileLabel(m[1]!)}`;
+  if (/^saved out\/memories\/\S+ to /.test(t)) return "Saved a note to your memory";
+  if ((m = /^saved (out\/\S+) to /.exec(t))) return `Saved ${fileLabel(m[1]!)} to your memory`;
+  if (/kept in the run's record only/.test(t)) return "Kept a file with the run only";
+  if (/^Restart \d+:|^URGENT scope_narrowed/.test(t)) return "Its memory changed, so it started again";
+  if (/^new_fact:/.test(t)) return "Picked up a new memory";
+  if (/^Done/.test(t)) return "Finished";
+  if (/^Cancelled/.test(t)) return "Stopped";
+  if (/^Stopped while saving/.test(t)) return "Stopped while saving";
+  if (step.kind === "error") return "Tried something it isn’t allowed to, and carried on";
+  return clipWords(t, 160);
+}
+
+/** The headline while an agent works. */
+export function agentPhase(run: Pick<AgentRun, "status" | "steps">): string {
+  if (run.status === "building") return "Getting its memory ready";
+  if (run.status === "restarting") return "Starting again with its new memory";
+  const last = run.steps[run.steps.length - 1];
+  if (!last) return "Starting";
+  if (last.kind === "brief" || /^facts\/ holds|^brief\.md/.test(last.text)) return "Getting ready";
+  if (/^saved |^Done/.test(last.text)) return "Saving to your memory";
+  if (/^wrote out\/plan\.md/.test(last.text) || !run.steps.some((s) => /^wrote out\/plan\.md/.test(s.text))) return "Planning";
+  if (/^wrote /.test(last.text)) return "Writing";
+  return "Working";
+}
+
+/** "8s", "1m 05s". */
+export function elapsed(fromIso: string | null | undefined, now: number): string {
+  const ms = fromIso ? now - Date.parse(fromIso) : NaN;
+  if (!Number.isFinite(ms) || ms < 0) return "";
+  const s = Math.floor(ms / 1000);
+  return s < 60 ? `${s}s` : `${Math.floor(s / 60)}m ${String(s % 60).padStart(2, "0")}s`;
+}
+
+/** A block of an agent's markdown document, for building DOM without ever parsing HTML. */
+export type DocBlock =
+  | { type: "heading"; level: 1 | 2 | 3; text: string }
+  | { type: "item"; text: string }
+  | { type: "para"; text: string }
+  | { type: "table"; head: string[]; rows: string[][] };
+
+/** "| a | b |" → ["a", "b"]. */
+function tableCells(line: string): string[] {
+  return line.replace(/^\|/, "").replace(/\|$/, "").split("|").map((c) => c.trim());
+}
+
+/**
+ * The small markdown agents write (headings, bullet and numbered lists, pipe tables, paragraphs)
+ * as blocks. Everything else stays plain text: the page renders text nodes only, so whatever a
+ * model put in a document can never become markup.
+ */
+export function docBlocks(markdown: string): DocBlock[] {
+  const blocks: DocBlock[] = [];
+  let para: string[] = [];
+  const flush = () => { if (para.length) blocks.push({ type: "para", text: para.join(" ") }); para = []; };
+  for (const raw of markdown.split(/\r?\n/)) {
+    const line = raw.trim();
+    let m: RegExpExecArray | null;
+    if (!line) { flush(); continue; }
+    if (/^\|.*\|$/.test(line)) {
+      flush();
+      // The |---|:--:| rule under a header row carries no content.
+      if (/^\|[\s|:-]+\|$/.test(line)) continue;
+      const last = blocks[blocks.length - 1];
+      if (last?.type === "table") last.rows.push(tableCells(line));
+      else blocks.push({ type: "table", head: tableCells(line), rows: [] });
+      continue;
+    }
+    if ((m = /^(#{1,3})\s+(.*?)\s*#*$/.exec(line))) { flush(); blocks.push({ type: "heading", level: m[1]!.length as 1 | 2 | 3, text: m[2]! }); continue; }
+    if ((m = /^(?:[-*+]|\d+[.)])\s+(.*)$/.exec(line))) { flush(); blocks.push({ type: "item", text: m[1]! }); continue; }
+    para.push(line);
+  }
+  flush();
+  return blocks;
+}
+
+/** Splits `**bold**` runs out of a line: [text, bold, text, …] with odd indexes bold. */
+export function boldRuns(text: string): string[] {
+  return text.split(/\*\*(.+?)\*\*/g);
+}
+
+/**
+ * Drops an agent's citations of internal fact ids ("AUM fell 3% (fct_570013)" → "AUM fell 3%"):
+ * they let the run's record be audited, but mean nothing to the person reading the document.
+ */
+export function stripFactRefs(text: string): string {
+  return text.replace(/\s*\((?:fct_[0-9a-f]+(?:\s*(?:,|and|;)\s*)?)+\)/g, "");
+}
+
+// ---------- memory layers
+
+/** Why a memory is in the background (or pinned), in plain words; nothing for an ordinary current one. */
+export function layerReasonLabel(reason: Fact["layer_reason"]): string {
+  switch (reason) {
+    case "past_date": return "Out of date";
+    case "idle": return "Not used lately";
+    case "moved": return "You moved it here";
+    case "pinned": return "Kept top of mind";
+    default: return "";
+  }
+}
+
+/** "Used 3× · last 2 h ago", or "" for a memory nothing has used yet. */
+export function usageLine(f: Pick<Fact, "uses" | "last_used">, now: number): string {
+  if (!f.uses) return "";
+  return `Used ${f.uses}×${f.last_used ? ` · last ${relativeTime(f.last_used, now)}` : ""}`;
+}
+
+/** The layer a memory is in, top of mind when Canon has not said. */
+export function layerOfFact(f: Pick<Fact, "layer">): "top" | "background" {
+  return f.layer === "background" ? "background" : "top";
+}
+
+/**
+ * A short plain-text preview of an agent's markdown document for its result card: the heading
+ * that repeats the title is dropped, markdown and fact-id citations are removed, and the text is
+ * cut at a word near `max` characters.
+ */
+export function docExcerpt(markdown: string, title: string, max = 240): string {
+  const lines = docBlocks(markdown)
+    .filter((b, i) => !(i === 0 && b.type === "heading" && b.text.trim() === title.trim()))
+    .flatMap((b) => (b.type === "table" ? [] : [stripFactRefs(b.text).replaceAll("**", "").trim()]))
+    .filter(Boolean);
+  const text = lines.join(" · ");
+  if (text.length <= max) return text;
+  const cut = text.slice(0, max);
+  return `${cut.slice(0, Math.max(cut.lastIndexOf(" "), max * 0.6)).replace(/[\s·,;:]+$/, "")}…`;
+}

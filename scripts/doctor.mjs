@@ -53,9 +53,12 @@ export function checkPersonToken({ personToken, clientTokens, principals, tokens
   return { level: "ok", message: `CANON_PERSON_TOKEN maps to person "${client}" (capture, prompt context and MCP act as them)` };
 }
 
-export function checkAuthor({ personToken, principal }) {
+export function checkAuthor({ personToken, principal, capture = "" }) {
   if (personToken || principal) return null;
-  return { level: "warn", message: "neither CANON_PERSON_TOKEN nor CANON_PRINCIPAL is set: captures will have no author. Set CANON_PERSON_TOKEN for the complete person loop." };
+  // Off by default for this checkout: coding sessions here are nobody's memory, and
+  // `npm run demo:claude -- <person>` turns the loop on for one launched session.
+  if (capture === "0") return { level: "ok", message: "capture off for coding sessions here (CANON_CAPTURE=0); `npm run demo:claude -- <person>` opens Claude Code as a person" };
+  return { level: "warn", message: "neither CANON_PERSON_TOKEN nor CANON_PRINCIPAL is set: captures will have no author. Set CANON_PERSON_TOKEN, or set CANON_CAPTURE=0 and open sessions with `npm run demo:claude -- <person>`." };
 }
 
 export function checkMcpJson(text) {
@@ -152,7 +155,7 @@ try {
   bad(`fixtures/world/world.json: ${err.message}`);
 }
 report(checkPersonToken({ personToken: pick("CANON_PERSON_TOKEN"), clientTokens, principals, tokensSource }));
-report(checkAuthor({ personToken: pick("CANON_PERSON_TOKEN"), principal: pick("CANON_PRINCIPAL") }));
+report(checkAuthor({ personToken: pick("CANON_PERSON_TOKEN"), principal: pick("CANON_PRINCIPAL"), capture: pick("CANON_CAPTURE") }));
 report(checkMcpJson(readText(join(root, ".mcp.json"))));
 try {
   for (const result of checkHookWiring(JSON.parse(readFileSync(join(root, ".claude", "settings.json"), "utf8")))) report(result);

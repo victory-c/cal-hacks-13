@@ -943,3 +943,35 @@ describe("injectionExcerpt", () => {
     assert.ok(excerpt.length <= 280, String(excerpt.length));
   });
 });
+
+describe("triage: an agent's output adds to memory, never restates or replaces", () => {
+  const agentNote: CapturedSession = { ...session, id: "ses_a9e70001", client: "dispatcher", kind: "note", principal: "dan", meta: { agent: "agt_dan_desk" } };
+  const stored = fakeFact("fct_aaaa0001", "TMC paused its share buyback in Q3", { folder: "firm/ops", author: "maya" });
+  const same = { "rel:0": { choice: "same", p: 0.9 }, "relto:0": { choice: stored.id, p: 0.9 } };
+  const replaces = { "rel:0": { choice: "replaces", p: 0.9 }, "relto:0": { choice: stored.id, p: 0.9 } };
+
+  test("an agent's paraphrase of a fact it was given is kept in the archive only: the original stays, with its detail and author", async () => {
+    for (const script of [same, replaces]) {
+      const result = await triage(input([draft("TMC's buyback is paused.")], { session: agentNote, existing: [stored] }), scripted(script));
+      const [d] = result.drafts;
+      assert.equal(d.decision.outcome, "archive_only");
+      assert.equal(d.fact, undefined, "nothing written");
+      assert.match(d.decision.reason, /an agent's output never restates or replaces a fact \((same|replaces) fct_aaaa0001\)/);
+      assert.deepEqual(triagedFacts(result), []);
+    }
+    const exact = await triage(input([draft(stored.statement)], { session: agentNote, existing: [stored] }), scripted());
+    assert.equal(exact.drafts[0].decision.outcome, "archive_only", "an exact repeat writes nothing either");
+  });
+
+  test("what the agent found that is new is filed like anything its creator adds", async () => {
+    const result = await triage(input([draft("The TMC brief still lacks the desk's cost basis for the new lot")], { session: agentNote, existing: [stored] }), scripted());
+    assert.equal(result.drafts[0].decision.outcome, "fact");
+    assert.equal(result.drafts[0].save?.action, "add");
+    assert.equal(result.drafts[0].fact?.author, "dan", "its creator's memory");
+  });
+
+  test("the same paraphrase from a person still merges, as before", async () => {
+    const result = await triage(input([draft("TMC's buyback is paused.")], { existing: [stored] }), scripted(same));
+    assert.equal(result.drafts[0].save?.action, "merge");
+  });
+});

@@ -1,10 +1,11 @@
 // Principal views use the same canonical scope as hooks, MCP and agent sandboxes.
-import { newSessionId, nowIso, SOURCE_KINDS } from "@canon/shared";
-import type { Fact, Principal, SaveDecision, SourceKind } from "@canon/shared";
+import { AGENT_MEMORY_DIR, folderAllows, newSessionId, nowIso, SOURCE_KINDS } from "@canon/shared";
+import type { AgentRun, AgentStep, Fact, Principal, SaveDecision, SourceKind } from "@canon/shared";
 import type { IncomingMessage, ServerResponse } from "node:http";
 import { postSession } from "./api.ts";
 import { HttpError, isRecord, readJsonBody, sendJson } from "./http.ts";
-import { callerRoles, scopeFacts } from "./scopes.ts";
+import { layerOf, setPin } from "./memory-layers.ts";
+import { callerRoles, scopeFacts, visibleGroups } from "./scopes.ts";
 import type { ScopesDeps } from "./scopes.ts";
 
 export function principalFor(deps: ScopesDeps, client: string): Principal | undefined {
@@ -13,15 +14,73 @@ export function principalFor(deps: ScopesDeps, client: string): Principal | unde
 }
 export async function memberFacts(deps: ScopesDeps, principal: Principal, query: URLSearchParams) {
   const visible = scopeFacts(deps, principal.id).filter((fact) => (!query.get("group") || fact.folder === query.get("group")) && (!query.get("label") || fact.labels?.includes(query.get("label")!)) && (!query.get("q") || fact.statement.toLowerCase().includes(query.get("q")!.toLowerCase())));
+  const now = Date.now();
   const facts = await Promise.all(visible.map(async (fact) => {
     const session = await deps.store.getSession(fact.source.session);
     // A single source can contain facts filed on both sides of the wall. Its raw headline was
     // never scope-judged, so only its author and Compliance may see it.
     const ownsSource = principal.tier === "moderator" || session?.principal === principal.id;
     const kind = session?.kind === "ai_session" ? "session" : session?.kind;
-    return { id: fact.id, statement: fact.statement, group: fact.folder, labels: fact.labels ?? [], source: ownsSource && session?.title ? session.title : kind ? `${kind} · ${fact.source.client}` : fact.source.client, author: fact.author ?? session?.principal ?? "", happened_at: fact.happened ?? session?.started_at ?? `${fact.updated}T00:00:00.000Z`, learned_at: fact.updated, status: fact.tier, ...(kind ? { source_kind: kind } : {}), ...(ownsSource && session?.title ? { source_title: session.title } : {}) };
+    // Their own memory layers: top of mind or background, why, and how much they have used it.
+    const layer = layerOf(deps.world.layers, principal, fact, now);
+    return { id: fact.id, statement: fact.statement, group: fact.folder, labels: fact.labels ?? [], source: ownsSource && session?.title ? session.title : kind ? `${kind} · ${fact.source.client}` : fact.source.client, author: fact.author ?? session?.principal ?? "", happened_at: fact.happened ?? session?.started_at ?? `${fact.updated}T00:00:00.000Z`, learned_at: fact.updated, status: fact.tier, layer: layer.layer, layer_reason: layer.reason, uses: layer.uses, last_used: layer.last_used, ...(kind ? { source_kind: kind } : {}), ...(ownsSource && session?.title ? { source_title: session.title } : {}) };
   }));
   return { facts };
+}
+
+/**
+ * One agent as its creator's member view draws it (GET /api/agents). Everything here is inside
+ * the creator's own scope: the agent's scope is a subset of theirs, its memory groups are picked
+ * from the groups they can see, and what it wrote is withheld once any fact it read has left the
+ * agent's scope (then `refresh` asks for a new run, naming nothing).
+ */
+export function agentView(deps: ScopesDeps, p: Principal) {
+  const run = deps.world.agentRuns.get(p.id) as Partial<AgentRun> | undefined;
+  const runId = String(run?.id ?? "");
+  const steps = (deps.world.agentSteps.get(runId) ?? []) as unknown as AgentStep[];
+  const rule = deps.world.rules.get(p.id);
+  const active = run?.state === "queued" || run?.state === "running" || run?.state === "waiting";
+  const status = run?.state === "cancelled" ? "stopped" : active ? "running" : run?.state ?? "ready";
+  const held = new Set(deps.world.scopes.get(p.id)?.fact_ids ?? []);
+  const fresh = (step: AgentStep) => !step.fact_ids || step.fact_ids.every((id) => held.has(id));
+  const saved = steps.filter((step) => step.kind === "file" && typeof step.content === "string" && step.file);
+  const isNote = (step: AgentStep) => step.file!.startsWith(`${AGENT_MEMORY_DIR}/`);
+  // A file saved twice (a restart, a re-run in the same record) shows once, latest wins.
+  const latest = (list: AgentStep[]) => [...new Map(list.map((step) => [step.file!, step])).values()];
+  const documents = latest(saved.filter((step) => !isNote(step) && fresh(step))).map((step) => ({ file: step.file!, title: documentTitle(step.content!, step.file!), text: step.content!, at: step.at }));
+  const memories = saved.filter((step) => isNote(step) && fresh(step)).map((step) => ({ file: step.file!, text: step.content!, at: step.at }));
+  const creator = p.created_by ?? "";
+  const agentFolders = scopeFacts(deps, p.id).map((fact) => fact.folder);
+  const creatorSetRule = rule?.set_by === creator;
+  const memory_groups = visibleGroups(deps, creator).map((g) => {
+    const count = agentFolders.filter((folder) => folder === g.id).length;
+    // The creator's own rule says exactly what they chose; a rule Compliance set last is shown by
+    // what the agent holds, so its exclusions are never read back to the member.
+    const included = creatorSetRule && rule ? !folderAllows(rule.exclude.groups, g.id) : count > 0;
+    return { id: g.id, name: g.display ?? g.id, included, count };
+  });
+  return {
+    id: p.id, name: p.name, creator, created_by: creator, task: rule?.task ?? "", status,
+    run_task: run?.task ?? null, started_at: run?.started_at ?? null, finished_at: run?.ended_at ?? null, runtime: run?.runtime ?? null,
+    steps: steps.map((step, n) => ({ id: `${runId}:${n}`, text: step.text, kind: step.kind, ...(step.file ? { file: step.file } : {}), status: active && n === steps.length - 1 ? "running" : "done", at: step.at })),
+    files: [...new Set(steps.filter((step) => step.file).map((step) => step.file!))],
+    inbox: deps.world.agentInbox.get(runId) ?? [], docs: [], schedule: "Only when I press Run",
+    // Withdrawn: a fact the finished run held has left its scope, so its trace is gone (router.ts).
+    documents, memories, refresh: saved.some((step) => !fresh(step)) || (run as { withdrawn?: boolean } | undefined)?.withdrawn === true,
+    // The documents themselves; a run that carried no document text (an older dispatcher) still
+    // shows its result lines, as before.
+    outputs: documents.length
+      ? documents.map((d) => ({ type: "summary", title: d.title, lines: d.text.split("\n").filter((line) => line.trim()).map((text) => ({ text, source: "" })) }))
+      : steps.filter((step) => step.kind === "result").map((step) => ({ type: "summary", title: "Agent result", lines: [{ text: step.text, source: "" }] })),
+    leave_out: creatorSetRule ? rule?.exclude.text ?? "" : "", memory_groups,
+    fact_count: held.size, pending: 0, ...(run ? { run } : {}),
+  };
+}
+
+/** A document's first markdown heading, else its file name without folder or extension. */
+export function documentTitle(text: string, file: string): string {
+  const heading = /^#{1,3}\s+(.+?)\s*#*\s*$/m.exec(text)?.[1];
+  return heading ?? file.replace(/^.*\//, "").replace(/\.[^.]+$/, "").replace(/[-_]+/g, " ");
 }
 
 export async function handleMemberRoute(deps: ScopesDeps, client: string, method: string, path: string, url: URL, req: IncomingMessage, res: ServerResponse): Promise<boolean> {
@@ -45,6 +104,20 @@ export async function handleMemberRoute(deps: ScopesDeps, client: string, method
     await postSession({ ...deps, startedAt: 0 }, isModerator && author !== who.id ? "ingest" : client, { id, client: "ingest", principal: author, kind: body.kind as SourceKind, external: true, title: body.source, started_at: at, ended_at: at, messages: [{ role: "user", content: body.text, at }] });
     deps.bus.emit({ type: "item.captured", item_id: id, kind: body.kind, source: body.source, author });
     return reply(200, { item_id: id });
+  }
+  // POST /api/facts/:id/layer { layer: "top" | "background" | "auto" }: the caller's own override
+  // for a memory in their scope. "top" keeps it top of mind, "background" leaves it out unless a
+  // request asks about it, "auto" hands it back to Bullwark. Changes nobody else's view.
+  const layered = /^\/api\/facts\/([^/]+)\/layer$/.exec(path);
+  if (layered && method === "POST") {
+    if (!who || who.kind !== "person") throw new HttpError(403, "person token required");
+    const id = decodeURIComponent(layered[1]);
+    if (!scopeFacts(deps, who.id).some((fact) => fact.id === id)) throw new HttpError(404, "no such fact");
+    const body = await readJsonBody(req);
+    const layer = isRecord(body) ? body.layer : undefined;
+    if (layer !== "top" && layer !== "background" && layer !== "auto") throw new HttpError(400, 'body must be { layer: "top" | "background" | "auto" }');
+    setPin(deps.world.layers, who.id, id, layer);
+    return reply(200, (await memberFacts(deps, who, new URLSearchParams())).facts.find((fact) => fact.id === id));
   }
   const mutation = /^\/api\/facts\/([^/]+)(\/retire)?$/.exec(path);
   if (mutation && (method === "PATCH" || method === "POST" && mutation[2])) {
@@ -70,16 +143,11 @@ export async function handleMemberRoute(deps: ScopesDeps, client: string, method
   }
   if (method === "GET" && path === "/api/handoffs") {
     if (!isModerator) throw new HttpError(403, "moderators only");
-    return reply(200, { handoffs: deps.world.handoffs.map((handoff) => ({ id: handoff.id, at: handoff.at, principal: handoff.principal, request: handoff.task, candidates: (handoff.candidates as Array<{ fact_id: string; p?: number; cut: string | null; tokens?: number }>).map((candidate) => ({ fact_id: candidate.fact_id, statement: deps.store.getFact(candidate.fact_id)?.statement ?? "", p: candidate.p ?? 0, decision: candidate.cut === null ? "kept" : candidate.cut === "budget" ? "cut_budget" : "cut_relevance", tokens_est: candidate.tokens ?? 0 })), tokens_est: handoff.tokens, budget_est: handoff.budget_tokens, timings_ms: { search: handoff.retrieval_ms ?? null, judge: handoff.judge_ms ?? null, total: handoff.latency_ms ?? null }, simulated: deps.judge.name === "fake" || deps.retriever.name !== "moss" })) });
+    return reply(200, { handoffs: deps.world.handoffs.map((handoff) => ({ id: handoff.id, at: handoff.at, principal: handoff.principal, request: handoff.task, candidates: (handoff.candidates as Array<{ fact_id: string; p?: number; cut: string | null; tokens?: number }>).map((candidate) => ({ fact_id: candidate.fact_id, statement: deps.store.getFact(candidate.fact_id)?.statement ?? "", p: candidate.p ?? 0, decision: candidate.cut === null ? "kept" : candidate.cut === "budget" ? "cut_budget" : candidate.cut === "background" ? "cut_background" : "cut_relevance", tokens_est: candidate.tokens ?? 0 })), tokens_est: handoff.tokens, budget_est: handoff.budget_tokens, timings_ms: { search: handoff.retrieval_ms ?? null, judge: handoff.judge_ms ?? null, total: handoff.latency_ms ?? null }, simulated: deps.judge.name === "fake" || deps.retriever.name !== "moss" })) });
   }
   if (method === "GET" && path === "/api/agents") {
     if (!who && !isInternal) throw new HttpError(403, "person token required");
-    const agents = [...deps.world.principals.values()].filter((p) => p.kind === "agent" && (isModerator || isInternal || p.created_by === callerId)).map((p) => {
-      const run = deps.world.agentRuns.get(p.id); const runId = String(run?.id ?? ""); const steps = deps.world.agentSteps.get(runId) ?? [];
-      const rule = deps.world.rules.get(p.id);
-      const status = run?.state === "cancelled" ? "stopped" : run?.state === "queued" || run?.state === "waiting" ? "running" : run?.state ?? "ready";
-      return { id: p.id, name: p.name, creator: p.created_by, created_by: p.created_by, task: rule?.task ?? "", status, steps: steps.map((step, n) => ({ id: `${runId}:${n}`, text: step.text, status: "done", at: step.at })), files: steps.filter((step) => step.file).map((step) => step.file), inbox: deps.world.agentInbox.get(runId) ?? [], docs: [], schedule: "Only when I press Run", outputs: steps.filter((step) => step.kind === "result").map((step) => ({ type: "summary", title: "Agent result", lines: [{ text: step.text, source: "" }] })), leave_out: rule?.exclude.text ?? "", finished_at: run?.ended_at ?? null, fact_count: deps.world.scopes.get(p.id)?.fact_ids.length ?? 0, pending: 0, ...(run ? { run } : {}) };
-    });
+    const agents = [...deps.world.principals.values()].filter((p) => p.kind === "agent" && (isModerator || isInternal || p.created_by === callerId)).map((p) => agentView(deps, p));
     return reply(200, { agents });
   }
   const control = /^\/api\/agents\/([^/]+)\/(stop|control)$/.exec(path);

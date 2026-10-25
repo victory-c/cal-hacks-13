@@ -1,7 +1,7 @@
 // REST handlers: the capture clients and the distiller write here, the dashboard reads here.
 // Each function validates its input and throws HttpError; the router does the HTTP plumbing.
 
-import { FACT_ID_RE, INTERNAL_CLIENTS, SESSION_ID_RE, SOURCE_KINDS, TIERS, canWrite, grantFor, validateFact } from "@canon/shared";
+import { AGENT_SCOPE_CHANGED, FACT_ID_RE, INTERNAL_CLIENTS, SESSION_ID_RE, SOURCE_KINDS, TIERS, canWrite, grantFor, validateFact } from "@canon/shared";
 import type {
   CapturedSession,
   Fact,
@@ -74,6 +74,17 @@ export async function postSession(deps: ApiDeps, client: string, body: unknown):
       const generation = deps.world.agentStops.get(session.meta.agent) ?? 0;
       const observed = session.meta.stop_generation ?? 0;
       if (typeof observed !== "number" || !Number.isSafeInteger(observed) || observed !== generation) throw new HttpError(409, "agent run was stopped");
+      // An agent's outputs are its creator's memories, never anyone else's.
+      const agent = deps.world.principals.get(session.meta.agent);
+      if (agent?.kind !== "agent" || session.principal !== agent.created_by) throw new HttpError(403, "an agent's outputs are its creator's memories");
+      // What the run read, against the agent's scope as it is now, inside the session write lock:
+      // a fact that left the scope while the post was in flight can no longer come back through
+      // the agent's outputs (the dispatcher's own checks cannot see the server's side of the race).
+      const read = session.meta.fact_ids;
+      if (read !== undefined) {
+        const held = new Set(deps.world.scopes.get(agent.id)?.fact_ids ?? []);
+        if (!Array.isArray(read) || !read.every((id) => typeof id === "string" && held.has(id))) throw new HttpError(409, AGENT_SCOPE_CHANGED);
+      }
     }
   };
   let updated: boolean;

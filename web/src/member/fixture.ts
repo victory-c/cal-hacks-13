@@ -1,4 +1,4 @@
-// Ben Kim's view of the demo world, for the member view's mock data. It holds only what Ben's
+// Ben Carter's view of the demo world, for the member view's mock data. It holds only what Ben's
 // scope holds at 0:00: no Stonewall fact, no desk note, nothing that names them. That is why it is
 // copied here instead of importing fixtures/world/expected.json, which carries the whole answer
 // key and would ship deal facts inside the browser bundle. fixture.test.ts checks every value
@@ -6,7 +6,7 @@
 
 import type { AgentRun, Fact, ItemKind, Me } from "./contract.ts";
 
-export const ME: Me = { id: "ben", kind: "person", name: "Ben Kim", tier: "member", firm: "Axe Capital" };
+export const ME: Me = { id: "ben", kind: "person", name: "Ben Carter", tier: "member", firm: "Axe Capital" };
 
 export interface SourceItem {
   id: string;
@@ -18,7 +18,7 @@ export interface SourceItem {
 
 export const ITEMS: readonly SourceItem[] = [
   { id: "itm_tmc_q3_letter", kind: "memo", title: "Taylor Mason Capital Q3 2026 shareholder letter (public)", author: "ben", captured_at: "2026-10-21T13:00:00.000Z" },
-  { id: "itm_research_draft", kind: "note", title: "Ben Kim: asset management sector note, working draft", author: "ben", captured_at: "2026-10-22T23:10:00.000Z" },
+  { id: "itm_research_draft", kind: "note", title: "Ben Carter: asset management sector note, working draft", author: "ben", captured_at: "2026-10-22T23:10:00.000Z" },
   { id: "itm_chat_research", kind: "chat", title: "Team chat #research, Oct 19–23", author: "ben", captured_at: "2026-10-23T22:00:00.000Z" },
   { id: "itm_chat_general", kind: "chat", title: "Team chat #general, Oct 19–23", author: "wags", captured_at: "2026-10-23T22:00:00.000Z" },
 ];

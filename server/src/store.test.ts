@@ -1,12 +1,12 @@
 import assert from "node:assert/strict";
-import { access, mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { access, mkdir, mkdtemp, readFile, readdir, rename, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { after, before, describe, test } from "node:test";
 
 import type { CapturedSession, Fact } from "@canon/shared";
 
-import { FileStore, SessionOwnerError } from "./store.ts";
+import { FileStore, SessionOwnerError, writeAtomic } from "./store.ts";
 
 const base: Fact = {
   id: "fct_0001aaaa",
@@ -213,5 +213,47 @@ describe("FileStore", () => {
     assert.equal(warnings.length, 2);
     assert.match(warnings[0], /broken\.md/);
     assert.match(warnings[1], /does not match the file name/);
+  });
+});
+
+describe("writeAtomic on a busy target (Windows: OneDrive, antivirus, the indexer)", () => {
+  const busy = (code: string) => Object.assign(new Error(`${code}: operation not permitted, rename`), { code });
+
+  test("a rename refused while another process holds the file is retried until it lands", async () => {
+    const dir = await mkdtemp(join(tmpdir(), "canon-atomic-"));
+    try {
+      const file = join(dir, "scopes.json");
+      let calls = 0;
+      await writeAtomic(file, "new\n", {
+        rename: async (from, to) => {
+          calls++;
+          if (calls <= 3) throw busy(["EPERM", "EACCES", "EBUSY"][calls - 1]);
+          await rename(from, to);
+        },
+      });
+      assert.equal(calls, 4, "three refusals, then the rename that lands");
+      assert.equal(await readFile(file, "utf8"), "new\n");
+      assert.deepEqual((await readdir(dir)).filter((n) => n.endsWith(".tmp")), [], "no tmp left behind");
+    } finally {
+      await rm(dir, { recursive: true, force: true });
+    }
+  });
+
+  test("a target that stays busy, or any other error, rejects and removes the tmp", async () => {
+    const dir = await mkdtemp(join(tmpdir(), "canon-atomic-"));
+    try {
+      const file = join(dir, "scopes.json");
+      await writeFile(file, "old\n");
+      let calls = 0;
+      await assert.rejects(writeAtomic(file, "new\n", { rename: async () => { calls++; throw busy("EPERM"); } }), /EPERM/);
+      assert.ok(calls > 1 && calls < 20, `bounded retries (${calls})`);
+      calls = 0;
+      await assert.rejects(writeAtomic(file, "new\n", { rename: async () => { calls++; throw busy("ENOSPC"); } }), /ENOSPC/);
+      assert.equal(calls, 1, "only a busy target is retried");
+      assert.equal(await readFile(file, "utf8"), "old\n", "the real file is untouched");
+      assert.deepEqual((await readdir(dir)).filter((n) => n.endsWith(".tmp")), []);
+    } finally {
+      await rm(dir, { recursive: true, force: true });
+    }
   });
 });

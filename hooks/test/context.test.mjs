@@ -57,6 +57,25 @@ test("e2e: off without CANON_PERSON_TOKEN: no request, nothing printed", async (
   }
 });
 
+test("e2e: CANON_CONTEXT=0 in the .env turns the hook off; CANON_CONTEXT=1 in the environment turns it back on", async () => {
+  const srv = await fakeServer(RESULT);
+  const root = mkdtempSync(join(tmpdir(), "canon-context-off-"));
+  writeFileSync(join(root, ".env"), "CANON_CONTEXT=0\nCANON_PERSON_TOKEN=tok-bill\n");
+  try {
+    const off = await runHook({ prompt: "Anything on TMC?" }, { CANON_URL: srv.url, CANON_REPO_ROOT: root });
+    assert.equal(off.code, 0);
+    assert.equal(off.stdout, "", "the .env switch keeps the prompt untouched");
+    assert.equal(srv.hits.length, 0, "and asks the server nothing");
+
+    const on = await runHook({ prompt: "Anything on TMC?" }, { CANON_URL: srv.url, CANON_REPO_ROOT: root, CANON_CONTEXT: "1" });
+    assert.equal(on.code, 0);
+    assert.equal(srv.hits.length, 1, "the launched session's environment wins over the .env");
+    assert.match(on.stdout, /additionalContext/);
+  } finally {
+    await srv.close();
+  }
+});
+
 test("e2e: posts the prompt with the person's own token and adds the slice as context", async () => {
   const srv = await fakeServer(RESULT);
   try {

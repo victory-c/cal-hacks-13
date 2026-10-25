@@ -5,6 +5,8 @@
 
 export type Tier = "moderator" | "member";
 
+export type MemoryLayer = "top" | "background";
+
 export interface Principal {
   id: string;
   kind: "person" | "agent";
@@ -43,6 +45,13 @@ export interface Fact {
   /** PROPOSED: the kind and title of the item the fact came from, for the provenance line. */
   source_kind?: ItemKind;
   source_title?: string;
+  /** Memory layer for this person: top of mind (everyday answers) or background (only when asked about). */
+  layer?: MemoryLayer;
+  /** Why it is in that layer: current, pinned (kept top of mind), moved (by them), past_date, idle. */
+  layer_reason?: "current" | "pinned" | "moved" | "past_date" | "idle";
+  /** How often, and when last, their AI tools and agents used it. */
+  uses?: number;
+  last_used?: string | null;
 }
 
 export interface ScopeExclusions {
@@ -59,6 +68,34 @@ export interface AgentStep {
   id: string;
   text: string;
   status: "running" | "done";
+  at: string;
+  /** Canon's step kind (brief, plan, tool, file, message, result, error, inbox); absent in mock. */
+  kind?: string;
+  /** For file steps: the path inside the agent's folder. */
+  file?: string;
+}
+
+/** One of the creator's own memory groups, and whether their agent draws on it. */
+export interface MemoryGroup {
+  id: string;
+  name: string;
+  included: boolean;
+  /** Memories from this group in the agent's scope now. */
+  count: number;
+}
+
+/** A document the agent wrote (out/…), as the creator reads it. Markdown. */
+export interface AgentDocument {
+  file: string;
+  title: string;
+  text: string;
+  at: string;
+}
+
+/** A note the agent saved to its creator's memory while it worked (out/memories/…). */
+export interface AgentNote {
+  file: string;
+  text: string;
   at: string;
 }
 
@@ -94,6 +131,17 @@ export interface AgentRun {
   fact_count: number;
   /** New facts that joined the agent's scope since its last run. */
   pending: number;
+  /** The creator's groups and which ones this agent remembers. Absent before Canon sends it. */
+  memory_groups?: MemoryGroup[];
+  /** What the last run wrote. */
+  documents?: AgentDocument[];
+  /** Notes the last run saved to the creator's memory. */
+  memories?: AgentNote[];
+  /** The agent's memory changed since its last run: its documents need a new run. */
+  refresh?: boolean;
+  /** What the last run was asked to do (the standing task, or a one-off assignment). */
+  run_task?: string | null;
+  started_at?: string | null;
 }
 
 /** POST /api/agents, plus PROPOSED docs and schedule. */
@@ -103,6 +151,12 @@ export interface AgentBody {
   exclusions: ScopeExclusions;
   docs: DocType[];
   schedule: Schedule;
+  /**
+   * Which of the creator's own groups the agent leaves out (every unticked box). On create they
+   * join `exclusions.groups`; on edit they replace the creator's own choice (Canon keeps any wall
+   * Compliance put up). Absent: the groups stay as they are.
+   */
+  exclude_groups?: string[];
 }
 
 /** The documents an agent can make from a scope's short facts. */
@@ -151,12 +205,15 @@ export interface MemberApi {
   groupNames(): Promise<Record<string, string>>;
   editFact(id: string, statement: string): Promise<Fact>;
   retireFact(id: string): Promise<void>;
+  /** Their own override: keep it top of mind, move it to the background, or let Bullwark decide. */
+  setLayer(id: string, layer: MemoryLayer | "auto"): Promise<Fact>;
   addItem(body: AddItemBody): Promise<{ item_id: string }>;
   agents(): Promise<AgentRun[]>;
   createAgent(body: AgentBody): Promise<{ id: string; build_id: string }>;
   updateAgent(id: string, body: AgentBody): Promise<{ build_id: string }>;
   deleteAgent(id: string): Promise<void>;
-  runAgent(id: string): Promise<void>;
+  /** Starts a run: on `task` when given (a one-off assignment), else on the agent's standing task. */
+  runAgent(id: string, task?: string): Promise<void>;
   stopAgent(id: string): Promise<void>;
   /** Replays recent events, then streams. Returns an unsubscribe function. */
   subscribe(onEvent: (ev: MemberEvent) => void, onStatus: (s: "connecting" | "live" | "reconnecting") => void): () => void;

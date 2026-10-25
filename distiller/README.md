@@ -172,6 +172,14 @@ author's, until a moderator files it. Code disputes a confident pick of group G 
 4. **The item was too long for the judge to read whole** (over 24 000 characters, see above): an
    order to an AI in the cut part may not have reached the `inject` question.
 
+**An agent's output** (an item from client `dispatcher`: a note from `out/memories/` or a run's
+deliverable) adds to its creator's memory but never merges, supersedes or repeats. An agent works
+only from facts it was given, so a draft that is the same as, or claims to replace, a stored fact
+(by the judge's relation or an exact match) is archive only and nothing is retired: otherwise an
+agent's paraphrase ("TMC's buyback is paused") would retire the original ("…paused its share
+buyback in Q3") and carry its creator's name into everyone else's fact. What it worked out (a figure
+it calculated, a conclusion, an open question) is filed like anything else they wrote.
+
 **An exact duplicate** of a stored fact, hot or cold, merges into it whatever the judge says and
 is filed in that fact's group, so a moderator's filing holds when the same item is distilled
 again; a duplicate of an inbox fact stays in inbox. When several stored facts share the statement,

@@ -211,8 +211,13 @@ function assertSessionId(id: string): void {
  * Write to a sibling tmp file, fsync, then rename: readers never see a half-written file, and a
  * crash right after the rename cannot leave a truncated one (the archive must never lose a
  * session). A tmp orphaned by a crash before the rename is swept on the next loadAll().
+ *
+ * On Windows a rename onto a file someone else has open fails with EPERM, EACCES or EBUSY until
+ * they let go: antivirus, the search indexer, or OneDrive syncing a data dir that lives under it.
+ * Those are retried with a short backoff (about 1.5 s in all) rather than failing the request; any
+ * other error, or one that outlasts the retries, rejects and the tmp file is removed.
  */
-export async function writeAtomic(file: string, text: string): Promise<void> {
+export async function writeAtomic(file: string, text: string, fs: { rename: typeof rename } = { rename }): Promise<void> {
   await mkdir(dirname(file), { recursive: true });
   const tmp = `${file}.${randomBytes(4).toString("hex")}.tmp`;
   const fh = await open(tmp, "w");
@@ -222,8 +227,24 @@ export async function writeAtomic(file: string, text: string): Promise<void> {
   } finally {
     await fh.close();
   }
-  await rename(tmp, file);
+  for (let attempt = 0; ; attempt++) {
+    try {
+      await fs.rename(tmp, file);
+      return;
+    } catch (err) {
+      const code = (err as NodeJS.ErrnoException).code;
+      if (attempt < RENAME_RETRIES_MS.length && (code === "EPERM" || code === "EACCES" || code === "EBUSY")) {
+        await new Promise((r) => setTimeout(r, RENAME_RETRIES_MS[attempt]));
+        continue;
+      }
+      await rm(tmp, { force: true }).catch(() => {});
+      throw err;
+    }
+  }
 }
+
+/** Waits between rename attempts while another process holds the target open. */
+const RENAME_RETRIES_MS = [10, 25, 50, 100, 200, 400, 700];
 
 /** All files under `root` (recursive) ending in `ext`. A missing root is an empty store. */
 async function listFiles(root: string, ext: string): Promise<string[]> {

@@ -5,7 +5,8 @@ import type { AgentRun, Fact } from "./contract.ts";
 import { GROUP_NAMES, seedAgents, seedFacts } from "./fixture.ts";
 import {
   ALL_GROUPS, NO_FILTERS, agentPlanLine, agentStatusLine, countShown, feedText, filtersActive, fmtDay, groupLabel,
-  groupOrder, kindLabel, viewMemory,
+  groupOrder, kindLabel, viewMemory, agentPhase, boldRuns, docBlocks, elapsed, fileLabel, friendlyStep, stripFactRefs,
+  layerOfFact, layerReasonLabel, usageLine, docExcerpt,
 } from "./logic.ts";
 
 const facts = seedFacts();
@@ -82,4 +83,93 @@ test("feed lines name only what the member sees", () => {
   assert.equal(feedText({ type: "scope.build", at, build_id: "b", principal: run.id, stage: "done", counts: {} }, () => run.name), "Research analyst’s memory is ready");
   assert.equal(feedText({ type: "agent.finished", at, run: { ...run, status: "stopped" } }, () => undefined), "You stopped Research analyst");
   assert.equal(feedText({ type: "scope.changed", at, principal: "ben", added: [], removed: ["x"] }, () => undefined), null);
+});
+
+test("friendlyStep: Canon's runtime lines in the creator's words, with the memory it reads", () => {
+  const statements: Record<string, string> = { fct_570013: "TMC's assets under management were $38.4 billion at the end of Q3 2026, down 3% from $39.6 billion" };
+  const say = (text: string, kind?: string) => friendlyStep({ text, kind }, (id) => statements[id]);
+  assert.equal(say("facts/ holds 4 fact file(s) from the agent's scope"), "Gathered 4 memories it may use");
+  assert.equal(say("facts/ holds 1 fact file(s) from the agent's scope"), "Gathered 1 memory it may use");
+  assert.equal(say("brief.md written by claude from the handoff (3 fact(s), 51 tokens est.)"), "Wrote itself a brief");
+  assert.equal(say("list_files facts"), "Looking through its memories");
+  assert.match(say("read_file facts/fct_570013.md"), /^Reading “TMC's assets under management were \$38\.4 billion at the end of Q3 2026, down 3% from…”$/, "a long statement is cut at a word");
+  assert.equal(say("read_file facts/fct_99999999.md"), "Reading a memory", "a fact the page does not hold is never guessed at");
+  assert.equal(say("wrote out/plan.md (503 chars)"), "Made a plan");
+  assert.equal(say("wrote out/tmc_brief.md (888 chars)"), "Writing tmc brief");
+  assert.equal(say("wrote out/memories/progress.md (120 chars)"), "Writing a note for your memory");
+  assert.equal(say("saved out/memories/progress.md to dollar-bill's memory"), "Saved a note to your memory");
+  assert.equal(say("saved out/tmc_brief.md to dollar-bill's memory"), "Saved tmc brief to your memory");
+  assert.equal(say("Restart 1: the old folder was discarded; a fresh folder is built from the current scope"), "Its memory changed, so it started again");
+  assert.equal(say("Done: 1 file(s) saved as dollar-bill's memory (session ses_38f4aa58)."), "Finished");
+  assert.equal(say("write_file refused: writes are allowed only under out/", "error"), "Tried something it isn’t allowed to, and carried on");
+  assert.equal(say("Read brief and facts; wrote plan.", "message"), "Read brief and facts; wrote plan.", "the agent's own words stay as written");
+});
+
+test("agentPhase follows a run from getting ready to saving", () => {
+  const step = (text: string, kind = "tool") => ({ id: text, text, kind, status: "done" as const, at: "" });
+  assert.equal(agentPhase({ status: "building", steps: [] }), "Getting its memory ready");
+  assert.equal(agentPhase({ status: "running", steps: [] }), "Starting");
+  assert.equal(agentPhase({ status: "running", steps: [step("brief.md written by claude", "brief")] }), "Getting ready");
+  assert.equal(agentPhase({ status: "running", steps: [step("read_file brief.md")] }), "Planning");
+  assert.equal(agentPhase({ status: "running", steps: [step("wrote out/plan.md (5 chars)", "file"), step("read_file facts/fct_1.md")] }), "Working");
+  assert.equal(agentPhase({ status: "running", steps: [step("wrote out/plan.md (5 chars)", "file"), step("wrote out/brief.md (9 chars)", "file")] }), "Writing");
+  assert.equal(agentPhase({ status: "running", steps: [step("saved out/brief.md to ben's memory", "file")] }), "Saving to your memory");
+});
+
+test("elapsed reads like a stopwatch", () => {
+  const t0 = Date.parse("2026-10-25T09:00:00Z");
+  assert.equal(elapsed("2026-10-25T09:00:00Z", t0 + 8_400), "8s");
+  assert.equal(elapsed("2026-10-25T09:00:00Z", t0 + 65_000), "1m 05s");
+  assert.equal(elapsed(null, t0), "");
+  assert.equal(elapsed("2026-10-25T09:00:10Z", t0), "", "a clock ahead of ours shows nothing");
+});
+
+test("docBlocks: headings, lists and paragraphs; everything else stays text", () => {
+  const md = "# TMC brief\n\n**Purpose:** our position.\nSecond line of it.\n\n## Public data\n- AUM $38.4bn\n2. Buyback paused\n<script>alert(1)</script>";
+  assert.deepEqual(docBlocks(md), [
+    { type: "heading", level: 1, text: "TMC brief" },
+    { type: "para", text: "**Purpose:** our position. Second line of it." },
+    { type: "heading", level: 2, text: "Public data" },
+    { type: "item", text: "AUM $38.4bn" },
+    { type: "item", text: "Buyback paused" },
+    { type: "para", text: "<script>alert(1)</script>" },
+  ]);
+  assert.deepEqual(boldRuns("**Purpose:** our position"), ["", "Purpose:", " our position"]);
+  assert.equal(fileLabel("out/tmc_brief-v2.md"), "tmc brief v2");
+});
+
+test("stripFactRefs drops fact-id citations and nothing else", () => {
+  assert.equal(stripFactRefs("AUM was **$38.4 billion** (fct_570013)."), "AUM was **$38.4 billion**.");
+  assert.equal(stripFactRefs("about $459,000 on paper (fct_57001e, fct_57001f)"), "about $459,000 on paper");
+  assert.equal(stripFactRefs("Q3 (the third quarter) results"), "Q3 (the third quarter) results");
+});
+
+test("memory layers in plain words", () => {
+  assert.equal(layerReasonLabel("past_date"), "Out of date");
+  assert.equal(layerReasonLabel("idle"), "Not used lately");
+  assert.equal(layerReasonLabel("moved"), "You moved it here");
+  assert.equal(layerReasonLabel("pinned"), "Kept top of mind");
+  assert.equal(layerReasonLabel("current"), "");
+  const now = Date.parse("2026-10-25T12:00:00Z");
+  assert.equal(usageLine({ uses: 0, last_used: null }, now), "");
+  assert.match(usageLine({ uses: 3, last_used: "2026-10-25T10:00:00Z" }, now), /^Used 3× · last 2 h/);
+  assert.equal(layerOfFact({}), "top");
+  assert.equal(layerOfFact({ layer: "background" }), "background");
+});
+
+test("docExcerpt: a short plain preview without the repeated title, markdown or fact ids", () => {
+  const md = "# TMC brief: Q3 2026\n\n## Headline\n- AUM was **$38.4 billion** (fct_570013).\n- Net outflows were $0.9 billion.";
+  assert.equal(docExcerpt(md, "TMC brief: Q3 2026"), "Headline · AUM was $38.4 billion. · Net outflows were $0.9 billion.");
+  const long = docExcerpt(`# T\n\n${"word ".repeat(100)}`, "T", 50);
+  assert.ok(long.endsWith("…") && long.length <= 51, long);
+});
+
+test("docBlocks reads pipe tables as tables, skipping the rule under the header", () => {
+  const md = "## Flows\n| Manager | Q3 flow |\n|---|:--:|\n| TMC | -$0.9bn |\n| Others | not found |\nAfter the table.";
+  assert.deepEqual(docBlocks(md), [
+    { type: "heading", level: 2, text: "Flows" },
+    { type: "table", head: ["Manager", "Q3 flow"], rows: [["TMC", "-$0.9bn"], ["Others", "not found"]] },
+    { type: "para", text: "After the table." },
+  ]);
+  assert.equal(docExcerpt(md, "x"), "Flows · After the table.", "previews leave tables out");
 });

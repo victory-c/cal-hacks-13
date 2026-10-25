@@ -3,12 +3,14 @@
 // dashboard). Canon decides what exists; this page only lays it out (integration contract rule 1).
 
 import { DOC_TYPES, SCHEDULES } from "./member/contract.ts";
-import type { AgentBody, AgentRun, DocType, Fact, Me, MemberApi, MemberEvent, Schedule } from "./member/contract.ts";
+import type { AgentBody, AgentDocument, AgentRun, DocType, Fact, Me, MemberApi, MemberEvent, Schedule } from "./member/contract.ts";
 import { CanonClient } from "./member/canon.ts";
 import { MockCanon } from "./member/mock.ts";
 import {
-  ALL_GROUPS, ALL_SOURCES, NO_FILTERS, SORTS, STATUS_LABELS, agentPlanLine, agentStatusLine, countShown, feedText,
-  filtersActive, fmtDay, groupLabel, groupOrder, isBusy, kindLabel, plural, sourceTitle, viewMemory,
+  ALL_GROUPS, ALL_SOURCES, NO_FILTERS, SORTS, STATUS_LABELS, agentPhase, agentPlanLine, agentStatusLine, boldRuns, countShown,
+  docBlocks, elapsed, feedText, filtersActive, fmtDay, friendlyStep, groupLabel, groupOrder, isBusy, kindLabel, layerOfFact,
+  layerReasonLabel, plural, stripFactRefs, usageLine, docExcerpt,
+  sourceTitle, viewMemory,
 } from "./member/logic.ts";
 import type { Filters, Sort } from "./member/logic.ts";
 import { relativeTime } from "./format.ts";
@@ -46,7 +48,15 @@ const state = {
   filters: { ...NO_FILTERS } as Filters,
   editing: null as string | null,
   openDocs: new Set<string>(),
+  /** Agents whose memory groups are unfolded on their card. */
+  openMemory: new Set<string>(),
   agentForm: null as null | "new" | string,
+  /** What the member has typed into each agent's "give it something to do" box. */
+  assign: new Map<string, string>(),
+  /** Which memory layer the list shows. Top of mind first, like a memory manager. */
+  layerView: "top" as "top" | "background" | "all",
+  /** When the member last pressed Run: the page checks on the agent until it reports in. */
+  kicked: 0,
   replaying: true,
 };
 
@@ -56,6 +66,7 @@ const el = {
   agentForm: byId<HTMLFormElement>("agent-form"), agentFormTitle: byId("agent-form-title"),
   aName: byId<HTMLInputElement>("a-name"), aTask: byId<HTMLTextAreaElement>("a-task"), aLeave: byId<HTMLInputElement>("a-leave"),
   docChoices: byId("doc-choices"), aSchedule: byId<HTMLSelectElement>("a-schedule"),
+  aGroups: byId("a-groups"), aGroupsField: byId("a-groups-field"), saveAgent: byId<HTMLButtonElement>("save-agent"),
   deleteAgent: byId<HTMLButtonElement>("delete-agent"), cancelAgent: byId<HTMLButtonElement>("cancel-agent"),
   toggleFilters: byId<HTMLButtonElement>("toggle-filters"), filters: byId("filters"),
   fKeyword: byId<HTMLInputElement>("f-keyword"), fGroup: byId<HTMLSelectElement>("f-group"),
@@ -64,6 +75,7 @@ const el = {
   toggleAdd: byId<HTMLButtonElement>("toggle-add"), addForm: byId<HTMLFormElement>("add-form"),
   nKind: byId<HTMLSelectElement>("n-kind"), nSource: byId<HTMLInputElement>("n-source"), nText: byId<HTMLTextAreaElement>("n-text"),
   cancelAdd: byId<HTMLButtonElement>("cancel-add"), memory: byId("memory"), feed: byId<HTMLUListElement>("feed"),
+  layerTabs: byId("layer-tabs"),
 };
 
 // ---------- small helpers
@@ -114,9 +126,13 @@ async function refreshFacts(): Promise<void> {
 }
 
 async function refreshAgents(): Promise<void> {
+  const wasBusy = new Set(state.agents.filter(isBusy).map((a) => a.id));
   const res = await attempt("load your agents", () => api.agents());
   if (res.ok) state.agents = res.value;
   renderAgents();
+  // A run that just ended may have left notes that are now memories. The live stream says so
+  // too; this keeps My memory right when the stream is down.
+  if (state.agents.some((a) => wasBusy.has(a.id) && !isBusy(a))) void refreshFacts();
 }
 
 // ---------- events
@@ -150,7 +166,9 @@ function onEvent(ev: MemberEvent): void {
   }
   const text = feedText(ev, (id) => state.agents.find((a) => a.id === id)?.name);
   if (text) {
-    const id = "fact" in ev ? ev.fact.id : "run" in ev ? `${ev.run.id}:${ev.run.status}:${ev.run.steps.length}` : "item_id" in ev ? ev.item_id : "build_id" in ev ? ev.build_id : "";
+    // One "started" line per run, however many status updates the run sends while it works.
+    const runKey = (run: AgentRun) => (ev.type === "agent.started" ? `${run.id}:${run.started_at ?? run.status}` : `${run.id}:${run.status}:${run.steps.length}`);
+    const id = "fact" in ev ? ev.fact.id : "run" in ev ? runKey(ev.run) : "item_id" in ev ? ev.item_id : "build_id" in ev ? ev.build_id : "";
     addFeed(`${ev.type}:${id}:${ev.at}`, ev.at, text);
     renderFeed();
   }
@@ -158,48 +176,156 @@ function onEvent(ev: MemberEvent): void {
 
 // ---------- agents
 
+/** What a fact id says, from this member's own memory (an agent reads only facts its creator holds). */
+function statementOf(id: string): string | undefined {
+  return state.facts.find((f) => f.id === id)?.statement;
+}
+
+/** The documents to show: what the agent wrote. Only a client that sends no documents falls back to outputs. */
+function documentsOf(run: AgentRun): AgentDocument[] {
+  if (run.documents) return run.documents;
+  return run.outputs.map((o) => ({ file: o.type, title: o.title, text: o.lines.map((l) => `- ${l.text}`).join("\n"), at: run.finished_at ?? "" }));
+}
+
+/** A markdown document as text nodes only: whatever a model wrote can never become markup. */
+function renderDoc(text: string, title = ""): HTMLElement {
+  const inline = (line: string) => boldRuns(stripFactRefs(line)).map((part, i) => (i % 2 ? h("b", null, part) : part));
+  const out = h("div", { class: "doc-body" });
+  let list: HTMLUListElement | null = null;
+  docBlocks(text).forEach((block, i) => {
+    // The card already shows the title; a document that opens by repeating it skips that line.
+    if (i === 0 && block.type === "heading" && block.text.trim() === title.trim()) return;
+    if (block.type === "item") {
+      if (!list) out.append((list = h("ul", null)));
+      list.append(h("li", null, inline(block.text)));
+      return;
+    }
+    list = null;
+    if (block.type === "table") {
+      out.append(h("div", { class: "doc-table" }, h("table", null,
+        h("thead", null, h("tr", null, block.head.map((c) => h("th", null, inline(c))))),
+        h("tbody", null, block.rows.map((row) => h("tr", null, row.map((c) => h("td", null, inline(c)))))))));
+      return;
+    }
+    out.append(block.type === "heading" ? h(block.level === 1 ? "h4" : "h5", null, inline(block.text)) : h("p", null, inline(block.text)));
+  });
+  return out;
+}
+
+/** The live "thinking" panel while an agent works: what it is on, its latest steps, the clock. */
+function thinking(run: AgentRun): HTMLElement {
+  const recent = run.steps.slice(-5);
+  const assignment = run.run_task && run.run_task !== run.task ? run.run_task : "";
+  return h("div", { class: "thinking", "aria-live": "polite" },
+    h("div", { class: "think-head" },
+      h("span", { class: "dots", "aria-hidden": "true" }, h("i", null), h("i", null), h("i", null)),
+      h("b", null, agentPhase(run)),
+      run.steps.length > 0 && h("span", { class: "hint" }, plural(run.steps.length, "step")),
+      h("span", { class: "hint clock" }, elapsed(run.started_at, Date.now()))),
+    assignment && h("div", { class: "hint" }, "On: ", h("span", { class: "assignment" }, assignment)),
+    recent.length > 0 && h("ol", { class: "activity" }, recent.map((step, i) => {
+      const live = i === recent.length - 1 && step.status === "running";
+      return h("li", { class: live ? "now" : "done" }, friendlyStep(step, statementOf), live && h("span", { class: "ellipsis", "aria-hidden": "true" }));
+    })));
+}
+
 function agentCard(run: AgentRun): HTMLElement {
   const busy = isBusy(run);
-  const dotClass = busy ? "dot on" : run.status === "done" ? "dot ok" : "dot";
-  return h("li", { class: "agent" },
+  const groups = run.memory_groups?.filter((g) => g.included) ?? [];
+  const docs = documentsOf(run);
+  const notes = run.memories ?? [];
+  const assignBox = h("input", {
+    type: "text", class: "assign-input", disabled: busy,
+    placeholder: `Give it something to do now, or leave empty for: ${run.task}`,
+    "aria-label": `What should ${run.name} do now?`,
+    oninput: (e: Event) => state.assign.set(run.id, (e.target as HTMLInputElement).value),
+    onkeydown: (e: Event) => { if ((e as KeyboardEvent).key === "Enter") { e.preventDefault(); void startRun(run); } },
+  }) as HTMLInputElement;
+  assignBox.value = state.assign.get(run.id) ?? "";
+  const memoryOpen = state.openMemory.has(run.id);
+  const toggle = (set: Set<string>, key: string) => { if (set.has(key)) set.delete(key); else set.add(key); renderAgents(); };
+  const asked = run.run_task && run.run_task !== run.task ? run.run_task : "";
+  return h("li", { class: "agent", "data-status": run.status },
     h("div", { class: "ahead" },
       h("div", { style: "flex: 1; min-width: 220px" },
         h("div", { class: "aname" }, run.name),
         h("div", { class: "atask" }, run.task)),
-      h("span", { class: run.status === "failed" ? "pill failed" : "pill" }, STATUS_LABELS[run.status]),
-      run.status === "running"
-        ? h("button", { class: "ghost", type: "button", onclick: () => void attempt("stop the agent", () => api.stopAgent(run.id)) }, "Stop")
-        : h("button", { class: "btn", type: "button", disabled: busy, onclick: () => void attempt("start the agent", () => api.runAgent(run.id)) }, "Run"),
+      h("span", { class: run.status === "failed" ? "pill failed" : busy ? "pill live" : "pill" }, STATUS_LABELS[run.status]),
+      run.status === "running" && h("button", { class: "ghost", type: "button", onclick: () => void attempt("stop the agent", () => api.stopAgent(run.id)) }, "Stop"),
       h("button", { class: "mini", type: "button", "aria-label": `Edit ${run.name}`, onclick: () => openAgentForm(run.id) }, "Edit")),
-    h("div", { class: "live", "aria-live": "polite" }, h("span", { class: dotClass, "aria-hidden": "true" }), agentStatusLine(run, Date.now())),
-    h("div", { class: "hint plan" }, api.mode === "mock" ? agentPlanLine(run) : "Run on demand from this agent’s memory", ` · ${plural(run.fact_count, "memory", "memories")}`),
-    api.mode === "canon" && run.files.length > 0 && h("div", { class: "hint" }, `Written files: ${run.files.join(" · ")}`),
-    run.outputs.length > 0 && h("div", { class: "output" },
-      h("div", { class: "bar", style: "align-items: center" },
-        h("h3", { class: "sub" }, "Output"),
-        h("span", { class: "hint" }, run.finished_at ? `Finished ${relativeTime(run.finished_at)}` : "")),
-      h("ul", { class: "list" }, run.outputs.map((o) => {
-        const key = `${run.id}:${o.type}`;
-        const open = state.openDocs.has(key);
-        return h("li", { class: "docrow" },
-          h("div", { class: "ahead" },
-            h("span", { class: "doctitle" }, o.title),
-            h("span", { class: "hint" }, plural(o.lines.length, "line")),
-            h("button", {
-              class: "mini", type: "button", "aria-expanded": String(open),
-              onclick: () => { if (open) state.openDocs.delete(key); else state.openDocs.add(key); renderAgents(); },
-            }, open ? "Close" : "Open")),
-          open && h("div", { class: "preview" },
-            h("ul", null, o.lines.map((l) => h("li", null, l.text, l.source && h("span", { class: "from" }, `from ${l.source}`)))),
-            h("div", { class: "hint", style: "margin-top: 8px" }, api.mode === "mock" ? "Simulated draft built from this agent’s memory" : "Written from this agent’s memory")));
-      }))));
+    // What it works from, folded to one line; the groups open on request.
+    h("button", { class: "disclose", type: "button", "aria-expanded": String(memoryOpen), onclick: () => toggle(state.openMemory, run.id) },
+      h("span", { class: "caret", "aria-hidden": "true" }),
+      `Works from ${plural(run.fact_count, "memory", "memories")}${groups.length ? ` in ${plural(groups.length, "group")}` : ""}`),
+    memoryOpen && groups.length > 0 && h("div", { class: "remembers" }, groups.map((g) => h("span", { class: "chip" }, g.name, h("span", { class: "chip-n" }, String(g.count))))),
+    busy
+      ? thinking(run)
+      : [
+        h("div", { class: "assign" }, assignBox, h("button", { class: "btn", type: "button", onclick: () => void startRun(run) }, "Run")),
+        h("div", { class: "runline" },
+          h("span", { class: run.status === "done" ? "dot ok" : run.status === "failed" ? "dot bad" : "dot", "aria-hidden": "true" }),
+          h("span", null, agentStatusLine(run, Date.now())),
+          run.status === "done" && run.started_at && run.finished_at && h("span", { class: "sep" }, elapsed(run.started_at, Date.parse(run.finished_at))),
+          asked && h("span", { class: "sep asked", title: asked }, `“${asked}”`)),
+      ],
+    api.mode === "mock" && h("div", { class: "hint plan" }, agentPlanLine(run)),
+    run.refresh && h("div", { class: "callout" }, "Its memory has changed since this run. Run it again for an up-to-date result."),
+    docs.map((d) => resultCard(run, d)),
+    notes.length > 0 && h("div", { class: "callout notes" },
+      h("div", { class: "callout-h" }, "Added to your memory"),
+      h("ul", { class: "list" }, notes.map((n) => h("li", null, stripFactRefs(n.text.replace(/^#+\s*/gm, ""))))),
+      h("div", { class: "hint" }, "Filed like anything you add: what fits your memory joins it.")));
+}
+
+/** One document the agent produced: title, a short preview, then the full report on request. */
+function resultCard(run: AgentRun, d: AgentDocument): HTMLElement {
+  const key = `${run.id}:${d.file}`;
+  const open = state.openDocs.has(key);
+  const copy = async (button: HTMLButtonElement) => {
+    try {
+      await navigator.clipboard.writeText(stripFactRefs(d.text));
+      button.textContent = "Copied";
+      setTimeout(() => (button.textContent = "Copy"), 1500);
+    } catch {
+      notify("Couldn't copy: the browser blocked the clipboard.");
+    }
+  };
+  return h("article", { class: open ? "result open" : "result" },
+    h("div", { class: "result-meta" },
+      h("span", { class: "result-kind" }, "Latest result"),
+      d.at && h("span", { class: "hint" }, relativeTime(d.at))),
+    h("h4", { class: "result-title" }, d.title),
+    open
+      ? renderDoc(d.text, d.title)
+      : h("p", { class: "result-excerpt" }, docExcerpt(d.text, d.title)),
+    h("div", { class: "result-actions" },
+      h("button", { class: "mini", type: "button", "aria-expanded": String(open), onclick: () => { if (open) state.openDocs.delete(key); else state.openDocs.add(key); renderAgents(); } }, open ? "Show less" : "Read full report"),
+      h("button", { class: "mini link", type: "button", onclick: (e: Event) => void copy(e.currentTarget as HTMLButtonElement) }, "Copy"),
+      h("span", { class: "hint" }, api.mode === "mock" ? "Simulated from this agent’s memory" : "From this agent’s memory, which is part of yours")));
+}
+
+async function startRun(run: AgentRun): Promise<void> {
+  const task = (state.assign.get(run.id) ?? "").trim();
+  if (!(await attempt("start the agent", () => api.runAgent(run.id, task || undefined))).ok) return;
+  state.kicked = Date.now();
+  if (document.activeElement instanceof HTMLInputElement) document.activeElement.blur();
+  state.assign.delete(run.id);
+  local(task ? `You asked ${run.name} to: ${task}` : `You started ${run.name}`);
+  await refreshAgents();
 }
 
 function renderAgents(): void {
+  const now = Date.now();
   syncList(el.agents, state.agents.map((run) => {
-    const open = run.outputs.map((o) => state.openDocs.has(`${run.id}:${o.type}`) ? "1" : "0").join("");
-    return { key: run.id, version: `${JSON.stringify(run)}|${open}|${agentStatusLine(run, Date.now())}`, build: () => agentCard(run) };
-  }), () => h("li", { class: "empty" }, "No agents yet. Create one to turn your memory into summaries, plans and drafts."));
+    const open = documentsOf(run).map((d) => (state.openDocs.has(`${run.id}:${d.file}`) ? "1" : "0")).join("") + (state.openMemory.has(run.id) ? "m" : "");
+    let version = `${JSON.stringify(run)}|${open}|${agentStatusLine(run, now)}|${isBusy(run) ? elapsed(run.started_at, now) : ""}`;
+    // Someone typing an assignment keeps their card (and their caret) while the agent sits idle.
+    // Any change of status (they pressed Run, or Enter) redraws it at once.
+    const card = el.agents.querySelector<HTMLElement>(`[data-key="${CSS.escape(run.id)}"]`);
+    const typing = card?.contains(document.activeElement) && document.activeElement instanceof HTMLInputElement && !document.activeElement.disabled;
+    if (typing && card?.dataset.status === run.status) version = card.dataset.version ?? version;
+    return { key: run.id, version, build: () => agentCard(run) };
+  }), () => h("li", { class: "empty" }, "No agents yet. Create one, give it a task and choose which of your memory it may use."));
 }
 
 function buildDocChoices(): void {
@@ -210,6 +336,23 @@ function buildDocChoices(): void {
   el.aSchedule.replaceChildren(...SCHEDULES.map((s) => h("option", { value: s }, s)));
 }
 
+/**
+ * "What it can remember": one box per group of the member's own memory. Only their groups are
+ * listed (Canon's GET /api/groups for a member), so nothing they cannot see is ever offered.
+ */
+function buildGroupChoices(run: AgentRun | null | undefined): void {
+  const fromRun = new Map((run?.memory_groups ?? []).map((g) => [g.id, g]));
+  const ids = run?.memory_groups?.length ? run.memory_groups.map((g) => g.id) : Object.keys(state.names).filter((id) => id !== "inbox");
+  el.aGroups.replaceChildren(...ids.map((id) => {
+    const g = fromRun.get(id);
+    const mine = state.facts.filter((f) => f.group === id && f.status === "hot").length;
+    return h("label", { class: "doc" },
+      h("input", { type: "checkbox", name: "groups", value: id, checked: g ? g.included : true }),
+      h("span", null, h("b", null, g?.name ?? groupLabel(id, state.names)), h("span", { class: "hint" }, plural(mine, "memory", "memories"), " of yours")));
+  }));
+  el.aGroupsField.hidden = ids.length === 0;
+}
+
 function openAgentForm(target: "new" | string): void {
   const run = target === "new" ? null : state.agents.find((a) => a.id === target);
   state.agentForm = target;
@@ -218,12 +361,13 @@ function openAgentForm(target: "new" | string): void {
   el.aName.disabled = api.mode === "canon" && !!run;
   el.aTask.value = run?.task ?? "";
   el.aLeave.value = run?.leave_out ?? "";
+  buildGroupChoices(run);
   const docs = new Set<string>(run?.docs ?? ["summary"]);
   for (const box of el.docChoices.querySelectorAll<HTMLInputElement>("input[name=docs]")) box.checked = docs.has(box.value);
   el.aSchedule.value = run?.schedule ?? SCHEDULES[0];
   el.deleteAgent.hidden = !run;
   el.agentForm.hidden = false;
-  el.aName.focus();
+  (run ? el.aTask : el.aName).focus();
 }
 
 function closeAgentForm(): void {
@@ -237,12 +381,27 @@ async function saveAgent(e: Event): Promise<void> {
   if (!name || !task) return;
   const leave = el.aLeave.value.trim();
   const docs = [...el.docChoices.querySelectorAll<HTMLInputElement>("input[name=docs]:checked")].map((b) => b.value as DocType);
-  const body: AgentBody = { name, task, exclusions: { groups: [], labels: [], text: leave ? [leave] : [] }, docs: api.mode === "mock" ? docs : [], schedule: api.mode === "mock" ? el.aSchedule.value as Schedule : "Only when I press Run" };
+  const boxes = [...el.aGroups.querySelectorAll<HTMLInputElement>("input[name=groups]")];
+  if (boxes.length && boxes.every((b) => !b.checked)) { notify("Tick at least one group, or the agent has nothing to work from."); return; }
+  const body: AgentBody = {
+    name, task,
+    exclusions: { groups: [], labels: [], text: leave ? [leave] : [] },
+    exclude_groups: boxes.filter((b) => !b.checked).map((b) => b.value),
+    docs: api.mode === "mock" ? docs : [],
+    schedule: api.mode === "mock" ? el.aSchedule.value as Schedule : "Only when I press Run",
+  };
   const target = state.agentForm;
-  if (target === "new") {
-    if ((await attempt("create the agent", () => api.createAgent(body))).ok) local(`You created an agent: ${name}`);
-  } else if (target) {
-    if ((await attempt("save the agent", () => api.updateAgent(target, body))).ok) local(`You updated an agent: ${name}`);
+  el.saveAgent.disabled = true;
+  el.saveAgent.textContent = "Building its memory…";
+  try {
+    if (target === "new") {
+      if ((await attempt("create the agent", () => api.createAgent(body))).ok) local(`You created an agent: ${name}`);
+    } else if (target) {
+      if ((await attempt("save the agent", () => api.updateAgent(target, body))).ok) local(`You updated an agent: ${name}`);
+    }
+  } finally {
+    el.saveAgent.disabled = false;
+    el.saveAgent.textContent = "Save";
   }
   closeAgentForm();
   await refreshAgents();
@@ -305,14 +464,53 @@ function memoryRow(f: Fact, index: number): HTMLElement {
           h("button", { class: "btn", type: "submit" }, "Save")),
         h("div", { class: "hint" }, "Retiring takes it out of your memory and your agents’ memory. It stays in the archive.")));
   }
-  return h("li", { class: cls },
+  const layer = layerOfFact(f);
+  const reason = layerReasonLabel(f.layer_reason);
+  const usage = usageLine(f, Date.now());
+  const overridden = f.layer_reason === "pinned" || f.layer_reason === "moved";
+  return h("li", { class: `${cls}${layer === "background" ? " bg" : ""}` },
     h("div", { class: "fact" },
       h("span", { class: "st" },
         h("span", { class: "kind" }, kindLabel(f.source_kind)),
         f.statement,
-        h("span", { class: "trail" }, sourceTitle(f))),
+        h("span", { class: "trail" },
+          sourceTitle(f),
+          usage && h("span", { class: "usage" }, ` · ${usage}`),
+          reason && h("span", { class: `why ${layer}` }, reason))),
       h("span", { class: "date" }, fmtDay(f.learned_at)),
-      h("button", { class: "mini", type: "button", "aria-label": "Edit memory", onclick: () => { state.editing = f.id; renderMemory(); } }, "Edit")));
+      h("span", { class: "actions" },
+        h("button", {
+          class: "mini", type: "button",
+          title: layer === "top" ? "Used only when you ask about it" : "Used in everyday answers again",
+          onclick: () => void moveMemory(f, layer === "top" ? "background" : "top"),
+        }, layer === "top" ? "Move to background" : "Bring back"),
+        overridden && h("button", { class: "mini link", type: "button", title: "Bullwark decides from its date and how often it is used", onclick: () => void moveMemory(f, "auto") }, "Let Bullwark decide"),
+        h("button", { class: "mini", type: "button", "aria-label": "Edit memory", onclick: () => { state.editing = f.id; renderMemory(); } }, "Edit"))));
+}
+
+/** A person's own layer override for one memory; the list redraws from Canon's answer. */
+async function moveMemory(f: Fact, layer: "top" | "background" | "auto"): Promise<void> {
+  const res = await attempt("move the memory", () => api.setLayer(f.id, layer));
+  if (!res.ok) return;
+  state.facts = state.facts.map((x) => (x.id === f.id ? { ...x, ...res.value } : x));
+  local(layer === "background" ? `Moved to the background: ${f.statement}` : layer === "top" ? `Kept top of mind: ${f.statement}` : `Bullwark decides again for: ${f.statement}`);
+  renderMemory();
+}
+
+/** Top of mind · Background · All, with counts, like a memory manager's tabs. */
+function renderLayerTabs(): void {
+  const hot = state.facts.filter((f) => f.status === "hot");
+  const counts = { top: hot.filter((f) => layerOfFact(f) === "top").length, background: hot.filter((f) => layerOfFact(f) === "background").length, all: hot.length };
+  const tabs: Array<[typeof state.layerView, string, string]> = [
+    ["top", "Top of mind", "Used in everyday answers"],
+    ["background", "Background", "Used only when you ask about it"],
+    ["all", "All", "Everything in your memory"],
+  ];
+  el.layerTabs.replaceChildren(...tabs.map(([id, label, hint]) =>
+    h("button", {
+      type: "button", role: "tab", class: state.layerView === id ? "seg-btn on" : "seg-btn", "aria-selected": String(state.layerView === id), title: hint,
+      onclick: () => { state.layerView = id; renderMemory(); },
+    }, label, h("span", { class: "count" }, String(counts[id])))));
 }
 
 function renderMemory(): void {
@@ -325,9 +523,12 @@ function renderMemory(): void {
   state.filters.group = el.fGroup.value;
   state.filters.source = el.fSource.value;
 
-  const groups = viewMemory(state.facts, state.filters, state.names, order);
-  const shown = countShown(groups), total = state.facts.filter((f) => f.status === "hot").length;
-  el.showLine.textContent = shown === total ? `All ${plural(total, "memory", "memories")}` : `Showing ${shown} of ${plural(total, "memory", "memories")}`;
+  renderLayerTabs();
+  const inView = state.layerView === "all" ? state.facts : state.facts.filter((f) => layerOfFact(f) === state.layerView);
+  const groups = viewMemory(inView, state.filters, state.names, order);
+  const shown = countShown(groups), total = inView.filter((f) => f.status === "hot").length;
+  const noun = state.layerView === "top" ? "top of mind" : state.layerView === "background" ? "in the background" : "";
+  el.showLine.textContent = `${shown === total ? plural(total, "memory", "memories") : `Showing ${shown} of ${plural(total, "memory", "memories")}`}${noun ? ` ${noun}` : ""}`;
   const active = filtersActive(state.filters);
   el.clearFilters.hidden = !active;
   const open = !el.filters.hidden;
@@ -339,13 +540,15 @@ function renderMemory(): void {
     key: `grp:${g.label}`,
     version: `grp:${g.label}`,
     build: () => h("section", null, g.label && h("h3", { class: "grp" }, g.label), h("ul", { class: "list" })),
-  })), () => h("p", { class: "empty" }, total ? "Nothing in your memory matches these filters." : "Your memory is empty. Add something to get started."));
+  })), () => h("p", { class: "empty" }, total ? "Nothing here matches these filters." : state.layerView === "background"
+    ? "Nothing in the background. Memories land here when their date passes, when they go unused for a while, or when you move them."
+    : "Your memory is empty. Add something to get started."));
   groups.forEach((g, i) => {
     const ul = el.memory.children[i]?.querySelector("ul");
     if (!ul) return;
     syncList(ul as HTMLElement, g.facts.map((f) => ({
       key: f.id,
-      version: `${f.statement}|${f.learned_at}|${g.index}|${state.editing === f.id}`,
+      version: `${f.statement}|${f.learned_at}|${g.index}|${state.editing === f.id}|${f.layer}|${f.layer_reason}|${f.uses ?? 0}|${f.last_used ?? ""}`,
       build: () => memoryRow(f, g.index),
       fresh: Date.now() - Date.parse(f.learned_at) < 10_000,
     })));
@@ -411,6 +614,15 @@ function wire(): void {
 
   // Relative times ("2 min ago") and idle agent lines age without events.
   setInterval(() => { renderFeed(); renderAgents(); }, 30_000);
+  // A working agent's clock ticks every second; idle cards are left alone. While one works (or was
+  // just started and has not reported in yet) the page also re-reads Canon every 2 s, so the card
+  // stays current even when the live stream has dropped.
+  let tick = 0;
+  setInterval(() => {
+    if (!state.agents.some(isBusy) && Date.now() - state.kicked > 20_000) return;
+    if (++tick % 2 === 0) void refreshAgents();
+    else renderAgents();
+  }, 1_000);
 }
 
 async function start(): Promise<void> {

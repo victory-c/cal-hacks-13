@@ -16,7 +16,7 @@ import { createRetriever } from "./retrieval/index.ts";
 import type { Retriever } from "./retrieval/index.ts";
 import { createRouter } from "./router.ts";
 import { createServerJudge } from "./scope-judge.ts";
-import { ScopeState, attachLivingScopes, buildInitialScopes, onFactSaved } from "./scopes.ts";
+import { ScopeState, attachCurrency, attachLivingScopes, buildInitialScopes, onFactSaved, refreshCurrency } from "./scopes.ts";
 import type { WorldFixtures } from "./scopes.ts";
 import { loadDemoWorld } from "./world.ts";
 import { FileStore } from "./store.ts";
@@ -87,6 +87,8 @@ export async function startServer(opts: StartOptions = {}): Promise<RunningServe
   const world = new ScopeState(opts.world ?? loadDemoWorld().fixtures, dir);
   // Living scopes (PRD #11): new hot facts join the scopes whose checks they clear; retired facts leave.
   const living = attachLivingScopes({ world, store, bus, grants, judge, retriever });
+  // Memory layers: a new or edited fact gets today's "still current?" check shortly after it lands.
+  const currency = attachCurrency({ world, store, judge, bus });
   // The 0:00 scopes come from the real pipeline (this judge and retriever), never from a snapshot.
   if (opts.buildInitialScopes ?? true) {
     for (const r of await buildInitialScopes({ world, store, bus, grants, judge, retriever })) {
@@ -94,6 +96,10 @@ export async function startServer(opts: StartOptions = {}): Promise<RunningServe
       else (opts.log ?? console.info)(`[scopes] initial scope for ${r.principal}: ${r.facts} facts in ${r.ms} ms (${judge.name}, ${retriever.name})`);
     }
   }
+  // Today's currency for every hot fact not yet asked about today: one batched judge call, so the
+  // member view shows what is top of mind and what is in the background from the first page load.
+  const checked = await refreshCurrency({ world, store, judge });
+  if (checked) (opts.log ?? console.info)(`[layers] checked ${checked} fact(s) for today's currency (${judge.name})`);
 
   for (const scope of world.scopes.values()) {
     for (const fid of [...scope.fact_ids]) if (!store.getFact(fid) || store.getFact(fid)?.tier !== "hot") {
@@ -133,6 +139,7 @@ export async function startServer(opts: StartOptions = {}): Promise<RunningServe
     close: async () => {
       await living.drain();
       living.unsubscribe();
+      currency.unsubscribe();
       await world.flush();
       return new Promise<void>((resolve, reject) => {
         server.closeAllConnections(); // SSE clients would otherwise hold the server open

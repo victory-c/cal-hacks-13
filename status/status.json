@@ -1,6 +1,6 @@
 {
   "project": "Bullwark",
-  "updated": "2026-10-25T08:45:38.169Z",
+  "updated": "2026-10-25T11:57:10.506Z",
   "team": [
     {
       "id": "A",
@@ -614,6 +614,33 @@
       "state": "done",
       "title": "Refile cascade: an agent loses a fact when its creator does",
       "note": "POST /api/facts/:id/file now removes a refiled fact from every agent scope whose creator no longer holds it (repeated until stable), not only from scopes whose own rule excludes it. Before this, Wags filing one of Dollar Bill's facts into deal/stonewall left it in his desk assistant's scope. Regression test in server/src/world.test.ts (fails without the fix); server 140/140 and e2e 7/7 pass."
+    },
+    {
+      "id": "A25",
+      "owner": "A",
+      "milestone": "M5",
+      "priority": "must",
+      "state": "done",
+      "title": "Demo launcher: open Claude Code as one person; coding sessions stay nobody's memory",
+      "note": "npm run demo:claude -- <person> [--url] [--token] checks GET /api/me (refuses worker tokens), prints the person and task (never the token) and starts claude with CANON_PERSON_TOKEN, CANON_URL, CANON_CAPTURE=1 and CANON_CONTEXT=1 for that process only. The capture and context hooks now read their off switches from .env as well as the environment (environment wins), so a checkout sets both to 0 and coding sessions are never captured or given anyone's memory. Doctor reports that setup as ok. Tests: scripts/demo-claude.test.mjs, hooks capture/context switch tests, doctor."
+    },
+    {
+      "id": "A26",
+      "owner": "A",
+      "milestone": "M5",
+      "priority": "must",
+      "state": "done",
+      "title": "Agent profiles: choose its memory, assign a task, watch it think, read what it wrote, see what it saved to memory",
+      "note": "Member view: an agent profile is a name, a task, what it can remember (one box per group of the creator's own memory; nothing else is ever listed) and a leave-out sentence. Run on the standing task or a one-off assignment. While it works the card shows phase, step count, a live clock and its last steps in plain words; when done it shows the documents it wrote (markdown as text nodes) and the notes it saved. Agents write notes to out/memories/; the dispatcher saves each after the step that wrote it as a note session for the fact writer (max 5 a run). Every dispatcher save carries meta.fact_ids and POST /api/sessions refuses it (409 agent scope changed) once one has left the agent's scope, closing the save race the dispatch README listed. Creator edits: exclude_groups / exclude_text; only narrowing after Compliance set the rule. Also fixed: Windows EPERM on atomic renames (OneDrive) and a failed world flush poisoning every later request. Tests: server agent-profiles.test.ts, dispatcher notes tests, web logic/canon/mock tests. Browser click-through on the live stack (headless Chrome over CDP, real Jev and Claude) found and fixed: OPTIONS /events answered 404 so the member view never had live updates across ports; a focused assignment box froze its card; a fact leaving the creator's memory set every finished agent to a never-ending Restarting (now only runs that held the fact are withdrawn and ask for a new run); an agent's note could retire the original fact it paraphrased (triage: agent output never merges or supersedes). Verified live: an agent note added a new computed fact (unrealized gain) to Dollar Bill's desk memory with nothing retired."
+    },
+    {
+      "id": "A27",
+      "owner": "A",
+      "milestone": "M5",
+      "priority": "must",
+      "state": "done",
+      "title": "Memory layers: top of mind vs background, so only current, relevant context is served",
+      "note": "server/src/memory-layers.ts. A hot fact in a scope is top of mind or background. Background = out of date (Jev, once a day per fact, sees the group newest first: past deadlines, finished events, figures a newer fact replaced; re-checked for the whole group when one of its facts is saved), idle (salience = keep score x (0.3 + 0.7 x half-life 14 days since last used or learned); every served fact is a use), or moved there by the person (POST /api/facts/:id/layer top|background|auto; agents follow their creator). Handoff: one batch carries relevance, currency and does-it-ask-specifically; a background fact is served only at 0.7 and above, else cut background (inspector: In the background). Member view: Top of mind / Background / All tabs with counts, greyed background rows with the reason, usage line, Move to background / Bring back / Let Bullwark decide. Live Jev on the host moved the replaced 180k position, a past close and a finished trade to the background. Tests: memory-layers.test.ts (scoring, HTTP path, restart, group re-check), web logic tests."
     },
     {
       "id": "B28",

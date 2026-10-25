@@ -167,3 +167,27 @@ test("documents only quote the agent's own facts, and empty ones say so", () => 
 test("sentence splitting keeps fact-sized pieces", () => {
   assert.deepEqual(sentences("TMC cut fees by 2 bps. Short. Outflows slowed in October!"), ["TMC cut fees by 2 bps", "Outflows slowed in October"]);
 });
+
+test("an agent profile in the mock: unticked groups stay out of its memory; a one-off assignment is recorded", async () => {
+  const api = fast();
+  const all = (await api.facts()).filter((f) => f.status === "hot");
+  const groups = [...new Set(all.map((f) => f.group))];
+  const dropped = groups[0]!;
+  const { id } = await api.createAgent(body({ task: "Summarise Taylor Mason outflows and fees", exclude_groups: [dropped] }));
+  await wait();
+  const agent = (await api.agents()).find((a) => a.id === id)!;
+  const row = agent.memory_groups!.find((g) => g.id === dropped)!;
+  assert.equal(row.included, false);
+  assert.equal(row.count, 0, "nothing from an unticked group");
+  assert.ok(agent.memory_groups!.filter((g) => g.id !== dropped).every((g) => g.included));
+
+  await api.runAgent(id, "Just the fee numbers");
+  const running = (await api.agents()).find((a) => a.id === id)!;
+  assert.equal(running.run_task, "Just the fee numbers");
+  assert.ok(running.started_at);
+  await wait(60);
+  const done = (await api.agents()).find((a) => a.id === id)!;
+  assert.equal(done.status, "done");
+  assert.ok(done.documents!.length > 0 && done.documents!.every((d) => d.text.startsWith("# ")));
+  assert.match(done.memories![0]!.text, /simulated/);
+});

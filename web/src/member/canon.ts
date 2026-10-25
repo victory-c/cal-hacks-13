@@ -3,7 +3,7 @@
 // in the contract yet; they are listed in web/README.md.
 
 import { MEMBER_EVENT_TYPES } from "./contract.ts";
-import type { AddItemBody, AgentBody, AgentRun, Fact, Me, MemberApi, MemberEvent } from "./contract.ts";
+import type { AddItemBody, AgentBody, AgentRun, Fact, Me, MemberApi, MemberEvent, MemoryLayer } from "./contract.ts";
 import { subscribeEvents } from "../stream.ts";
 
 export class HttpError extends Error {
@@ -58,6 +58,10 @@ export class CanonClient implements MemberApi {
     await this.call("POST", `/api/facts/${encodeURIComponent(id)}/retire`);
   }
 
+  setLayer(id: string, layer: MemoryLayer | "auto"): Promise<Fact> {
+    return this.call("POST", `/api/facts/${encodeURIComponent(id)}/layer`, { layer });
+  }
+
   addItem(body: AddItemBody): Promise<{ item_id: string }> {
     return this.call("POST", "/api/items", body);
   }
@@ -67,14 +71,21 @@ export class CanonClient implements MemberApi {
   }
 
   createAgent(body: AgentBody): Promise<{ id: string; build_id: string }> {
-    return this.call("POST", "/api/agents", body);
+    // The unticked groups are exclusions like any other; Canon checks them in code before Jev runs.
+    const groups = [...new Set([...body.exclusions.groups, ...(body.exclude_groups ?? [])])];
+    return this.call("POST", "/api/agents", { name: body.name, task: body.task, exclusions: { ...body.exclusions, groups } });
   }
 
   async updateAgent(id: string, body: AgentBody): Promise<{ build_id: string }> {
     const path = encodeURIComponent(id);
-    // Member edits are task-only. Canon preserves every existing exclusion server-side, including
-    // moderator-set barriers that must never be returned to this client.
-    return this.call("PUT", `/api/principals/${path}/rule`, { task: body.task, preserve_exclusions: true });
+    // A member edits the task and their own choice of groups. Canon preserves every other
+    // exclusion server-side, including moderator-set barriers that are never returned to this client.
+    return this.call("PUT", `/api/principals/${path}/rule`, {
+      task: body.task,
+      preserve_exclusions: true,
+      ...(body.exclude_groups ? { exclude_groups: body.exclude_groups } : {}),
+      exclude_text: body.exclusions.text.join("; "),
+    });
   }
 
   /** PROPOSED: DELETE /api/agents/:id. */
@@ -82,10 +93,11 @@ export class CanonClient implements MemberApi {
     await this.call("DELETE", `/api/agents/${encodeURIComponent(id)}`);
   }
 
-  async runAgent(id: string): Promise<void> {
+  async runAgent(id: string, task?: string): Promise<void> {
     const agent = (await this.agents()).find((a) => a.id === id);
     if (!agent) throw new HttpError(404, "agent not found");
-    await this.call("POST", `/api/agents/${encodeURIComponent(id)}/run`, { task: agent.task });
+    // A one-off assignment runs inside the same fixed scope; it never widens what the agent sees.
+    await this.call("POST", `/api/agents/${encodeURIComponent(id)}/run`, { task: task?.trim() || agent.task });
   }
 
   /** Requests cancellation; current agent telemetry reports when it has stopped. */

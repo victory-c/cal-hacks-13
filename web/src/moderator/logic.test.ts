@@ -35,7 +35,7 @@ test("editing task or group cards preserves labels, prose and exclusions for fut
 test("people come first, each followed by their agents", () => {
   const ps: ModPrincipal[] = [
     { id: "a1", kind: "agent", name: "A1", creator: "ben", rule: null, fact_ids: [] },
-    { id: "wags", kind: "person", name: "Wags", tier: "moderator", rule: null, fact_ids: [] },
+    { id: "wags", kind: "person", name: "Mike Wagner", tier: "moderator", rule: null, fact_ids: [] },
     { id: "ben", kind: "person", name: "Ben", tier: "member", rule: null, fact_ids: [] },
   ];
   assert.deepEqual(peopleTree(ps).map((x) => `${x.depth}:${x.p.id}`), ["0:wags", "0:ben", "1:a1"]);
@@ -49,7 +49,7 @@ test("build stages read in plain words", () => {
 });
 
 test("feed lines: quarantine is an alert, intermediate build stages are silent", () => {
-  const name = (id: string) => ({ ben: "Ben Kim" } as Record<string, string>)[id] ?? id;
+  const name = (id: string) => ({ ben: "Ben Carter" } as Record<string, string>)[id] ?? id;
   const q = modFeedText({ type: "item.quarantined", at: "", item_id: "i", source: "Counsel email", reason: "Contains instructions aimed at an AI" }, name, groups)!;
   assert.equal(q.alert, true);
   assert.match(q.text, /aimed at an AI/);

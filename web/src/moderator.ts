@@ -530,7 +530,7 @@ function renderFeed(): void {
   for (const f of S.feed) f.fresh = false;
 }
 
-const DECISION: Record<Handoff["candidates"][number]["decision"], string> = { kept: "Kept", cut_relevance: "Cut: not relevant", cut_budget: "Cut: over budget" };
+const DECISION: Record<Handoff["candidates"][number]["decision"], string> = { kept: "Kept", cut_relevance: "Cut: not relevant", cut_background: "In the background: not asked about", cut_budget: "Cut: over budget" };
 
 function renderHandoffs(): void {
   el.mTokens.textContent = String(S.handoffs.reduce((t, x) => t + x.tokens_est, 0));

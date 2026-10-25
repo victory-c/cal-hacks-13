@@ -201,7 +201,7 @@ test("completed agent runs, result steps and inbox survive server restart", asyn
     current.bus.emit({ type: "scope.updated", principal: agent.id, reason: "fact_left", added: [], removed: ["fct_aa0011"], size: 0 });
     await current.close();
     current = await startServer({ dataDir: dir, world: world(), tokens, grants, judge, retriever: new KeywordRetriever(), log: () => {} });
-    const narrowed = await (await request(current, "/api/agents", "alice")).json() as { agents: Array<{ status: string; steps: unknown[]; inbox: unknown[]; outputs: unknown[] }> }; assert.equal(narrowed.agents[0].status, "restarting"); assert.deepEqual(narrowed.agents[0].steps, []); assert.deepEqual(narrowed.agents[0].outputs, []); assert.deepEqual(narrowed.agents[0].inbox, []);
+    const narrowed = await (await request(current, "/api/agents", "alice")).json() as { agents: Array<{ status: string; refresh: boolean; steps: unknown[]; inbox: unknown[]; outputs: unknown[] }> }; assert.equal(narrowed.agents[0].status, "done", "a finished run is withdrawn, not shown as restarting: nothing runs it"); assert.equal(narrowed.agents[0].refresh, true); assert.deepEqual(narrowed.agents[0].steps, []); assert.deepEqual(narrowed.agents[0].outputs, []); assert.deepEqual(narrowed.agents[0].inbox, []);
     const late = await (await publish({ type: "agent.run", run })).json() as { ignored: boolean }; assert.equal(late.ignored, true);
   } finally { await current.close().catch(() => {}); await rm(dir, { recursive: true, force: true }); }
 });

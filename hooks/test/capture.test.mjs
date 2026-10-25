@@ -332,6 +332,25 @@ test("e2e: Stop payload → POST /api/sessions with bearer token and the parsed 
   }
 });
 
+test("e2e: CANON_CAPTURE=0 in the .env turns capture off; CANON_CAPTURE=1 in the environment turns it back on", async () => {
+  const srv = await fakeServer();
+  const root = mkdtempSync(join(tmpdir(), "canon-capture-off-"));
+  writeFileSync(join(root, ".env"), "CANON_CAPTURE=0\nCANON_PERSON_TOKEN=tok-bill\n");
+  try {
+    const off = await runHook(PAYLOAD, { CANON_URL: srv.url, CANON_REPO_ROOT: root, CANON_DEBUG: "1" });
+    assert.equal(off.code, 0);
+    assert.equal(srv.hits.length, 0, "a checkout that defaults to off posts nothing");
+    assert.match(off.stderr, /skip: CANON_CAPTURE=0/);
+
+    const on = await runHook(PAYLOAD, { CANON_URL: srv.url, CANON_REPO_ROOT: root, CANON_CAPTURE: "1" });
+    assert.equal(on.code, 0);
+    assert.equal(srv.hits.length, 1, "the launched session's environment wins over the .env");
+    assert.equal(srv.hits[0].headers.authorization, "Bearer tok-bill");
+  } finally {
+    await srv.close();
+  }
+});
+
 test("e2e: SessionEnd payload carries ended_at", async () => {
   const srv = await fakeServer();
   try {

@@ -37,8 +37,10 @@ function bail(msg) {
 }
 
 async function main() {
-  // Opt-out for anyone who has the project hook but doesn't want this session captured.
-  if (process.env.CANON_CAPTURE === "0") return debug("skip: CANON_CAPTURE=0");
+  // Opt-out for anyone who has the project hook but doesn't want this session captured. The
+  // environment wins over the .env, so a checkout can default to off (CANON_CAPTURE=0 in .env)
+  // while one launched session turns it back on (npm run demo:claude sets CANON_CAPTURE=1).
+  if (resolveEnv(["CANON_CAPTURE"]).CANON_CAPTURE === "0") return debug("skip: CANON_CAPTURE=0");
   const payload = JSON.parse(await readStdin());
   const transcriptPath = payload.transcript_path ? resolve(process.cwd(), payload.transcript_path) : "";
   if (!transcriptPath || !existsSync(transcriptPath)) return debug(`skip: transcript not found (${transcriptPath || "none"})`);

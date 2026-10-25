@@ -24,7 +24,9 @@
 //             fact, so a neutral answer applies it, and a merge or supersede keeps every label of
 //             the fact it retires
 //   relation  same → merge, replaces → supersede, anything else → add. A merge or supersede only
-//             retires a fact in the group the draft is filed in; otherwise it is an add
+//             retires a fact in the group the draft is filed in; otherwise it is an add. An agent's
+//             output (client dispatcher) never merges or supersedes: an agent knows only the facts
+//             it was given, so a draft that repeats or "replaces" one is kept in the archive only
 // A missing or neutral answer always lands on the safe side. So does a missing `external`, `kind`
 // or `principal` on the item: each reads as "unknown" (possibly from outside the firm, not a
 // trusted AI session, no one vouching for it), never as the friendly default (see provenance()).
@@ -238,6 +240,7 @@ export async function triage(input: TriageInput, judge: Judge): Promise<TriageRe
     ownPositionFacts: live,
     byStatement,
     author: from.principal === UNKNOWN ? undefined : from.principal,
+    fromAgent: input.session.client === "dispatcher",
   };
   const decided = drafts.map((d, i) => {
     const result = decideDraft(d, i, got, ctx);
@@ -370,6 +373,8 @@ interface DraftContext {
   byStatement: Map<string, Fact>;
   /** The item's principal when known: every fact's author. */
   author?: string;
+  /** An agent's output (a note or a deliverable): it adds to memory, never restates or replaces. */
+  fromAgent: boolean;
 }
 
 function draftQuestions(d: DraftFact, i: number, groupOptions: string[], labels: string[], reltoOptions: string[]): Question[] {
@@ -471,8 +476,15 @@ function decideDraft(draft: DraftFact, i: number, got: Map<string, Answer>, ctx:
   }
 
   let outcome: TriageOutcome = filed ? "fact" : "inbox";
+  // An agent's draft that says the same as a fact, or claims to replace one, adds nothing an agent
+  // could know: it worked only from facts it was given. Retiring the original for its paraphrase
+  // would lose detail and hand the creator's name to everyone else's fact.
+  const agentRepeat = ctx.fromAgent && !!target && acts;
   if (ctx.quarantined) outcome = "quarantine";
-  else if (keep_p < KEEP) outcome = "archive_only";
+  else if (agentRepeat) {
+    outcome = "archive_only";
+    action = "add";
+  } else if (keep_p < KEEP) outcome = "archive_only";
 
   // Labels: each candidate the judge did not say no to, checked against LABEL_RE once more. A merge
   // or supersede also keeps every label of the fact it retires, asked about or not
@@ -497,6 +509,8 @@ function decideDraft(draft: DraftFact, i: number, got: Map<string, Answer>, ctx:
   const lead =
     outcome === "quarantine"
       ? `held with its item: instructions aimed at an AI (p ${fmt(ctx.injection_p)})`
+      : agentRepeat && target
+        ? `archive only: an agent's output never restates or replaces a fact (${relation} ${target.id})`
       : outcome === "archive_only"
         ? `archive only: keep ${fmt(keep_p)} below ${KEEP}${inbox ? `; would wait in inbox: ${inbox}` : ""}`
         : inbox

@@ -38,7 +38,8 @@ function bail(msg) {
 }
 
 async function main() {
-  if (process.env.CANON_CONTEXT === "0") return debug("skip: CANON_CONTEXT=0");
+  // Environment first, then the .env, exactly like CANON_CAPTURE in canon-capture.mjs.
+  if (resolveEnv(["CANON_CONTEXT"]).CANON_CONTEXT === "0") return debug("skip: CANON_CONTEXT=0");
   const { url, token, budget } = resolveConfig();
   if (!token) return debug("skip: CANON_PERSON_TOKEN not set");
   const payload = JSON.parse(await readStdin());
