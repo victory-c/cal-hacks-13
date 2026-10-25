@@ -23,6 +23,8 @@ export class FileStore {
   private readonly sessionIds = new Set<string>();
   private readonly sessionPrincipals = new Map<string, string>();
   private readonly sessionClients = new Map<string, string>();
+  /** Tail of the putSession queue per session id: check-and-write runs one at a time per id. */
+  private readonly sessionLocks = new Map<string, Promise<unknown>>();
 
   constructor(readonly dir: string) {}
 
@@ -107,15 +109,36 @@ export class FileStore {
 
   // --------------------------------------------------------------- sessions
 
-  /** Upsert. `updated` is true when this id was already in the archive. */
-  async putSession(session: CapturedSession): Promise<{ updated: boolean }> {
+  /**
+   * Upsert. `updated` is true when this id was already in the archive. `mayReplace` is the
+   * caller's ownership rule: when the id already exists, the stored session is passed to it and
+   * a false answer throws SessionOwnerError and writes nothing. Writes for one id run one at a
+   * time, so the rule and the write are atomic even for concurrent first writes.
+   */
+  async putSession(session: CapturedSession, mayReplace?: (existing: CapturedSession) => boolean): Promise<{ updated: boolean }> {
     assertSessionId(session.id);
-    const updated = this.sessionIds.has(session.id);
-    await writeAtomic(this.sessionFile(session.id), JSON.stringify(session, null, 2) + "\n");
-    this.sessionIds.add(session.id);
-    this.sessionClients.set(session.id, session.client);
-    if (session.principal) this.sessionPrincipals.set(session.id, session.principal);
-    return { updated };
+    return this.withSessionLock(session.id, async () => {
+      // The file on disk is the authority, also for a store that has not run loadAll().
+      const existing = mayReplace ? await this.getSession(session.id) : undefined;
+      if (existing && !mayReplace?.(existing)) throw new SessionOwnerError(session.id);
+      const updated = existing !== undefined || this.sessionIds.has(session.id);
+      await writeAtomic(this.sessionFile(session.id), JSON.stringify(session, null, 2) + "\n");
+      this.sessionIds.add(session.id);
+      this.sessionClients.set(session.id, session.client);
+      if (session.principal) this.sessionPrincipals.set(session.id, session.principal);
+      return { updated };
+    });
+  }
+
+  /** Runs `fn` after every earlier call for the same session id has settled. */
+  private withSessionLock<T>(id: string, fn: () => Promise<T>): Promise<T> {
+    const run = (this.sessionLocks.get(id) ?? Promise.resolve()).then(fn);
+    const tail = run.catch(() => undefined);
+    this.sessionLocks.set(id, tail);
+    void tail.then(() => {
+      if (this.sessionLocks.get(id) === tail) this.sessionLocks.delete(id);
+    });
+    return run;
   }
 
   /** Session metadata for synchronous SSE authorization; no transcript is exposed. */
@@ -165,6 +188,13 @@ export class FileStore {
 
   counts(): { facts: number; sessions: number } {
     return { facts: this.facts.size, sessions: this.sessionIds.size };
+  }
+}
+
+/** putSession refused by the caller's ownership rule: the id belongs to another capture owner. */
+export class SessionOwnerError extends Error {
+  constructor(readonly sessionId: string) {
+    super(`session ${sessionId} belongs to another capture owner`);
   }
 }
 
