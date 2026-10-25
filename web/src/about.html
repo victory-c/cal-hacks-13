@@ -1,0 +1,569 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>About Bullwark</title>
+  <meta name="description" content="Bullwark reinvents agentic memory: every person and agent gets a memory that holds only what their task needs.">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Geist:wght@400;500;600&family=Geist+Mono:wght@400;500&family=Instrument+Serif&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="./about.css">
+</head>
+<body>
+  <header class="nav">
+    <div class="nav-in">
+      <a class="brand" href="./about.html" aria-label="Bullwark">
+        <svg width="26" height="22" viewBox="0 0 26 22" aria-hidden="true"><path d="M1 21V7h4v3h3V7h4v3h2V7h4v3h3V7h4v14z" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"/></svg>
+        Bullwark
+      </a>
+      <nav class="links" aria-label="Sections">
+        <a class="dim" href="#idea">The idea</a>
+        <a href="#pipeline">Pipeline</a>
+        <a href="#memory">Memory</a>
+        <a href="#scope">Scope</a>
+        <a href="#agents">Agents</a>
+        <a href="#trust">Trust</a>
+        <a class="gap" href="#sponsors">Sponsors</a>
+      </nav>
+      <a class="cta" href="./member.html" data-console>Open Bullwark</a>
+    </div>
+  </header>
+
+  <!-- Line icons, used through <use href="#i-…"> -->
+  <svg width="0" height="0" style="position:absolute" aria-hidden="true">
+    <symbol id="i-file" viewBox="0 0 24 24"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6M16 13H8M16 17H8M10 9H8"/></symbol>
+    <symbol id="i-list" viewBox="0 0 24 24"><path d="M8 6h13M8 12h13M8 18h13M3 6h.01M3 12h.01M3 18h.01"/></symbol>
+    <symbol id="i-db" viewBox="0 0 24 24"><ellipse cx="12" cy="5" rx="9" ry="3"/><path d="M3 5v14c0 1.66 4 3 9 3s9-1.34 9-3V5"/><path d="M3 12c0 1.66 4 3 9 3s9-1.34 9-3"/></symbol>
+    <symbol id="i-filter" viewBox="0 0 24 24"><path d="M22 3H2l8 9.46V19l4 2v-8.54z"/></symbol>
+    <symbol id="i-search" viewBox="0 0 24 24"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/></symbol>
+    <symbol id="i-bot" viewBox="0 0 24 24"><rect x="3" y="11" width="18" height="10" rx="2"/><circle cx="12" cy="5" r="2"/><path d="M12 7v4M8 16h.01M16 16h.01"/></symbol>
+    <symbol id="i-user" viewBox="0 0 24 24"><circle cx="12" cy="8" r="4"/><path d="M4 21v-1a6 6 0 0 1 6-6h4a6 6 0 0 1 6 6v1"/></symbol>
+    <symbol id="i-users" viewBox="0 0 24 24"><circle cx="9" cy="8" r="4"/><path d="M2 21v-1a6 6 0 0 1 6-6h2a6 6 0 0 1 6 6v1M16 4a4 4 0 0 1 0 8M19 14a6 6 0 0 1 3 5.2V21"/></symbol>
+    <symbol id="i-shield" viewBox="0 0 24 24"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></symbol>
+    <symbol id="i-lock" viewBox="0 0 24 24"><rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></symbol>
+    <symbol id="i-gate" viewBox="0 0 24 24"><path d="M9 11l3 3L22 4"/><path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"/></symbol>
+    <symbol id="i-check" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><path d="m8 12 3 3 5-6"/></symbol>
+    <symbol id="i-ban" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><path d="m4.9 4.9 14.2 14.2"/></symbol>
+    <symbol id="i-refresh" viewBox="0 0 24 24"><path d="M21 12a9 9 0 1 1-3-6.7L21 8"/><path d="M21 3v5h-5"/></symbol>
+    <symbol id="i-folder" viewBox="0 0 24 24"><path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v9a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/></symbol>
+    <symbol id="i-chat" viewBox="0 0 24 24"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></symbol>
+    <symbol id="i-term" viewBox="0 0 24 24"><path d="m4 17 6-6-6-6M12 19h8"/></symbol>
+    <symbol id="i-clock" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><path d="M12 6v6l4 2"/></symbol>
+    <symbol id="i-layers" viewBox="0 0 24 24"><path d="m12 2 10 5-10 5L2 7z"/><path d="m2 17 10 5 10-5M2 12l10 5 10-5"/></symbol>
+  </svg>
+
+  <main>
+    <!-- Hero -->
+    <section class="hero">
+      <p class="eyebrow">Reinventing agentic memory</p>
+      <h1>Bullwark gives AI a memory<br><span>that knows who's asking</span></h1>
+      <p class="sub">Every person and every agent on a finance team gets a memory that holds only what their task needs. Everything else simply isn't there, so there is nothing to leak, nothing to refuse, and nothing that hints it exists.</p>
+      <div class="hero-cta">
+        <a class="btn dark" href="./member.html" data-console>Open the control room</a>
+        <a class="btn light" href="#idea">How it works</a>
+      </div>
+
+      <div class="window" role="img" aria-label="Bullwark's scope map: each person and agent holds only the memory groups their task needs, next to a scoped answer for Bill Stevens">
+        <div class="map">
+          <div class="map-bar">
+            <span class="org"><span class="avatar">AC</span>Axe Capital<span class="chev">⌄</span></span>
+            <span class="legend">
+              <i class="d deal"></i>deal <i class="d public"></i>public <i class="d desk"></i>desk <i class="d research"></i>research
+            </span>
+          </div>
+          <div class="orbit">
+            <svg class="ring" viewBox="0 0 600 490" preserveAspectRatio="none" aria-hidden="true">
+              <ellipse cx="300" cy="245" rx="175" ry="175" />
+              <g class="spokes">
+                <line x1="300" y1="245" x2="300" y2="70"/>
+                <line x1="300" y1="245" x2="451.6" y2="157.5"/>
+                <line x1="300" y1="245" x2="451.6" y2="332.5"/>
+                <line x1="300" y1="245" x2="300" y2="420"/>
+                <line x1="300" y1="245" x2="148.4" y2="332.5"/>
+                <line x1="300" y1="245" x2="148.4" y2="157.5"/>
+              </g>
+            </svg>
+            <div class="node core"><svg width="22" height="18" viewBox="0 0 26 22" aria-hidden="true"><path d="M1 21V7h4v3h3V7h4v3h2V7h4v3h3V7h4v14z" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"/></svg>Canon</div>
+            <div class="node" style="left:50%;top:14.3%"><span class="dots"><i class="d deal"></i><i class="d public"></i><i class="d desk"></i><i class="d research"></i></span><b>Mike Wagner</b><small>Compliance · sees all</small></div>
+            <div class="node" style="left:75.3%;top:32.1%"><span class="dots"><i class="d deal"></i><i class="d public"></i></span><b>Bob Adams</b><small>Deal lead</small></div>
+            <div class="node agent" style="left:75.3%;top:67.9%"><span class="dots"><i class="d public"></i><i class="d desk"></i></span><b>Desk assistant</b><small>Agent · Bill's</small></div>
+            <div class="node agent" style="left:50%;top:85.7%"><span class="dots"><i class="d public"></i><i class="d research"></i></span><b>Research analyst</b><small>Agent · Ben's</small></div>
+            <div class="node" style="left:24.7%;top:67.9%"><span class="dots"><i class="d public"></i><i class="d research"></i></span><b>Ben Carter</b><small>Research</small></div>
+            <div class="node" style="left:24.7%;top:32.1%"><span class="dots"><i class="d public"></i><i class="d desk"></i></span><b>Bill Stevens</b><small>Portfolio manager</small></div>
+          </div>
+        </div>
+
+        <div class="chat">
+          <div class="tabs"><span class="on">Bill Stevens</span><span>Agents</span><span>Memory</span><span>Audit</span></div>
+          <div class="bubble">What's our TMC position now, and what's the public story behind it?</div>
+          <div class="reply">
+            <span class="glyph">∴</span>
+            <p>You're long <b>200,000 TMC</b> after this morning's 20,000-share add. The public picture is in the attached filings and press. <b>Your answer is built only from your desk notes and public facts.</b></p>
+          </div>
+          <div class="ctx">
+            <div class="ctx-row"><span class="tag">context</span>4 facts · 83 tokens (est.)</div>
+            <div class="ctx-row"><i class="d desk"></i>desk/dollar-bill <i class="d public"></i>market/public</div>
+          </div>
+          <div class="run"><span class="spin" aria-hidden="true"></span><b>Desk assistant</b><span class="what">Drafting the morning note…</span><span class="pill blue">Running</span></div>
+          <div class="run"><span class="dot-q" aria-hidden="true"></span><b>Research analyst</b><span class="what">Update the asset management sector note</span><span class="pill">Queued</span></div>
+          <div class="ask">Ask Bullwark, or give an agent something to do <span class="send">↑</span></div>
+        </div>
+      </div>
+      <p class="caption">The demo world: Axe Capital, a synthetic 30-person fund preparing a confidential bid. The deal group appears only where the deal belongs.</p>
+    </section>
+
+    <!-- The idea -->
+    <section class="block" id="idea">
+      <p class="label">What Bullwark does</p>
+      <h2>Most agent memory is one shared store and a polite prompt.<br><span>Bullwark draws the wall before retrieval.</span></h2>
+      <p class="lead">Regulated teams run on information barriers. AI erodes them quietly: chats, saved memories and long-running agents carry context from one desk to the next. The usual answer gives the model every secret and asks it to keep them. Bullwark limits what the model can ever see.</p>
+
+      <div class="compare">
+        <article class="cmp">
+          <p class="cmp-k">No memory</p>
+          <h3>Safe, and useless</h3>
+          <p>Every agent starts from zero. Nothing leaks because nothing is known.</p>
+          <div class="meter-row"><span>Leak risk</span><span class="seg low"></span></div>
+          <div class="meter-row"><span>Useful context</span><span class="seg low"></span></div>
+        </article>
+        <article class="cmp">
+          <p class="cmp-k">Shared memory + a prompt</p>
+          <h3>Useful, and leaky</h3>
+          <p>The model holds everything and is asked not to say it. One clever question away from a breach.</p>
+          <div class="meter-row"><span>Leak risk</span><span class="seg high"></span></div>
+          <div class="meter-row"><span>Useful context</span><span class="seg high ok"></span></div>
+        </article>
+        <article class="cmp best">
+          <p class="cmp-k">Bullwark</p>
+          <h3>Scoped memory</h3>
+          <p>Each memory is a fixed list of facts, built by code before any model reads. The model only holds what its scope allows.</p>
+          <div class="meter-row"><span>Leak surface</span><span class="seg low ok"></span></div>
+          <div class="meter-row"><span>Useful context</span><span class="seg high ok"></span></div>
+        </article>
+      </div>
+
+      <div class="fixes">
+        <div class="fx-h"><span class="bad">The problem today</span><span class="good">With Bullwark</span></div>
+        <div class="fx">
+          <div class="fx-p"><svg class="ic" aria-hidden="true"><use href="#i-file"/></svg><div><b>Too much context</b><small>Generic memory stores everything: more cost, more distraction, more hallucination, and leaks across desks.</small></div></div>
+          <div class="fx-a"><svg class="ic" aria-hidden="true"><use href="#i-check"/></svg><div><b>Relevant, focused context</b><small>Each person and agent gets only their scope, built before retrieval.</small></div></div>
+        </div>
+        <div class="fx">
+          <div class="fx-p"><svg class="ic" aria-hidden="true"><use href="#i-refresh"/></svg><div><b>Relearning and redoing</b><small>Agents lose track of past work, so the team repeats it.</small></div></div>
+          <div class="fx-a"><svg class="ic" aria-hidden="true"><use href="#i-check"/></svg><div><b>Work that compounds</b><small>Every session becomes sourced facts the next person or run builds on.</small></div></div>
+        </div>
+        <div class="fx">
+          <div class="fx-p"><svg class="ic" aria-hidden="true"><use href="#i-clock"/></svg><div><b>Outdated or inconsistent</b><small>Memories go stale and miss what changed this morning.</small></div></div>
+          <div class="fx-a"><svg class="ic" aria-hidden="true"><use href="#i-check"/></svg><div><b>Always current</b><small>New facts join the scopes they fit in seconds, and a stale position is retired when its author updates it.</small></div></div>
+        </div>
+        <div class="fx">
+          <div class="fx-p"><svg class="ic" aria-hidden="true"><use href="#i-lock"/></svg><div><b>No fine-grained access</b><small>Few tools let a small team set information barriers.</small></div></div>
+          <div class="fx-a"><svg class="ic" aria-hidden="true"><use href="#i-check"/></svg><div><b>Secure by design</b><small>Compliance sets barriers in plain words. Code enforces them, with a full audit trail.</small></div></div>
+        </div>
+      </div>
+      <p class="pull">The goal is not more memory.<br><span>It is the right memory.</span></p>
+    </section>
+
+    <!-- Pipeline: the technical overview, one slide -->
+    <section class="block" id="pipeline">
+      <p class="label">How it fits together</p>
+      <h2>Boundary first.<br><span>Retrieval second.</span></h2>
+      <p class="lead">Bullwark bounds what a model can see before the model sees anything. Six stages turn everyday work into scoped, sourced memory for people and agents.</p>
+
+      <ol class="pipe">
+        <li><a class="stage" href="#memory"><span class="st-n">1</span><svg class="ic" aria-hidden="true"><use href="#i-file"/></svg><b>Capture</b><small>Sessions, memos, emails and agent notes</small><em>Claude Code hook · MCP · ingest</em></a></li>
+        <li><a class="stage" href="#memory"><span class="st-n">2</span><svg class="ic" aria-hidden="true"><use href="#i-list"/></svg><b>Distill</b><small>Long sessions compressed into short, sourced facts</small><em>Claude · Factory Droid SDK</em></a></li>
+        <li><a class="stage" href="#memory"><span class="st-n">3</span><svg class="ic" aria-hidden="true"><use href="#i-db"/></svg><b>Store</b><small>Each fact filed into one group, with its history</small><em>Jev triage · fact store · audit</em></a></li>
+        <li><a class="stage key" href="#scope"><span class="st-n">4</span><svg class="ic" aria-hidden="true"><use href="#i-filter"/></svg><b>Scope</b><small>Exclusions in code, then admission by judgment</small><em>Code · Moss · Jev</em></a></li>
+        <li><a class="stage" href="#trust"><span class="st-n">5</span><svg class="ic" aria-hidden="true"><use href="#i-search"/></svg><b>Retrieve</b><small>Search runs only inside the scope's fact IDs</small><em>Moss · Jev relevance</em></a></li>
+        <li><a class="stage" href="#agents"><span class="st-n">6</span><svg class="ic" aria-hidden="true"><use href="#i-bot"/></svg><b>Act</b><small>Sandboxed agents and audited handoffs</small><em>Claude · Factory Droid</em></a></li>
+      </ol>
+      <p class="loop"><svg class="ic" aria-hidden="true"><use href="#i-refresh"/></svg>New information becomes facts and refreshes the scopes it fits, in seconds.</p>
+
+      <div class="bento">
+        <article class="bx span2">
+          <header class="bx-h"><span class="bx-ic"><svg class="ic" aria-hidden="true"><use href="#i-users"/></svg></span><div><h3>Role and scope hierarchy</h3><p>People and agents get only the memory their role allows.</p></div></header>
+          <div class="hier" role="img" aria-label="Mike Wagner in Compliance sets every scope. Bob Adams holds deal and public facts, Ben Carter public and research, Bill Stevens desk and public. Each person's agent holds the intersection of its creator's scope and its task.">
+            <div class="h-mod"><span class="h-ic"><svg class="ic" aria-hidden="true"><use href="#i-user"/></svg></span><div><b>Mike Wagner · Compliance</b><small>Moderator · sets every rule · sees everything</small></div></div>
+            <div class="h-row">
+              <div class="h-col">
+                <div class="h-mem"><b>Bob Adams</b><small>Deal lead</small><span class="h-scope"><i class="d deal"></i><i class="d public"></i>deal + public</span></div>
+                <div class="h-agent"><svg class="ic" aria-hidden="true"><use href="#i-bot"/></svg><div><b>Deal analyst</b><small>Bob's scope ∩ its task</small></div></div>
+              </div>
+              <div class="h-col">
+                <div class="h-mem"><b>Ben Carter</b><small>Research</small><span class="h-scope"><i class="d public"></i><i class="d research"></i>public + research</span></div>
+                <div class="h-agent"><svg class="ic" aria-hidden="true"><use href="#i-bot"/></svg><div><b>Research analyst</b><small>Ben's scope ∩ its task</small></div></div>
+              </div>
+              <div class="h-col">
+                <div class="h-mem"><b>Bill Stevens</b><small>Portfolio manager</small><span class="h-scope"><i class="d desk"></i><i class="d public"></i>desk + public</span></div>
+                <div class="h-agent"><svg class="ic" aria-hidden="true"><use href="#i-bot"/></svg><div><b>Desk assistant</b><small>Bill's scope ∩ its task</small></div></div>
+              </div>
+            </div>
+          </div>
+          <div class="h-notes">
+            <span><svg class="ic" aria-hidden="true"><use href="#i-lock"/></svg>The intersection is enforced on build, on every update and on every read.</span>
+            <span><svg class="ic" aria-hidden="true"><use href="#i-shield"/></svg>An agent can never exceed its creator.</span>
+          </div>
+        </article>
+
+        <article class="bx">
+          <header class="bx-h"><span class="bx-ic"><svg class="ic" aria-hidden="true"><use href="#i-gate"/></svg></span><div><h3>Jev decision layer</h3><p>Fast yes/no policy gates. Jev answers; code decides.</p></div></header>
+          <ul class="checks">
+            <li>Low-latency binary judgments, batched into one call per decision</li>
+            <li>Triage: keep it, file it into a group, or quarantine it</li>
+            <li>Scope admission and question-time relevance</li>
+            <li>Flags text carrying instructions aimed at an AI</li>
+            <li>Thresholds live in code, and uncertainty excludes</li>
+          </ul>
+          <div class="bx-stats">
+            <div><b>174<em>ms</em></b><small>scope build, 11 facts</small></div>
+            <div><b>420<em>ms</em></b><small>triage, 38 facts · 5 groups</small></div>
+          </div>
+          <p class="bx-foot">Measured live on Jev, synthetic demo world</p>
+        </article>
+
+        <article class="bx">
+          <header class="bx-h"><span class="bx-ic"><svg class="ic" aria-hidden="true"><use href="#i-layers"/></svg></span><div><h3>State-of-the-art memory</h3><p>The canonical memory layer underneath.</p></div></header>
+          <ul class="checks">
+            <li>Semantic compression of long sessions into short facts</li>
+            <li>Every fact keeps its source, author and history</li>
+            <li>Crash-safe markdown store; raw sessions in a cold archive</li>
+            <li>Top of mind vs background: stale facts step back until asked for</li>
+            <li>Moss hybrid retrieval over canonical fact IDs</li>
+            <li>One memory, three doors: MCP · REST · SSE</li>
+          </ul>
+        </article>
+
+        <article class="bx">
+          <header class="bx-h"><span class="bx-ic warn"><svg class="ic" aria-hidden="true"><use href="#i-shield"/></svg></span><div><h3>What this prevents</h3><p>Less risk, better answers.</p></div></header>
+          <ul class="bans">
+            <li>Data leaking across desks</li>
+            <li>Relearning and redoing</li>
+            <li>Outdated context</li>
+            <li>Distraction and hallucination</li>
+            <li>Over-privileged agents</li>
+          </ul>
+        </article>
+
+        <article class="bx dark">
+          <p class="bx-k">Bullwark</p>
+          <p class="bx-quote">Bullwark bounds what the model can see <span>before the model sees anything.</span></p>
+          <p class="bx-foot">Moderators see everything. Everyone else gets a memory shaped to their task, and nothing hints at the rest.</p>
+        </article>
+      </div>
+    </section>
+
+    <!-- SOTA -->
+    <section class="block" id="sota">
+      <p class="label">State of the art, by design</p>
+      <h2>Six ideas that make it work.<br><span>Few memory layers have any of them.</span></h2>
+      <ol class="ideas">
+        <li><span class="n">01</span><h3>Scope before retrieval</h3><p>A memory is a fixed list of fact IDs. Search runs inside that list and never sees the rest.</p></li>
+        <li><span class="n">02</span><h3>Living scopes</h3><p>Every new fact is judged against each person's original rule and joins only the scopes it fits.</p></li>
+        <li><span class="n">03</span><h3>Creator-bounded agents</h3><p>An agent's scope is intersected with its creator's at build, on every update and on every read.</p></li>
+        <li><span class="n">04</span><h3>Restart on narrowing</h3><p>When access shrinks, the agent's working folder is discarded and rebuilt, not just its process stopped.</p></li>
+        <li><span class="n">05</span><h3>Write-time quarantine</h3><p>Text that carries instructions aimed at an AI is held out of every scope before anyone can retrieve it.</p></li>
+        <li><span class="n">06</span><h3>Memory that doesn't echo</h3><p>Context injected into a prompt is never captured back as new memory, so facts don't multiply.</p></li>
+      </ol>
+    </section>
+
+    <!-- 1.0 Memory -->
+    <section class="block split" id="memory">
+      <div class="copy">
+        <p class="label">1.0 — Capture</p>
+        <h2>Every conversation becomes<br><span>sourced, living memory</span></h2>
+        <p class="lead">Coding sessions, memos, chats and agent notes are distilled into short facts. Each fact keeps its source, author and history, and is filed into exactly one group.</p>
+        <div class="acc">
+          <details open><summary><span class="n">1.1</span>Capture where people already work<i></i></summary><p>A Claude Code hook files each session as it ends. The MCP tool <code>canon_save</code>, an ingest API and an Add item box cover everything else. One token per person ties every capture to its author.</p></details>
+          <details><summary><span class="n">1.2</span>Claude writes the facts<i></i></summary><p>Claude turns a raw session into short, sourced statements. It drops rumors it can't source and never restates memory the assistant was given as if it were new.</p></details>
+          <details><summary><span class="n">1.3</span>Jev triages every draft<i></i></summary><p>One batched call answers three questions: keep it, which group it belongs to, and whether it contains instructions aimed at an AI. Unplaceable facts go to a moderators-only inbox.</p></details>
+          <details><summary><span class="n">1.4</span>Nothing is lost, nothing duplicates<i></i></summary><p>Raw sessions stay in a cold archive. Durable receipts recover sessions that ended during an outage. Exact repeats are no-ops, and a stale position is retired when its author updates it.</p></details>
+        </div>
+      </div>
+      <div class="art board" role="img" aria-label="A Claude Code session moving through capture, drafting, triage and filing">
+        <div class="col"><p class="col-h">Captured <span>1/1</span></p>
+          <div class="card live"><span class="ico">⌘</span><div><b>Claude Code session</b><small>Bill Stevens · 4 messages</small></div></div>
+        </div>
+        <div class="col"><p class="col-h">Drafted <span>3</span></p>
+          <div class="card"><span class="ico">✎</span><div><b>Bought 20,000 TMC</b><small>Claude · sourced</small></div></div>
+          <div class="card"><span class="ico">✎</span><div><b>Now long 200,000 TMC</b><small>Claude · sourced</small></div></div>
+          <div class="card"><span class="ico">✎</span><div><b>Trim plan for TMC</b><small>Claude · sourced</small></div></div>
+          <div class="card cut"><span class="ico">✕</span><div><b>Unsourced rumor</b><small>dropped by the writer</small></div></div>
+        </div>
+        <div class="col"><p class="col-h">Filed <span>3/3</span></p>
+          <div class="card ok"><span class="ico"><i class="d desk"></i></span><div><b>desk/dollar-bill</b><small>Jev · kept · 3 facts</small></div></div>
+          <div class="card faint"><span class="ico">⊘</span><div><b>Quarantine</b><small>nothing aimed at an AI</small></div></div>
+          <div class="card faint"><span class="ico">⇢</span><div><b>Joined 3 scopes</b><small>his own, his agent's, Bob's</small></div></div>
+        </div>
+        <p class="board-foot"><b>≈3 s</b> from session end to memory, measured live on Claude and Jev</p>
+      </div>
+    </section>
+
+    <!-- 2.0 Scope -->
+    <section class="block split flip" id="scope">
+      <div class="copy">
+        <p class="label">2.0 — Scope</p>
+        <h2>Access is decided once,<br><span>in code first</span></h2>
+        <p class="lead">Compliance describes each person's task in plain words and names what to leave out. Bullwark turns that into a fixed memory, and keeps it current as the firm learns.</p>
+        <div class="acc">
+          <details open><summary><span class="n">2.1</span>Exclusions run in code<i></i></summary><p>Excluded groups and labels leave the pool before any model sees a single fact. Relevance can never bring them back.</p></details>
+          <details><summary><span class="n">2.2</span>Moss finds, Jev decides<i></i></summary><p>Moss hybrid retrieval proposes candidates from what remains. Jev answers yes or no in one batched call, and code applies the threshold. A "maybe" on an exclusion counts as yes.</p></details>
+          <details><summary><span class="n">2.3</span>Scopes that stay alive<i></i></summary><p>Each new fact is checked against every person's original rule and joins the scopes it fits, within seconds of being written.</p></details>
+          <details><summary><span class="n">2.4</span>Only moderators move the wall<i></i></summary><p>Only Compliance adds people, edits rules or changes tiers. Models never grant access.</p></details>
+        </div>
+      </div>
+      <div class="art funnel" role="img" aria-label="Building Bill Stevens's scope: the deal group is removed in code, Moss and Jev pick from the rest, and the result is 11 facts in 174 milliseconds">
+        <div class="f-head"><span class="avatar">BS</span><div><b>Bill Stevens</b><small>Task: answer questions about our positions and public market news</small></div></div>
+        <div class="f-step"><span class="f-n">1</span><div class="f-body"><b>Every fact in the firm</b><span class="bar w100"></span></div></div>
+        <div class="f-step"><span class="f-n">2</span><div class="f-body"><b>Exclusions, in code</b><span class="chips"><span class="chip x"><i class="d deal"></i>deal/stonewall removed</span></span><span class="bar w72"></span></div></div>
+        <div class="f-step"><span class="f-n">3</span><div class="f-body"><b>Moss proposes candidates</b><span class="bar w48"></span></div></div>
+        <div class="f-step"><span class="f-n">4</span><div class="f-body"><b>Jev: yes or no</b><span class="bar w30 green"></span></div></div>
+        <div class="tiles">
+          <div class="tile"><small>Facts in scope</small><b>11</b></div>
+          <div class="tile"><small>From the deal</small><b>0</b></div>
+          <div class="tile"><small>Build time</small><b>174<em>ms</em></b></div>
+        </div>
+        <p class="board-foot">Live run on Jev, synthetic demo world</p>
+      </div>
+    </section>
+
+    <!-- 3.0 Agents -->
+    <section class="block split" id="agents">
+      <div class="copy">
+        <p class="label">3.0 — Agents</p>
+        <h2>Agents inherit a scope.<br><span>They never exceed it.</span></h2>
+        <p class="lead">Anyone can create an agent and give it work. It runs in its own sandbox, holding only the facts its scope allows, and its findings flow back into its creator's memory.</p>
+        <div class="acc">
+          <details open><summary><span class="n">3.1</span>Sandboxed by construction<i></i></summary><p>Each run gets its own folder holding only its scope's facts as markdown. File tools are confined to that folder in code. There is no shell and no network, and it can write only to <code>out/</code>.</p></details>
+          <details><summary><span class="n">3.2</span>Bounded by its creator<i></i></summary><p>Creating an agent never creates a route to more facts. Ben cannot hand his agent anything he was never given.</p></details>
+          <details><summary><span class="n">3.3</span>Restart on narrowing<i></i></summary><p>When a fact leaves the scope mid-run, the step is interrupted, the folder and its drafts are thrown away, and the agent restarts from what it may still see.</p></details>
+          <details><summary><span class="n">3.4</span>Findings flow back to memory<i></i></summary><p>Notes an agent saves become facts in its creator's memory. A save that cites a fact the agent has lost is refused.</p></details>
+        </div>
+      </div>
+      <div class="art agentart" role="img" aria-label="The desk assistant working live in a sandbox folder that holds only its scope's facts">
+        <div class="agent-card">
+          <div class="a-top"><span class="spin" aria-hidden="true"></span><b>Desk assistant</b><span class="pill blue">Working</span><span class="clock">step 3 · 0:41</span></div>
+          <p class="a-task">Answer my questions about our positions and public news</p>
+          <ul class="steps">
+            <li>Reading brief.md</li>
+            <li>Reading “Long 200,000 TMC after the 20,000 add…”</li>
+            <li>Reading “TMC public filings…”</li>
+            <li class="now">Writing out/morning-note.md<span class="dots3"><i></i><i></i><i></i></span></li>
+          </ul>
+        </div>
+        <div class="tree">
+          <p class="tree-h">sandbox/desk-assistant/</p>
+          <p>├─ brief.md</p>
+          <p>├─ facts/ <span class="muted">only this scope</span></p>
+          <p>│  ├─ <i class="d desk"></i>long-200k-tmc.md</p>
+          <p>│  └─ <i class="d public"></i>tmc-filings.md</p>
+          <p>└─ out/ <span class="muted">the only writable path</span></p>
+          <p>   └─ morning-note.md</p>
+        </div>
+        <div class="toast"><b>Scope narrowed</b> · old folder discarded, restarting fresh</div>
+      </div>
+    </section>
+
+    <!-- 4.0 Trust -->
+    <section class="block split flip" id="trust">
+      <div class="copy">
+        <p class="label">4.0 — Trust</p>
+        <h2>No refusals. No hints.<br><span>A record of everything sent.</span></h2>
+        <p class="lead">People never hit a wall they can see. Compliance sees exactly which facts every person and agent received, and why.</p>
+        <div class="acc">
+          <details open><summary><span class="n">4.1</span>Invisible by design<i></i></summary><p>Nothing outside a scope is counted, named or hinted at. <code>canon_whoami</code> shows a person their task, never their exclusions.</p></details>
+          <details><summary><span class="n">4.2</span>Uncertainty means exclude<i></i></summary><p>An uncertain exclusion counts as yes. A fact the judge can't place waits in the moderators' inbox.</p></details>
+          <details><summary><span class="n">4.3</span>Every handoff audited<i></i></summary><p>The audit records the exact fact IDs each person or agent was sent. It persists across restarts and powers the handoff inspector.</p></details>
+          <details><summary><span class="n">4.4</span>Measured against attacks<i></i></summary><p>A finance benchmark of 60 attacks across six styles, including agent escalation and planted instructions, plus 30 legitimate tasks, compares Bullwark with no memory and with shared memory.</p></details>
+        </div>
+      </div>
+      <div class="art stats" role="img" aria-label="Measured figures: 174 millisecond scope build, about 3 seconds from session to memory, 846 automated tests, beside a live audit feed">
+        <div class="stat-panel">
+          <div class="stat"><small>Scope build, live Jev</small><b>174<em>ms</em></b><span class="segs" aria-hidden="true"></span></div>
+          <div class="stat"><small>Session to memory</small><b>≈3<em>s</em></b><span class="segs" aria-hidden="true"></span></div>
+          <div class="stat"><small>Automated tests passing</small><b>846</b><span class="segs" aria-hidden="true"></span></div>
+        </div>
+        <div class="feed">
+          <p class="feed-h"><i class="livedot"></i>Audit</p>
+          <div class="f-row"><span class="avatar">BS</span><div><b>Bill Stevens</b><small>canon_context · 4 facts</small></div><span class="pill green">Sent</span></div>
+          <div class="f-row"><span class="avatar">DA</span><div><b>Desk assistant</b><small>step 3 · scoped folder</small></div><span class="pill green">Sent</span></div>
+          <div class="f-row"><span class="avatar">BC</span><div><b>Ben Carter</b><small>scope rebuilt · rule edited</small></div><span class="pill">Built</span></div>
+          <div class="f-row"><span class="avatar">MW</span><div><b>Mike Wagner</b><small>announced terms → public</small></div><span class="pill">Refiled</span></div>
+          <div class="f-row fade"><span class="avatar">Q</span><div><b>Quarantine</b><small>instruction aimed at an AI</small></div><span class="pill amber">Held</span></div>
+          <p class="feed-foot">Every handoff, logged with its exact facts</p>
+        </div>
+      </div>
+    </section>
+
+    <!-- Sponsors -->
+    <section class="block" id="sponsors">
+      <p class="label">Sponsor technology</p>
+      <h2>Built on the frontier of agent tooling.<br><span>Each piece does real work.</span></h2>
+      <p class="lead">Open one to see where it sits in the pipeline, why we chose it, and what we verified live.</p>
+
+      <div class="sp">
+        <details class="sp-i" open>
+          <summary><span class="sp-logo moss"><svg class="ic" aria-hidden="true"><use href="#i-search"/></svg></span><span class="sp-t"><b>Moss</b><small>Fast retrieval, inside the boundary</small></span><span class="sp-where">Scope · Retrieve</span><i></i></summary>
+          <div class="sp-body">
+            <ol class="flow">
+              <li><svg class="ic" aria-hidden="true"><use href="#i-db"/></svg><b>Sourced fact store</b><small>Sessions and documents become cited facts</small></li>
+              <li><svg class="ic" aria-hidden="true"><use href="#i-shield"/></svg><b>Code-enforced scope</b><small>Allowlisted fact IDs only; excluded groups leave first</small></li>
+              <li class="hi"><svg class="ic" aria-hidden="true"><use href="#i-search"/></svg><b>Moss hybrid search</b><small>Meaning plus exact terms ranks the in-scope candidates</small></li>
+              <li><svg class="ic" aria-hidden="true"><use href="#i-check"/></svg><b>Verify IDs</b><small>Code checks every result against canonical fact IDs</small></li>
+              <li><svg class="ic" aria-hidden="true"><use href="#i-bot"/></svg><b>Context handed over</b><small>Small, cited, shaped to the task</small></li>
+            </ol>
+            <p class="brace">Moss ranks candidates. Bullwark enforces access.</p>
+            <div class="why">
+              <div class="no"><p class="why-h">Why not the alternatives</p><ul>
+                <li><b>Whole-history prompts</b>Token-heavy, noisy context that raises cost and hallucination.</li>
+                <li><b>Keyword-only search</b>Misses paraphrases and intent, so context comes back incomplete.</li>
+                <li><b>Remote vector database</b>More infrastructure, extra network hops, one more system to secure.</li>
+              </ul></div>
+              <div class="yes"><p class="why-h">What Moss unlocks</p><ul>
+                <li><b>A local session index</b>Runs inside the Canon server; the markdown fact files stay the source of truth.</li>
+                <li><b>Hybrid search: meaning + exact terms</b>Finds facts phrased differently, while tickers and names still match exactly.</li>
+                <li><b>Lookup for live agents</b>In-session memory without standing up a second datastore.</li>
+              </ul></div>
+            </div>
+            <p class="proof"><span class="tag">verified</span>Live Moss retrieval passed on the shared preview. The keyword retriever is a labelled simulated stand-in. We make no latency claim for Moss.</p>
+          </div>
+        </details>
+
+        <details class="sp-i">
+          <summary><span class="sp-logo droid"><svg class="ic" aria-hidden="true"><use href="#i-bot"/></svg></span><span class="sp-t"><b>Factory Droid</b><small>From raw sessions to scoped, executable agents</small></span><span class="sp-where">Distill · Act</span><i></i></summary>
+          <div class="sp-body">
+            <p class="lane"><span>01</span>Memory extraction</p>
+            <ol class="flow">
+              <li><svg class="ic" aria-hidden="true"><use href="#i-chat"/></svg><b>Sessions and documents</b><small>Chats, coding sessions, memos, notes</small></li>
+              <li class="hi"><svg class="ic" aria-hidden="true"><use href="#i-bot"/></svg><b>Droid SDK, headless</b><small>Every tool disabled; the transcript is data</small></li>
+              <li><svg class="ic" aria-hidden="true"><use href="#i-file"/></svg><b>Structured fact drafts</b><small>Claims with sources and metadata</small></li>
+              <li><svg class="ic" aria-hidden="true"><use href="#i-gate"/></svg><b>Triage and memory</b><small>Jev and code decide where each fact goes</small></li>
+            </ol>
+            <p class="lane"><span>02</span>Scoped agent runs</p>
+            <ol class="flow">
+              <li><svg class="ic" aria-hidden="true"><use href="#i-filter"/></svg><b>Approved memory</b><small>Only this agent's in-scope facts</small></li>
+              <li><svg class="ic" aria-hidden="true"><use href="#i-folder"/></svg><b>Isolated folder</b><small>Scoped files only, writes only to out/</small></li>
+              <li class="hi"><svg class="ic" aria-hidden="true"><use href="#i-term"/></svg><b>Droid CLI, headless</b><small>Steps stream back as they happen</small></li>
+              <li><svg class="ic" aria-hidden="true"><use href="#i-check"/></svg><b>Result and handoff</b><small>Saved notes checked against the scope</small></li>
+            </ol>
+            <p class="brace">Bullwark sets the scope. The OS sandbox constrains the run.</p>
+            <div class="why">
+              <div class="no"><p class="why-h">Why not the alternatives</p><ul>
+                <li><b>One-off chat prompts</b>Not repeatable, and structure is hard to enforce.</li>
+                <li><b>Manual fact extraction</b>Slow, easy to miss context, and stale by the next meeting.</li>
+                <li><b>Unrestricted general agents</b>Broad file and tool access is a poor fit for regulated work.</li>
+              </ul></div>
+              <div class="yes"><p class="why-h">What Droid enables</p><ul>
+                <li><b>Programmatic, headless extraction</b>Raw sessions become structured drafts with sources, with tools switched off.</li>
+                <li><b>Repeatable agent runs from the CLI</b>Structured output, tool controls and a live step stream.</li>
+                <li><b>Fits Bullwark's sandboxes</b>Each run sees only its folder of in-scope facts.</li>
+              </ul></div>
+            </div>
+            <p class="proof"><span class="tag">verified</span>Droid SDK extraction runs on the shared preview. A real Droid CLI finance-agent run completed two steps under macOS Seatbelt and saved its note in 35.3 s (single run). Preview agents run on Claude, because Droid isolation on Linux is unverified.</p>
+          </div>
+        </details>
+
+        <details class="sp-i">
+          <summary><span class="sp-logo jev"><svg class="ic" aria-hidden="true"><use href="#i-gate"/></svg></span><span class="sp-t"><b>Jev <em>by TypeSafe</em></b><small>Yes/no judgments at the speed of a policy gate</small></span><span class="sp-where">Store · Scope · Retrieve</span><i></i></summary>
+          <div class="sp-body">
+            <ol class="flow">
+              <li><svg class="ic" aria-hidden="true"><use href="#i-filter"/></svg><b>Candidates</b><small>What is left after code exclusions</small></li>
+              <li><svg class="ic" aria-hidden="true"><use href="#i-list"/></svg><b>One batched question</b><small>Every candidate, one call per decision</small></li>
+              <li class="hi"><svg class="ic" aria-hidden="true"><use href="#i-gate"/></svg><b>Jev: yes or no</b><small>A probability for each item</small></li>
+              <li><svg class="ic" aria-hidden="true"><use href="#i-shield"/></svg><b>Threshold in code</b><small>A "maybe" on an exclusion counts as yes</small></li>
+              <li><svg class="ic" aria-hidden="true"><use href="#i-check"/></svg><b>Decision</b><small>Admit, file, quarantine or send to the inbox</small></li>
+            </ol>
+            <p class="brace">Jev answers. Code decides.</p>
+            <div class="why">
+              <div class="no"><p class="why-h">Why not the alternatives</p><ul>
+                <li><b>Free-text LLM judges</b>Slow, need parsing, and can be argued into a different answer.</li>
+                <li><b>One call per fact</b>A round trip for every candidate on every scope build.</li>
+                <li><b>Letting the model hold everything</b>Access becomes a prompt instead of a boundary.</li>
+              </ul></div>
+              <div class="yes"><p class="why-h">What Jev unlocks</p><ul>
+                <li><b>Judgment on every write and build</b>Fast enough to check each new fact against every scope.</li>
+                <li><b>One interface, four jobs</b>Triage, admission, relevance and injection flags.</li>
+                <li><b>A safe fallback</b>Claude sits behind the same <code>judge()</code> interface if Jev is unavailable.</li>
+              </ul></div>
+            </div>
+            <p class="proof"><span class="tag">measured</span>Live on Jev: Bill's scope built in 174 ms (11 facts, none from the deal), Bob's in 271 ms (18 facts), triage in 420 ms across 38 facts and 5 groups.</p>
+          </div>
+        </details>
+
+        <details class="sp-i">
+          <summary><span class="sp-logo claude"><svg class="ic" aria-hidden="true"><use href="#i-term"/></svg></span><span class="sp-t"><b>Claude and Claude Code</b><small>Language work, inside the lines Bullwark draws</small></span><span class="sp-where">Capture · Distill · Act</span><i></i></summary>
+          <div class="sp-body">
+            <ol class="flow">
+              <li><svg class="ic" aria-hidden="true"><use href="#i-term"/></svg><b>Claude Code session</b><small>A hook files it when the session ends</small></li>
+              <li class="hi"><svg class="ic" aria-hidden="true"><use href="#i-file"/></svg><b>Claude writes facts</b><small>Short, sourced, unsourced rumors dropped</small></li>
+              <li><svg class="ic" aria-hidden="true"><use href="#i-filter"/></svg><b>Scoped injection</b><small>Before each prompt, only this person's scope</small></li>
+              <li class="hi"><svg class="ic" aria-hidden="true"><use href="#i-bot"/></svg><b>Claude agent runtime</b><small>Four tools, confined to the agent's folder</small></li>
+            </ol>
+            <p class="brace">Claude does the language work. Bullwark decides what it reads.</p>
+            <div class="why">
+              <div class="no"><p class="why-h">Why not the alternatives</p><ul>
+                <li><b>Pasting context by hand</b>Inconsistent, and nobody records what was shared.</li>
+                <li><b>One shared memory file</b>Everyone's assistant sees everyone's notes.</li>
+              </ul></div>
+              <div class="yes"><p class="why-h">What Claude unlocks</p><ul>
+                <li><b>Capture where people already work</b>No new app to adopt for the memory to grow.</li>
+                <li><b>Four MCP tools</b><code>canon_context</code>, <code>canon_search</code>, <code>canon_save</code>, <code>canon_whoami</code>, all scoped.</li>
+                <li><b>Briefs and runs per agent</b>Claude writes each agent's scoped brief and runs it through a strict tool loop.</li>
+              </ul></div>
+            </div>
+            <p class="proof"><span class="tag">measured</span>Live: the writer turned a session into 3 sourced drafts in 6,342 ms and dropped an unsourced rumor. The before-prompt hook served 4 facts, 83 tokens (est.).</p>
+          </div>
+        </details>
+      </div>
+      <p class="under"><b>Under the hood:</b> TypeScript end to end. Node 22 services over REST and server-sent events, a crash-safe store of markdown facts, and one shared contract package.</p>
+    </section>
+
+    <!-- Built for -->
+    <section class="block" id="built">
+      <p class="label">Who it's for</p>
+      <div class="built">
+        <div><svg class="ic" aria-hidden="true"><use href="#i-search"/></svg><b>Hedge funds</b><small>Deal teams, research and trading desks</small></div>
+        <div><svg class="ic" aria-hidden="true"><use href="#i-db"/></svg><b>Investment firms</b><small>Portfolio research and client communications</small></div>
+        <div><svg class="ic" aria-hidden="true"><use href="#i-users"/></svg><b>Small finance teams</b><small>10–50 people holding high-stakes information</small></div>
+        <div><svg class="ic" aria-hidden="true"><use href="#i-term"/></svg><b>Works with your tools</b><small>Claude Code and MCP, plus memos, emails and notes</small></div>
+      </div>
+    </section>
+
+    <!-- Close -->
+    <section class="close">
+      <h2>The control room for a<br>small finance team's AI.</h2>
+      <a class="btn dark" href="./member.html" data-console>Open Bullwark</a>
+    </section>
+  </main>
+
+  <footer class="foot">
+    <p>Built at Cal Hacks 13.0 by Henry Lai, Victor Chun and Edan Wong.</p>
+    <p>All finance data shown is synthetic, inspired by <i>Billions</i>. Bullwark is decision support for compliance, not legal advice.</p>
+  </footer>
+  <script>
+    // The console buttons go back to the console page the visitor came from, keeping its
+    // ?server=…&auth=… settings; opened directly, they go to the member view with this page's query.
+    (() => {
+      let back = "./member.html" + location.search;
+      try {
+        const from = new URL(document.referrer);
+        if (from.origin === location.origin && /\/(member|moderator)\.html$/.test(from.pathname)) back = from.href;
+      } catch {}
+      for (const a of document.querySelectorAll("a[data-console]")) a.href = back;
+    })();
+
+    // Presenting: → and ← step through the sections like slides.
+    addEventListener("keydown", (e) => {
+      if (e.altKey || e.ctrlKey || e.metaKey || e.shiftKey) return;
+      if (e.key !== "ArrowRight" && e.key !== "ArrowLeft") return;
+      if (e.target.closest?.("input, textarea, select, [contenteditable]")) return;
+      const tops = [...document.querySelectorAll("main > section")].map((s) => s.getBoundingClientRect().top - 88);
+      const next = e.key === "ArrowRight" ? tops.find((t) => t > 8) : tops.filter((t) => t < -8).pop();
+      if (next === undefined) return;
+      e.preventDefault();
+      scrollBy({ top: next, behavior: matchMedia("(prefers-reduced-motion: reduce)").matches ? "auto" : "smooth" });
+    });
+  </script>
+</body>
+</html>
