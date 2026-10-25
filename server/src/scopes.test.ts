@@ -646,7 +646,7 @@ describe("scopes REST surface, scope builder and handoff (A2, A4+A6, A7+A16)", (
   });
 
   test("scope builder: a 'maybe' on the exclusion question counts as excluded", async () => {
-    testAnswers = (q) => (q.id === "xf:fct_ab110003" ? { id: q.id, type: "noul", p: 0.35 } : undefined); // a maybe, not a yes
+    testAnswers = (q) => (q.id === "xf:fct_ab110003" ? { id: q.id, type: "noul", p: 0.5 } : undefined); // a maybe on live Jev's scale, not a yes
     try {
       const res = await api("/api/principals", {
         method: "POST",
