@@ -34,6 +34,7 @@ export interface Group {
   id: string;
   /** One line Jev reads when filing a fact or checking an exclusion. Moderators only. */
   description: string;
+  display?: string;
   /**
    * Names that point at the group (code names, companies, tickers). Triage matches them in code
    * as a filing hint next to Jev's pick. A deal group's code name is always one of them

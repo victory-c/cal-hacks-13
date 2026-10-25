@@ -38,8 +38,8 @@ account could not be automatically verified, is pending additional review, and m
 API key or firewall resource was created, and the MLH credit balance remains unverified.
 
 A local draft requests expedited review before the October 25, 9:00 AM Pacific submission
-deadline. It has not been sent. Sending it to Vultr support requires the user's explicit
-communication authorization; identity/payment verification, if requested, stays with the owner.
+deadline. It has not been sent. The user chose to seek onsite Vultr/MLH assistance; account review
+remains the blocker. Identity/payment verification, if requested, stays with the owner.
 
 Once the account is approved, confirm the credit and final price, create only the dedicated
 instance, deploy the verified Linux image, transfer runtime secrets securely, migrate canonical

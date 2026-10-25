@@ -14,7 +14,7 @@ import { createRetriever } from "./retrieval/index.ts";
 import type { Retriever } from "./retrieval/index.ts";
 import { createRouter } from "./router.ts";
 import { createServerJudge } from "./scope-judge.ts";
-import { ScopeState, attachLivingScopes, buildInitialScopes } from "./scopes.ts";
+import { ScopeState, attachLivingScopes, buildInitialScopes, onFactSaved } from "./scopes.ts";
 import type { WorldFixtures } from "./scopes.ts";
 import { loadDemoWorld } from "./world.ts";
 import { FileStore } from "./store.ts";
@@ -74,9 +74,9 @@ export async function startServer(opts: StartOptions = {}): Promise<RunningServe
     if (e.type === "fact.saved" || e.type === "fact.retired") void reindex();
   });
 
-  const world = new ScopeState(opts.world ?? loadDemoWorld().fixtures);
+  const world = new ScopeState(opts.world ?? loadDemoWorld().fixtures, dir);
   // Living scopes (PRD #11): new hot facts join the scopes whose checks they clear; retired facts leave.
-  attachLivingScopes({ world, store, bus, grants, judge, retriever });
+  const living = attachLivingScopes({ world, store, bus, grants, judge, retriever });
   // The 0:00 scopes come from the real pipeline (this judge and retriever), never from a snapshot.
   if (opts.buildInitialScopes ?? true) {
     for (const r of await buildInitialScopes({ world, store, bus, grants, judge, retriever })) {
@@ -85,6 +85,19 @@ export async function startServer(opts: StartOptions = {}): Promise<RunningServe
     }
   }
 
+  for (const scope of world.scopes.values()) {
+    for (const fid of [...scope.fact_ids]) if (!store.getFact(fid) || store.getFact(fid)?.tier !== "hot") {
+      scope.fact_ids = scope.fact_ids.filter((id) => id !== fid);
+      const entry = { id: `aud_${Math.random().toString(16).slice(2, 10)}`, at: new Date().toISOString(), kind: "fact.left_scope" as const, actor: "server", principal: scope.principal, fact_ids: [fid], detail: "Fact no longer present in the hot store." };
+      world.audit.push(entry); bus.emit({ type: "audit.logged", entry });
+    }
+  }
+  // Re-offer only captures from the crash window. Existing joins are idempotent.
+  for (const fact of store.listFacts({ tier: "hot" })) {
+    const session = await store.getSession(fact.source.session);
+    if (session?.ended_at && Date.parse(session.ended_at) >= Date.now() - 60_000) await onFactSaved({ world, store, bus, grants, judge, retriever }, fact);
+  }
+  await world.flush();
   const router = createRouter({ store, bus, grants, judge, retriever, tokens, world, startedAt: Date.now(), log: opts.log });
   const server = createServer((req, res) => void router(req, res));
   const host = opts.host ?? "127.0.0.1";
@@ -105,13 +118,17 @@ export async function startServer(opts: StartOptions = {}): Promise<RunningServe
     grants,
     world,
     dataDir: dir,
-    close: () =>
-      new Promise<void>((resolve, reject) => {
+    close: async () => {
+      await living.drain();
+      living.unsubscribe();
+      await world.flush();
+      return new Promise<void>((resolve, reject) => {
         server.closeAllConnections(); // SSE clients would otherwise hold the server open
         server.close((err) => {
           if (err) reject(err);
           else Promise.resolve(retriever.close?.()).then(resolve, reject);
         });
-      }),
+      });
+    },
   };
 }

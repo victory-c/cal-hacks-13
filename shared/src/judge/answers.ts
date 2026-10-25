@@ -1,6 +1,6 @@
 // Shared coercion for judge responses. Every network provider maps its raw output through here,
-// so a missing or malformed answer never crashes a save: it becomes a neutral default plus one
-// console.warn naming the question ids.
+// so a missing or malformed answer never crashes a save: it becomes a neutral default marked unavailable, plus one
+// console.warn naming the question ids. Access decisions must apply their fail-closed fallback.
 
 import type { Answer, Question } from "../types/judge.ts";
 
@@ -10,15 +10,15 @@ export function isRecord(x: unknown): x is Record<string, unknown> {
   return typeof x === "object" && x !== null && !Array.isArray(x);
 }
 
-/** p 0.5 / options[0] / midpoint: "I don't know", so thresholds fall on their safe side. */
+/** Keep neutral values for diagnostics; never treat an unavailable answer as a real probability. */
 export function defaultAnswer(q: Question): Answer {
   switch (q.type) {
     case "noul":
-      return { id: q.id, type: "noul", p: 0.5 };
+      return { id: q.id, type: "noul", p: 0.5, unavailable: true };
     case "choice":
-      return { id: q.id, type: "choice", choice: q.options[0] ?? "", p: 0.5 };
+      return { id: q.id, type: "choice", choice: q.options[0] ?? "", p: 0.5, unavailable: true };
     case "score":
-      return { id: q.id, type: "score", value: (q.min + q.max) / 2 };
+      return { id: q.id, type: "score", value: (q.min + q.max) / 2, unavailable: true };
   }
 }
 
@@ -91,6 +91,6 @@ export function assembleAnswers(judge: string, questions: Question[], items: unk
     missing.push(q.id);
     return defaultAnswer(q);
   });
-  if (missing.length) console.warn(`[judge] ${judge}: no usable answer for ${missing.join(", ")}; using neutral defaults`);
+  if (missing.length) console.warn(`[judge] ${judge}: no usable answer for ${missing.join(", ")}; using unavailable defaults`);
   return answers;
 }

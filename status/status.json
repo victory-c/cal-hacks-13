@@ -1,6 +1,6 @@
 {
   "project": "Bullwark",
-  "updated": "2026-10-25T04:32:27.400930+00:00",
+  "updated": "2026-10-25T04:42:23.162780+00:00",
   "team": [
     {
       "id": "A",
@@ -458,18 +458,18 @@
       "owner": "C",
       "milestone": "M3",
       "priority": "must",
-      "state": "doing",
+      "state": "done",
       "title": "Moderator console: people and tiers, scope builder, scope inspector, live feed and agent lanes",
-      "note": "web/src/moderator.html runs on the in-browser mock (?data=canon for Canon): people and tiers, scope builder with live stages, scope inspector, agents, memory with inbox, quarantine and bulk filing, new groups, feed. Waiting on lane A contract routes; additions listed in web/README.md."
+      "note": "Edan moderator layout integrated with live Canon people, tiers, rules, scopes, groups, memory, inbox, quarantine, feed and agent lanes. Rule edits preserve all exclusions and filing preserves labels; unsupported live controls hidden. 102 web tests and live browser load pass."
     },
     {
       "id": "C14",
       "owner": "C",
       "milestone": "M3",
       "priority": "must",
-      "state": "doing",
+      "state": "done",
       "title": "Handoff inspector with candidate decisions, cut reasons, tokens, latency and cost",
-      "note": "Handoffs tab in web/src/moderator.html: candidates, simulated relevance, kept or cut and why, tokens (est.); latency and cost show — until measured or a rate is set."
+      "note": "Live handoff/audit adapters connected to canonical scopes and persisted telemetry. Real Jev/Moss MCP handoffs exercised through HTTPS; counters and inspector consume actual recorded timings, with missing costs left unset."
     },
     {
       "id": "C15",
@@ -503,18 +503,18 @@
       "owner": "C",
       "milestone": "M3",
       "priority": "must",
-      "state": "doing",
+      "state": "done",
       "title": "Memory browser: view, edit and retire facts",
-      "note": "Member side in member.html, moderator side in moderator.html (view, filter, edit, file, retire, bulk file, add item), both on mock data until the contract routes land."
+      "note": "Live scoped memory reads, edit, retire, add items and moderator filing connected. Regression coverage verifies no writes outside scope, labels retained and private source titles removed for other members."
     },
     {
       "id": "C19",
       "owner": "C",
       "milestone": "M3",
       "priority": "must",
-      "state": "doing",
+      "state": "done",
       "title": "Member view: my agents, create an agent, my memory",
-      "note": "web/src/member.html runs on the in-browser mock (?data=canon for Canon). Agents with run/stop, live status, outputs, schedules and document types; memory with filters, edit and retire. Waiting on lane A contract routes; proposed additions listed in web/README.md."
+      "note": "Live member memory, agent creation and scoped Run integrated; seeded desk-assistant completed a real Claude run and appeared Done in the browser. Unsupported live Stop, automatic schedule and document preferences hidden; mock mode remains explicit."
     },
     {
       "id": "C20",
@@ -577,7 +577,16 @@
       "priority": "must",
       "state": "blocked",
       "title": "Deploy to a new isolated Vultr sponsor VM",
-      "note": "docs/VULTR_DEPLOYMENT.md: rechecked official sponsor tracks and prepared SJC 2 vCPU / 4GB / 80GB Ubuntu 24.04 plan at USD 20/month, subject to actual MLH credit and availability. Browser sign-in succeeded; account is pending manual review for up to 48 hours and support page is gated. No Vultr resource created. Cancelled existing-Hermes attempt fully rolled back; original Hermes process/ports preserved. Support email draft prepared, not sent; awaiting explicit communication authorization."
+      "note": "docs/VULTR_DEPLOYMENT.md: rechecked official sponsor tracks and prepared SJC 2 vCPU / 4GB / 80GB Ubuntu 24.04 plan at USD 20/month, subject to actual MLH credit and availability. Browser sign-in succeeded; account is pending manual review for up to 48 hours and support page is gated. No Vultr resource created. Cancelled existing-Hermes attempt fully rolled back; original Hermes process/ports preserved. User is seeking onsite Vultr/MLH review assistance. Support email draft remains unsent; account review still blocks a new isolated VM."
+    },
+    {
+      "id": "B27",
+      "owner": "B",
+      "milestone": "M2",
+      "priority": "must",
+      "state": "done",
+      "title": "Integrate outstanding PRs into the finance scope and capture pipeline",
+      "note": "Integrated Edan PR34 with current main and preserved PR31 operations. 736 automated tests, typechecks and builds pass. Cross-HTTP capture/writer/triage/scope/MCP/restart test passes; 32 real HTTPS auth/privacy/MCP checks pass; Factory/Jev saved person-bound Axe fact and Claude desk-assistant completed two runtime invocations. Final integration PR records ancestry and supersedes old dispatch/triage PRs. Linux Droid dispatch, live Stop/schedules/docs and full finance benchmark remain outside the measured completion."
     }
   ],
   "tracks": [

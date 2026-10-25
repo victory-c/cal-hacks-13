@@ -58,6 +58,8 @@ export interface Handler {
    * retry has had one more try (tests, SIGINT).
    */
   settle(): Promise<void>;
+  /** Recover ended captures missed during an outage, using the server's durable receipts. */
+  recover(): Promise<void>;
 }
 
 type Captured = Extract<CanonEvent, { type: "session.captured" }>;
@@ -82,6 +84,7 @@ export function createHandler(opts: HandlerOptions): Handler {
   const held: Held[] = []; // quarantine items and events a failing route did not take
   let retryTimer: ReturnType<typeof setTimeout> | undefined;
   let retrying: Promise<void> | undefined;
+  let recovering: Promise<void> | undefined;
 
   const track = (p: Promise<void>): Promise<void> => {
     inflight.add(p);
@@ -139,6 +142,13 @@ export function createHandler(opts: HandlerOptions): Handler {
         }
         held.splice(held.indexOf(h), 1);
         if (r.unsent) warn(`session ${id}: gave up after ${h.tries} retries: ${describeUnsent(r.unsent)} not filed`);
+        else if (h.box.fingerprint) {
+          try { await acknowledge(opts.client, id, h.box.fingerprint); }
+          catch (err) {
+            warn(`session ${id}: receipt failed: ${errorMessage(err)}; held for retry`);
+            held.push({ box: { session_id: id, fingerprint: h.box.fingerprint, events: [] }, tries: h.tries, since: h.since });
+          }
+        }
       }
     };
     retrying = track(
@@ -202,6 +212,23 @@ export function createHandler(opts: HandlerOptions): Handler {
     // One more try now for anything held, rather than waiting for the timer.
     if (held.length) await retryHeld();
   };
+  handler.recover = () => {
+    if (recovering) return recovering;
+    recovering = (async () => {
+      if (!opts.client.pendingSessions) return;
+      try {
+        const sessions = await opts.client.pendingSessions();
+        for (const session of sessions) {
+          if (!session.ended_at) continue;
+          cancelPending(session.id);
+          await run({ type: "session.captured", at: new Date().toISOString(), session: { id: session.id, client: session.client, messages: session.messages.length, ended: true } });
+        }
+      } catch (err) {
+        if (!isMissingRoute(err)) warn(`session recovery failed: ${errorMessage(err)}; will retry on reconnect`);
+      }
+    })().finally(() => { recovering = undefined; });
+    return track(recovering);
+  };
   return handler;
 }
 
@@ -210,8 +237,8 @@ export function createHandler(opts: HandlerOptions): Handler {
  * principal, kind and external flag. Not the times or meta, which a re-send may restamp.
  */
 export function sessionRevision(session: CapturedSession): string {
-  const content = [session.messages.map((m) => [m.role, m.content, m.at ?? null]), session.principal ?? null, session.kind ?? null, session.external ?? null];
-  return createHash("sha1").update(JSON.stringify(content)).digest("hex").slice(0, 12);
+  const content = { messages: session.messages, principal: session.principal, kind: session.kind, external: session.external };
+  return createHash("sha256").update(JSON.stringify(content)).digest("hex");
 }
 
 type RevisionClaim = { revision: string };
@@ -299,6 +326,7 @@ async function processSession(
     if (result.quarantine) log(`session ${id}: quarantined: ${result.quarantine.item.excerpt} (${result.quarantine.summary})`);
     if (drafts.length === 0 && !result.quarantine) {
       log(`session ${id}: nothing to save`);
+      if (processed.isLatest(id, claim)) await acknowledge(opts.client, id, claim.revision);
       return;
     }
 
@@ -313,7 +341,8 @@ async function processSession(
       `session ${id}: saved ${d.saved.length}, retired ${d.retired.length}, filed ${d.quarantined} quarantine items, relayed ${d.events} events in ${delivered.ms} ms${d.unsent ? `; held for retry: ${describeUnsent(d.unsent)}` : ""}`,
     );
     // The facts are saved, so the session stays processed; only what a route failed to take is retried.
-    if (d.unsent) hold(d.unsent);
+    if (d.unsent) hold({ ...d.unsent, fingerprint: claim.revision });
+    else await acknowledge(opts.client, id, claim.revision);
   } catch (err) {
     // Let a later re-post of the same session retry; do not take the loop down.
     processed.release(id, claim);
@@ -387,6 +416,7 @@ type QuarantineFlagged = Extract<RelayedEvent, { type: "quarantine.flagged" }>;
  */
 export interface Unsent {
   session_id: string;
+  fingerprint?: string;
   /** The quarantine item and its quarantine.flagged event, which waits for the id the server gives back. */
   quarantine?: { item: PostQuarantineBody; event: QuarantineFlagged };
   events: RelayedEvent[];
@@ -416,7 +446,7 @@ export async function deliver(
   distillation?: PostFactsBody["distillation"],
 ): Promise<Delivered> {
   const facts = triagedFacts(result);
-  const posted = facts.length ? await client.postFacts({ facts, ...(distillation ? { distillation } : {}) }) : { saved: [], retired: [] };
+  const posted = facts.length || (distillation && result.drafts.some((d) => d.unchanged)) ? await client.postFacts({ facts, ...(distillation ? { distillation } : {}) }) : { saved: [], retired: [] };
   const sent = await redeliver(client, outbox(result), warnOnce);
   return { saved: posted.saved, retired: posted.retired, ...sent };
 }
@@ -450,7 +480,7 @@ const NO_RELAY = "triage events are not relayed to the dashboard";
  * keeps its items, and the rest of that route's items wait behind them, in `unsent`.
  */
 export async function redeliver(client: CanonClient, box: Unsent, warnOnce: WarnOnce): Promise<Sent> {
-  const left: Unsent = { session_id: box.session_id, events: [] };
+  const left: Unsent = { session_id: box.session_id, ...(box.fingerprint ? { fingerprint: box.fingerprint } : {}), events: [] };
   const out: Sent = { quarantined: 0, events: 0 };
   const gone = new Set<string>();
   const failed = new Set<string>();
@@ -468,7 +498,8 @@ export async function redeliver(client: CanonClient, box: Unsent, warnOnce: Warn
     const r = await attempt(QUARANTINE, NO_QUARANTINE, () => client.postQuarantine(item));
     if (r.ok) {
       out.quarantined++;
-      events.push({ ...event, quarantine_id: r.value ?? "" });
+      const id = typeof r.value === "string" ? r.value : r.value?.id ?? "";
+      if (typeof r.value !== "object" || !r.value.event_emitted) events.push({ ...event, quarantine_id: id });
     } else if (r.missing) events.push(event);
     else left.quarantine = box.quarantine;
   }
@@ -479,6 +510,16 @@ export async function redeliver(client: CanonClient, box: Unsent, warnOnce: Warn
   }
   if (left.quarantine || left.events.length) out.unsent = left;
   return out;
+}
+
+async function acknowledge(client: CanonClient, id: string, fingerprint: string): Promise<void> {
+  if (!client.markDistilled) return;
+  try { await client.markDistilled(id, fingerprint); }
+  catch (err) {
+    // A correction overtook this receipt: the pending endpoint will return the new revision.
+    // Retrying an obsolete fingerprint forever cannot make that correction more durable.
+    if (!isMissingRoute(err) && !(err instanceof Error && "status" in err && err.status === 409)) throw err;
+  }
 }
 
 /** "1 quarantine item (and its event), 3 events": what an Unsent holds, for the logs. */

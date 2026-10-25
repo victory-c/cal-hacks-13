@@ -14,6 +14,7 @@ import { authenticate } from "./auth.ts";
 import { attachSse } from "./events.ts";
 import type { EventFilter } from "./events.ts";
 import { HttpError, applyCors, readJsonBody, sendJson } from "./http.ts";
+import { handleMemberRoute, memberFacts, principalFor } from "./member.ts";
 import { createMcpServer } from "./mcp.ts";
 import { MODERATORS_ONLY, callerRoles, handleScopesRoute } from "./scopes.ts";
 import type { ScopeState } from "./scopes.ts";
@@ -27,6 +28,24 @@ export interface RouterDeps extends ApiDeps {
 export type Handler = (req: IncomingMessage, res: ServerResponse) => Promise<void>;
 
 export function createRouter(deps: RouterDeps): Handler {
+  deps.bus.subscribe((event) => {
+    if (event.type === "scope.updated" && event.removed.length) {
+      for (const agent of deps.world.principals.values()) {
+        if (agent.kind !== "agent" || agent.id !== event.principal && agent.created_by !== event.principal) continue;
+        const run = deps.world.agentRuns.get(agent.id); if (!run) continue;
+        const runId = String(run.id);
+        deps.world.invalidRunVersions.set(runId, Number(run.restarts ?? 0) + 1);
+        deps.world.agentSteps.delete(runId); deps.world.agentInbox.delete(runId);
+        deps.world.agentRuns.set(agent.id, { ...run, state: "restarting" });
+      }
+    }
+    if (event.type === "handoff.served") deps.world.handoffs.unshift({ id: `handoff_${event.event_id}`, ...event });
+    if (event.type === "agent.run") deps.world.agentRuns.set(event.run.agent, structuredClone(event.run) as unknown as Record<string, unknown>);
+    if (event.type === "agent.step") { const steps = deps.world.agentSteps.get(event.step.run_id) ?? []; steps.push(structuredClone(event.step) as unknown as Record<string, unknown>); deps.world.agentSteps.set(event.step.run_id, steps); }
+    if (event.type === "agent.inbox") { const items = deps.world.agentInbox.get(event.item.run_id) ?? []; items.push(structuredClone(event.item) as unknown as Record<string, unknown>); deps.world.agentInbox.set(event.item.run_id, items); }
+    if (event.type === "scope.stage") deps.bus.emit({ type: "scope.build", principal: event.principal, build_id: event.principal, stage: ({ exclusions: "exclusions", moss: "candidates", jev: "judged", done: "done" } as const)[event.stage], ms: event.ms, remaining: event.remaining, counts: { remaining: event.remaining } });
+    if (event.type === "scope.updated") deps.bus.emit({ type: "scope.changed", principal: event.principal, added: [...event.added], removed: [...event.removed] });
+  });
   const log = deps.log ?? ((line: string) => console.info(line));
 
   return async (req, res) => {
@@ -51,7 +70,16 @@ export function createRouter(deps: RouterDeps): Handler {
         res.end();
         return;
       }
-      if (method === "GET" && path === ROUTES.health) return sendJson(res, 200, api.health(deps));
+      if (method === "GET" && path === ROUTES.health) {
+        const auth = optionalAuth(req, deps.tokens);
+        if (auth === "unknown") return sendJson(res, 401, UNKNOWN_TOKEN);
+        const who = auth ? principalFor(deps, auth.client) : undefined;
+        if (who && who.tier !== "moderator") {
+          const facts = deps.world.scopes.get(who.id)?.fact_ids.filter((id) => deps.store.getFact(id)?.tier === "hot") ?? [];
+          return sendJson(res, 200, { ok: true, facts: facts.length, uptime_s: Math.round((Date.now() - deps.startedAt) / 1000), judge: deps.judge.name, retriever: deps.retriever.name });
+        }
+        return sendJson(res, 200, api.health(deps));
+      }
 
       // The dashboard has no token, so these three read-only routes accept a missing one, but a
       // tokenless caller only sees the scaffold folders: never `private/` (CLAUDE.md: nothing
@@ -59,9 +87,17 @@ export function createRouter(deps: RouterDeps): Handler {
       // client's read grant; an unknown token is still a 401. Only internal clients and
       // moderators get the full event stream: anyone else could read a deal off fact.saved.
       if (method === "GET" && (path === ROUTES.events || path === ROUTES.facts || path === ROUTES.grants)) {
+        const eventToken = path === ROUTES.events ? url.searchParams.get("token") : null;
+        if (eventToken && !req.headers.authorization) req.headers.authorization = `Bearer ${eventToken}`;
         const viewer = optionalAuth(req, deps.tokens);
         if (viewer === "unknown") return sendJson(res, 401, UNKNOWN_TOKEN);
-        if (path === ROUTES.grants) return sendJson(res, 200, api.grants(deps));
+        if (path === ROUTES.grants) {
+          const who = viewer ? principalFor(deps, viewer.client) : undefined;
+          if (who && who.tier !== "moderator") return sendJson(res, 403, MODERATORS_ONLY);
+          return sendJson(res, 200, api.grants(deps));
+        }
+        const who = viewer ? principalFor(deps, viewer.client) : undefined;
+        if (path === ROUTES.facts && who) return sendJson(res, 200, await memberFacts(deps, who, url.searchParams));
         const visible = viewer ? grantView(deps, viewer.client) : publicFolder;
         if (!visible) return sendJson(res, 403, { error: `no grants for client "${viewer?.client}"` });
         if (path === ROUTES.events) {
@@ -69,6 +105,7 @@ export function createRouter(deps: RouterDeps): Handler {
           // extraction plans, which summarize transcripts and may mention facts outside a batch.
           if (viewer?.client === "distiller") attachSse(res, deps.bus);
           else if (viewer && seesEverything(deps, viewer.client)) attachSse(res, deps.bus, withoutExtractionPlan);
+          else if (who) attachSse(res, deps.bus, principalEvents(deps, who.id));
           else attachSse(res, deps.bus, eventView(deps, visible, viewer?.client));
           return;
         }
@@ -81,9 +118,24 @@ export function createRouter(deps: RouterDeps): Handler {
         if (!auth) return sendJson(res, 401, UNKNOWN_TOKEN);
         const { client } = auth;
 
+        if (await handleMemberRoute(deps, client, method, path, url, req, res)) return;
         // Scopes surface (A2): tiers, rules, scopes, agents, quarantine, audit, handoff, dispatch.
         if (await handleScopesRoute(deps, client, method, path, url, req, res)) return;
 
+        if (method === "GET" && path === ROUTES.sessions) {
+          const { isInternal } = callerRoles(deps.world, deps.grants, client);
+          if (!isInternal) return sendJson(res, 403, MODERATORS_ONLY);
+          return sendJson(res, 200, { sessions: await deps.store.listSessions(url.searchParams.get("pending") === "1") });
+        }
+        const receipt = /^\/api\/sessions\/([^/]+)\/distilled$/.exec(path);
+        if (method === "POST" && receipt) {
+          const { isInternal } = callerRoles(deps.world, deps.grants, client);
+          if (!isInternal) return sendJson(res, 403, MODERATORS_ONLY);
+          const body = await readJsonBody(req) as { fingerprint?: unknown };
+          if (typeof body?.fingerprint !== "string" || !/^[a-f0-9]{64}$/.test(body.fingerprint)) throw new HttpError(400, "invalid fingerprint");
+          try { await deps.store.markDistilled(decodeURIComponent(receipt[1]), body.fingerprint); } catch (err) { throw new HttpError(409, String(err)); }
+          return sendJson(res, 200, { ok: true });
+        }
         if (method === "POST" && path === ROUTES.sessions) return sendJson(res, 200, await api.postSession(deps, client, await readJsonBody(req)));
         if (method === "GET" && path.startsWith(`${ROUTES.sessions}/`)) {
           // A raw session holds more than any one scope: moderators and internal clients only,
@@ -183,7 +235,7 @@ function eventView(deps: RouterDeps, visible: (folder: Folder) => boolean, clien
         return withoutExtractionPlan(event);
       case "fact.saved": {
         const { supersedes: factPrevious, ...fact } = event.fact;
-        const { supersedes: decisionPrevious, ...decision } = event.decision;
+        const { supersedes: decisionPrevious, triage: _triage, ...decision } = event.decision;
         return {
           ...event,
           fact: factPrevious && readableFact(factPrevious) ? { ...fact, supersedes: factPrevious } : fact,
@@ -226,7 +278,7 @@ async function handleMcp(deps: RouterDeps, client: string, req: IncomingMessage,
   if (!grant) return sendJson(res, 403, { error: `no grants for client "${client}"` });
   const body = req.method === "POST" ? await readJsonBody(req) : undefined;
 
-  const server = createMcpServer({ client, grant, store: deps.store, retriever: deps.retriever, bus: deps.bus, judge: deps.judge });
+  const server = createMcpServer({ client, grant, store: deps.store, retriever: deps.retriever, bus: deps.bus, judge: deps.judge, world: deps.world, grants: deps.grants });
   const transport = new StreamableHTTPServerTransport({ sessionIdGenerator: undefined });
   res.on("close", () => {
     void transport.close();
@@ -234,4 +286,34 @@ async function handleMcp(deps: RouterDeps, client: string, req: IncomingMessage,
   });
   await server.connect(transport);
   await transport.handleRequest(req, res, body);
+}
+
+function principalEvents(deps: RouterDeps, principal: string): EventFilter {
+  const ownsAgent = (id: string) => deps.world.principals.get(id)?.created_by === principal;
+  const visibleFact = (id: string) => deps.world.scopes.get(principal)?.fact_ids.includes(id) ?? false;
+  const ownsSession = (id: string) => deps.store.sessionPrincipal(id) === principal;
+  return (event) => {
+    switch (event.type) {
+      case "fact.saved": {
+        if (!visibleFact(event.fact.id)) return false;
+        const { supersedes: _old, jev_keep: _score, ...fact } = event.fact;
+        const { triage: _triage, supersedes: _prior, ...decision } = event.decision;
+        return { ...event, fact: fact as typeof event.fact, decision: { ...decision, action: "add" } };
+      }
+      case "scope.updated": case "scope.changed": return event.principal === principal || ownsAgent(event.principal);
+      case "scope.stage": case "scope.build": {
+        if (event.principal !== principal && !ownsAgent(event.principal)) return false;
+        const size = deps.world.scopes.get(event.principal)?.fact_ids.length ?? 0;
+        return { ...event, remaining: size, ...(event.type === "scope.build" ? { counts: { remaining: size } } : {}) };
+      }
+      case "principal.changed": return event.principal.created_by === principal;
+      case "session.captured": return ownsSession(event.session.id);
+      case "item.captured": return event.author === principal;
+      case "distill.started": case "distill.finished": return false;
+      case "context.served": return deps.grants.some((g) => g.client === event.client && g.principal === principal);
+      case "agent.run": return ownsAgent(event.run.agent) && !deps.world.invalidRunVersions.has(event.run.id);
+      case "agent.step": case "agent.inbox": { const runId = event.type === "agent.step" ? event.step.run_id : event.item.run_id; return !deps.world.invalidRunVersions.has(runId) && [...deps.world.agentRuns.values()].some((run) => run.id === runId && ownsAgent(String(run.agent))); }
+      default: return false;
+    }
+  };
 }

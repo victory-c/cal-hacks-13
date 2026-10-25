@@ -82,8 +82,8 @@ const PLAN_FILE = "out/plan.md";
 /** writeFromScope(rec, CHECK_ONLY) writes nothing: the read only checks the folder against the scope. */
 const CHECK_ONLY: ReadonlySet<string> = new Set();
 
-/** Agent principal ids, as the contract names them: `agt_` + slug or hex. */
-export const AGENT_ID_RE = /^agt_[a-z0-9][a-z0-9_-]{0,63}$/;
+/** Safe canonical principal ids: seeded agents use names such as desk-assistant; new ones use agt_. */
+export const AGENT_ID_RE = /^[a-z][a-z0-9_-]{0,127}$/;
 
 const LOG_HINT = "The worker log has the details.";
 export const NO_RULE_REASON = "The server has no scope rule for this agent, so there is no task to run.";
@@ -208,11 +208,12 @@ export class Dispatcher {
    * cancelled before it reads the scope or runs a step.
    */
   async dispatch(req: DispatchRequest, known?: Pick<Principal, "name" | "created_by">, stopped?: () => string | undefined): Promise<AgentRun> {
-    if (typeof req.agent !== "string" || !AGENT_ID_RE.test(req.agent)) throw new Error(`dispatch: "${String(req.agent)}" is not an agent id (agt_ + slug)`);
+    if (typeof req.agent !== "string" || !AGENT_ID_RE.test(req.agent)) throw new Error(`dispatch: "${String(req.agent)}" is not an agent id (safe lowercase principal id required)`);
     const rule = await this.opts.client.getScopeRule(req.agent);
     const ok = rule !== null && rule.principal === req.agent && typeof rule.task === "string" && rule.task.trim() !== "";
     const created_by = known?.created_by ?? (ok && rule.set_by ? rule.set_by : req.by);
-    const profile: AgentProfile = { id: req.agent, name: known?.name ?? req.agent, created_by, task: ok ? rule.task.trim() : "" };
+    const requestedTask = typeof req.task === "string" ? req.task.trim() : "";
+    const profile: AgentProfile = { id: req.agent, name: known?.name ?? req.agent, created_by, task: ok ? (requestedTask || rule.task.trim()) : "" };
     return this.start(profile, ok ? undefined : NO_RULE_REASON, stopped?.());
   }
 
@@ -221,7 +222,7 @@ export class Dispatcher {
    * the run ends cancelled at once (with `failReason`, failed) and reads and runs nothing.
    */
   start(profile: AgentProfile, failReason?: string, cancelReason?: string): AgentRun {
-    if (!AGENT_ID_RE.test(profile.id)) throw new Error(`start: "${profile.id}" is not an agent id (agt_ + slug)`);
+    if (!AGENT_ID_RE.test(profile.id)) throw new Error(`start: "${profile.id}" is not an agent id (safe lowercase principal id required)`);
     const id = newRunId();
     const sandbox = createSandbox(id, { root: this.opts.root });
     const run: AgentRun = {
@@ -723,8 +724,8 @@ export class Dispatcher {
     run.restarts += 1;
     rec.sandbox = createSandbox(run.id, { root: this.opts.root, attempt: run.restarts });
     if (!this.records) run.sandbox = rec.sandbox.dir;
-    this.publishStep(rec, run.steps + 1, { kind: "plan", text: `Restart ${run.restarts}: the old folder was discarded; a fresh folder is built from the current scope and the run starts again from the plan step.` });
     this.publishRun(rec);
+    this.publishStep(rec, run.steps + 1, { kind: "plan", text: `Restart ${run.restarts}: the old folder was discarded; a fresh folder is built from the current scope and the run starts again from the plan step.` });
     await this.build(rec);
   }
 

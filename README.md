@@ -18,11 +18,10 @@ Bullwark decides what to show; Canon decides who may see what. They meet only th
 - **Working agreement:** [`CLAUDE.md`](CLAUDE.md)
 - **Progress:** [`STATUS.md`](STATUS.md), generated from [`status/status.json`](status/status.json)
 
-Tiers, scope rules, the scope builder, living scopes, agent profiles, handoffs and the audit log
-run in `server/` with tests, on labelled simulated providers when keys are absent. The server
-still seeds the earlier Harbor Lane world from `server/fixtures/` until it moves to
-`fixtures/world/`, and not every console API in `docs/INTEGRATION.md` exists yet. Package
-READMEs describe implemented behavior.
+The finance world, moderator console and member view now run together. Canon enforces scopes
+across REST, MCP, before-prompt reads and agent runs; capture feeds the writer and triage pipeline.
+World state and audit survive restarts. See package READMEs and the integration contract for the
+implemented routes and remaining limits.
 
 ## Quick start
 
@@ -36,7 +35,8 @@ npm run dev            # server :4100, distiller worker, agent dispatcher, front
 
 | URL | What runs today |
 |---|---|
-| http://localhost:4200 | Development dashboard: sessions, facts, tokens, latency and cost |
+| http://localhost:4200/moderator.html | Live moderator console (supply an authenticated moderator token for direct development) |
+| http://localhost:4200/member.html | Live member view (person token for direct development) |
 | http://localhost:4100/health | Server health; `/events` for SSE, `/mcp` for MCP |
 | http://localhost:4173 | Team status board (`npm run status:board`) |
 
@@ -47,9 +47,13 @@ See [`docs/PREVIEW.md`](docs/PREVIEW.md) for the Docker preview and sponsor-host
 `npm run preview:check` checks configured provider credentials without printing values.
 The browser preview is at `http://localhost:8080`, with a visible team sign-in page.
 
-This runs the current scaffold. A shared browser password does not implement the planned
-moderator/member roles or scopes. Factory CLI and Moss embedding assets must download before
-those providers can run; a successful offline test suite does not establish live provider health.
+The login selects a synthetic demo identity; Canon enforces that identity's scope. Everyone with
+the shared password can select any demo identity, so this is team demo access rather than individual
+employee authentication. No sponsor key is needed in a teammate's browser. Pages default to live
+Canon; `?data=mock` explicitly selects labelled fixtures. Use **Switch demo identity** to change roles.
+Factory extracts facts, Jev judges, Moss retrieves, and the Docker preview uses the Claude scoped
+agent runner. Linux Droid dispatch requires a supported sandbox. See
+[`docs/SHARED_PREVIEW.md`](docs/SHARED_PREVIEW.md) for measured live checks and hosting status.
 
 ## How it works
 
@@ -71,9 +75,9 @@ implementation ownership.
 | Folder | Part | Owner | Purpose |
 |---|---|---|---|
 | [`shared/`](shared/) | Canon | A + B | Contract types, validation, grants, events and `judge()` |
-| [`server/`](server/) | Canon | A · Henry | Store, archive, MCP, REST, SSE, retrieval; planned scopes, scope builder and audit |
-| [`distiller/`](distiller/) | Canon | B · Victor | Capture-to-facts worker; planned triage, grouping, fact writing and agent runs |
-| [`hooks/`](hooks/) | Canon | B · Victor | Claude Code capture hook |
+| [`server/`](server/) | Canon | A · Henry | Store, archive, MCP, REST, SSE, retrieval, scopes, scope builder and persistent audit |
+| [`distiller/`](distiller/) | Canon | B · Victor | Capture-to-facts worker, triage, grouping, fact writing and scoped agent runs |
+| [`hooks/`](hooks/) | Canon | B · Victor | Claude Code capture and before-prompt context hooks |
 | [`extension/`](extension/) | Canon | B · Victor | ChatGPT web capture |
 | [`web/`](web/) | Bullwark | C · Edan | Dashboard, moderator console and member view |
 | [`fixtures/world/`](fixtures/world/) | Both | C · Edan | The synthetic demo world (Axe Capital, Project Stonewall) and its answer key |

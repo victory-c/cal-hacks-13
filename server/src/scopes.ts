@@ -14,7 +14,8 @@
 // named in the audit detail and GET /health.
 
 import { randomBytes } from "node:crypto";
-import { readFileSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
+import { appendFile, mkdir } from "node:fs/promises";
 import type { IncomingMessage, ServerResponse } from "node:http";
 import { join } from "node:path";
 import type { URL } from "node:url";
@@ -61,6 +62,7 @@ import type { EventBus } from "./events.ts";
 import { HttpError, isRecord, readJsonBody, sendJson } from "./http.ts";
 import type { Retriever } from "./retrieval/index.ts";
 import { excludeFactQ, excludeGroupQ, helpsRequestQ, inScopeQ, needsContextQ } from "./scope-judge.ts";
+import { writeAtomic } from "./store.ts";
 import type { FileStore } from "./store.ts";
 
 // ---------------------------------------------------------------------------------- fixtures
@@ -122,8 +124,24 @@ export class ScopeState {
   /** Built by buildInitialScopes() at startup, people before agents. */
   readonly initialScopes: string[];
 
-  constructor(world: WorldFixtures = loadWorldFixtures()) {
-    const w = structuredClone(world);
+  private writes: Promise<void> = Promise.resolve();
+  private persistedAudit = 0;
+  readonly handoffs: Array<Record<string, unknown>> = [];
+  readonly invalidRunVersions = new Map<string, number>();
+  readonly agentRuns = new Map<string, Record<string, unknown>>();
+  readonly agentSteps = new Map<string, Array<Record<string, unknown>>>();
+  readonly agentInbox = new Map<string, Array<Record<string, unknown>>>();
+  readonly firm = "Axe Capital";
+
+  constructor(world: WorldFixtures = loadWorldFixtures(), private readonly dir?: string) {
+    let w = structuredClone(world);
+    if (dir && existsSync(join(dir, "world", "principals.json"))) {
+      const read = <T>(name: string, key: string): T => JSON.parse(readFileSync(join(dir, "world", `${name}.json`), "utf8"))[key] as T;
+      w = { ...w, principals: read("principals", "principals"), rules: read("rules", "rules"), scopes: read("scopes", "scopes"), groups: read("groups", "groups"), quarantine: read("quarantine", "items"), audit: [] };
+      const audit = join(dir, "world", "audit.jsonl");
+      if (existsSync(audit)) w.audit = readFileSync(audit, "utf8").split("\n").filter(Boolean).map((line) => JSON.parse(line) as AuditEvent);
+      this.persistedAudit = w.audit.length;
+    }
     this.groups = w.groups;
     this.initialScopes = w.initial_scopes ?? [];
     for (const p of w.principals) this.principals.set(p.id, p);
@@ -131,6 +149,20 @@ export class ScopeState {
     for (const s of w.scopes) this.scopes.set(s.principal, s);
     for (const q of w.quarantine) this.quarantine.set(q.id, q);
     this.audit = w.audit;
+  }
+
+  /** One queue for snapshots and append-only audit. A failed write remains visible to callers. */
+  flush(): Promise<void> {
+    if (!this.dir) return Promise.resolve();
+    const snapshot = structuredClone({ principals: [...this.principals.values()], rules: [...this.rules.values()], scopes: [...this.scopes.values()], groups: this.groups, items: [...this.quarantine.values()], audit: this.audit });
+    const dir = join(this.dir, "world");
+    this.writes = this.writes.then(async () => {
+      await mkdir(dir, { recursive: true });
+      for (const [name, key] of [["groups", "groups"], ["rules", "rules"], ["scopes", "scopes"], ["quarantine", "items"], ["principals", "principals"]] as const) await writeAtomic(join(dir, `${name}.json`), JSON.stringify({ [key]: snapshot[key] }) + "\n");
+      const rows = snapshot.audit.slice(this.persistedAudit);
+      if (rows.length) { await appendFile(join(dir, "audit.jsonl"), rows.map((row) => JSON.stringify(row)).join("\n") + "\n"); this.persistedAudit = snapshot.audit.length; }
+    });
+    return this.writes;
   }
 }
 
@@ -183,7 +215,7 @@ function id(prefix: string): string {
 // ------------------------------------------------------------------------------------ audit
 
 function logAudit(deps: ScopesDeps, entry: Omit<AuditEvent, "id" | "at">): AuditEvent {
-  const full: AuditEvent = { id: id("aud"), at: nowIso(), ...entry };
+  const full: AuditEvent = structuredClone({ id: id("aud"), at: nowIso(), ...entry });
   deps.world.audit.push(full);
   deps.bus.emit({ type: "audit.logged", entry: full });
   return full;
@@ -236,7 +268,7 @@ function inWorldGroup(deps: ScopesDeps, fact: Fact): boolean {
  */
 function noulP(answers: readonly Answer[], id: string, fallback: 0 | 1): number {
   const a = answers.find((x) => x.id === id);
-  return a?.type === "noul" && Number.isFinite(a.p) ? a.p : fallback;
+  return a?.type === "noul" && !a.unavailable && Number.isFinite(a.p) ? a.p : fallback;
 }
 
 /** " [simulated: …]" when stub providers answered, so no detail line ever claims a measured model run. */
@@ -270,7 +302,7 @@ export async function buildScope(deps: ScopesDeps, principal: Principal, rule: S
   // 1. Exclusions in code. A member draws from every hot fact outside the moderators-only inbox;
   // an agent draws from its creator's scope only.
   const base = principal.kind === "agent" && principal.created_by !== undefined ? scopeFacts(deps, principal.created_by) : hotCandidates(deps);
-  const pool = base.filter((f) => allowedByRule(rule, f));
+  const pool = base.filter((f) => inWorldGroup(deps, f) && allowedByRule(rule, f));
   const t1 = stage("exclusions", t0, pool.length);
 
   // 2. One Moss query for the task over what remains. Whatever comes back is re-filtered against
@@ -330,7 +362,7 @@ export async function buildScope(deps: ScopesDeps, principal: Principal, rule: S
     }
   }
   const prevIds = new Set(deps.world.scopes.get(principal.id)?.fact_ids ?? []);
-  const scope: Scope = { principal: principal.id, fact_ids, built_at: nowIso(), rule_updated_at: rule.updated_at };
+  const scope: Scope = { principal: principal.id, fact_ids: [...fact_ids], built_at: nowIso(), rule_updated_at: rule.updated_at };
   deps.world.scopes.set(principal.id, scope);
   stage("done", t0, fact_ids.length);
 
@@ -350,12 +382,13 @@ export async function buildScope(deps: ScopesDeps, principal: Principal, rule: S
 }
 
 /** The creator's scope as facts; a moderator creator has no scope and sees every hot fact. */
-function scopeFacts(deps: ScopesDeps, principalId: string): Fact[] {
+export function scopeFacts(deps: ScopesDeps, principalId: string): Fact[] {
   const creator = deps.world.principals.get(principalId);
-  if (creator?.kind === "person" && creator.tier === "moderator") return hotCandidates(deps);
+  if (creator?.kind === "person" && creator.tier === "moderator") return deps.store.listFacts({ tier: "hot" });
   const scope = deps.world.scopes.get(principalId);
   if (!scope) return [];
-  return scope.fact_ids.map((fid) => deps.store.getFact(fid)).filter((f): f is Fact => f !== undefined);
+  const creatorIds = creator?.kind === "agent" && creator.created_by ? new Set(scopeFacts(deps, creator.created_by).map((f) => f.id)) : undefined;
+  return scope.fact_ids.map((fid) => deps.store.getFact(fid)).filter((f): f is Fact => f !== undefined && f.tier === "hot" && (!creatorIds || creatorIds.has(f.id)));
 }
 
 /**
@@ -368,6 +401,7 @@ export type InitialScopeResult = { principal: string; facts: number; ms: number 
 export async function buildInitialScopes(deps: ScopesDeps): Promise<InitialScopeResult[]> {
   const out: InitialScopeResult[] = [];
   for (const id of deps.world.initialScopes) {
+    if (deps.world.scopes.has(id)) continue;
     const principal = deps.world.principals.get(id);
     const rule = deps.world.rules.get(id);
     if (!principal || !rule) {
@@ -443,16 +477,15 @@ export async function refileFact(deps: ScopesDeps, callerId: string, factId: str
 // checked in code, so an agent never exceeds its creator. A retired fact leaves every scope.
 
 /** Wires the living-scope updates to the bus. Returns the unsubscribe. */
-export function attachLivingScopes(deps: ScopesDeps): () => void {
-  return deps.bus.subscribe((e) => {
+export function attachLivingScopes(deps: ScopesDeps): { unsubscribe(): void; drain(): Promise<void> } {
+  const pending = new Set<Promise<void>>();
+  const unsubscribe = deps.bus.subscribe((e) => {
     if (e.type === "fact.saved") {
-      void onFactSaved(deps, e.fact).catch((err: unknown) => {
-        console.error(`[scopes] living update for ${e.fact.id} failed: ${err instanceof Error ? err.message : String(err)}`);
-      });
-    } else if (e.type === "fact.retired") {
-      onFactRetired(deps, e.id);
-    }
+      const work = onFactSaved(deps, e.fact).then(() => deps.world.flush()).catch((err: unknown) => console.error(`[scopes] living update for ${e.fact.id} failed: ${String(err)}`));
+      pending.add(work); void work.finally(() => pending.delete(work));
+    } else if (e.type === "fact.retired") { onFactRetired(deps, e.id); const work = deps.world.flush(); pending.add(work); void work.finally(() => pending.delete(work)); }
   });
+  return { unsubscribe, async drain() { while (pending.size) await Promise.all([...pending]); } };
 }
 
 interface LiveCheck {
@@ -465,7 +498,7 @@ interface LiveCheck {
 
 /** A new hot fact joins every scope whose checks it clears, with one batched judge() call across them all. */
 export async function onFactSaved(deps: ScopesDeps, fact: Fact): Promise<void> {
-  if (fact.tier !== "hot") return;
+  if (fact.tier !== "hot") { onFactRetired(deps, fact.id); return; }
   if (!inWorldGroup(deps, fact)) return; // the inbox (moderators only until filed) or no group at all: joins no scope
 
   const members: LiveCheck[] = [];
@@ -518,7 +551,10 @@ export async function onFactSaved(deps: ScopesDeps, fact: Fact): Promise<void> {
 
 function joinScope(deps: ScopesDeps, c: LiveCheck, fact: Fact): void {
   // The judge call awaited above; the scope may have been rebuilt meanwhile, so write to the current one.
-  const scope = deps.world.scopes.get(c.principal.id) ?? c.scope;
+  const scope = deps.world.scopes.get(c.principal.id);
+  const currentRule = deps.world.rules.get(c.principal.id);
+  const canonical = deps.store.getFact(fact.id);
+  if (!scope || !currentRule || currentRule.updated_at !== c.rule.updated_at || !canonical || canonical.tier !== "hot" || canonical.folder !== fact.folder || canonical.statement !== fact.statement || !allowedByRule(currentRule, canonical)) return;
   if (scope.fact_ids.includes(fact.id)) return;
   scope.fact_ids.push(fact.id);
   logAudit(deps, {
@@ -547,7 +583,9 @@ export function onFactRetired(deps: ScopesDeps, factId: string): void {
 function parseRuleBody(body: unknown, principal: string, setBy: string, where = "body"): ScopeRule {
   if (!isRecord(body)) throw new HttpError(400, `${where} must be a ScopeRule object`);
   if (body.principal !== undefined && body.principal !== principal) throw new HttpError(400, `${where}.principal must be "${principal}"`);
-  const { task, exclude } = body;
+  const task = body.task;
+  const raw = body.exclude ?? body.exclusions ?? { groups: [], labels: [] };
+  const exclude = isRecord(raw) ? { groups: raw.groups ?? [], labels: raw.labels ?? [], text: Array.isArray(raw.text) ? raw.text.join("; ") : raw.text } : raw;
   if (typeof task !== "string" || task.trim() === "") throw new HttpError(400, `${where}.task must be a non-empty string`);
   if (!isRecord(exclude) || !Array.isArray(exclude.groups) || !Array.isArray(exclude.labels)) {
     throw new HttpError(400, `${where}.exclude must be { groups: string[], labels: string[], text? }`);
@@ -592,7 +630,7 @@ export function pinnedProfile(deps: ScopesDeps, who: Principal): string {
   );
 }
 
-async function runHandoff(deps: ScopesDeps, client: string, body: unknown): Promise<HandoffResult> {
+export async function runHandoff(deps: ScopesDeps, client: string, body: unknown): Promise<HandoffResult> {
   const t0 = performance.now();
   if (!isRecord(body)) throw new HttpError(400, "body must be a HandoffBody object");
   const { principal, task, budget_tokens, run_id } = body;
@@ -608,15 +646,13 @@ async function runHandoff(deps: ScopesDeps, client: string, body: unknown): Prom
   // moderators-only inbox included. Everyone else needs a built scope.
   const isModerator = who.kind === "person" && who.tier === "moderator";
   const scope = deps.world.scopes.get(principal);
-  if (!scope && !isModerator) throw new HttpError(404, `no scope for "${principal}"`);
+
   const budget = budget_tokens ?? DEFAULT_BUDGET_TOKENS;
   const request = task.trim();
 
   // 1. Permission: only facts inside the fixed scope are ever candidates. An agent uses its own
   // scope (⊆ its creator's by construction); what is outside was never considered.
-  const inScope = scope
-    ? scope.fact_ids.map((fid) => deps.store.getFact(fid)).filter((f): f is Fact => f !== undefined)
-    : deps.store.listFacts({ tier: "hot" });
+  const inScope = scopeFacts(deps, principal);
 
   // 2. Search inside the scope: the retriever query is narrowed to the scope's groups and every
   // hit is re-checked against the scope's fact ids in code (the PRD fallback until Moss filters
@@ -646,7 +682,7 @@ async function runHandoff(deps: ScopesDeps, client: string, body: unknown): Prom
     try {
       const needs = await timed(() => deps.judge.ask(state, [needsContextQ("needs", request)]));
       judge_ms += needs.ms;
-      needsNoContext = noulP(needs.result, "needs", 1) < TRIAGE_THRESHOLDS.NEEDS_CONTEXT;
+      needsNoContext = noulP(needs.result, "needs", 0) < TRIAGE_THRESHOLDS.NEEDS_CONTEXT;
       if (!needsNoContext) {
         const judged = await timed(() => deps.judge.ask(state, candidates.map((f) => helpsRequestQ(`hf:${f.id}`, f, request))));
         judge_ms += judged.ms;
@@ -733,63 +769,92 @@ export async function handleScopesRoute(
   res: ServerResponse,
 ): Promise<boolean> {
   const state = deps.world;
+  const reply = async (_res: ServerResponse, status: number, body: unknown) => { await state.flush(); sendJson(_res, status, body); };
   const { callerId, isModerator, isInternal } = callerRoles(state, deps.grants, client);
 
   // ---- GET /api/groups (moderator, internal): triage reads it to file facts.
   if (path === ROUTES.groups && method === "GET") {
-    if (!isModerator && !isInternal) return sendJson(res, 403, MODERATORS_ONLY), true;
-    return sendJson(res, 200, { groups: state.groups }), true;
+    const own = state.principals.get(callerId);
+    if (!isModerator && !isInternal && !own) return await reply(res, 403, MODERATORS_ONLY), true;
+    const visible = new Set(scopeFacts(deps, callerId).map((f) => f.folder));
+    const groups = state.groups.filter((g) => isModerator || isInternal || visible.has(g.id)).map((g) => ({ id: g.id, display: g.display ?? g.id.split("/").map((part) => part.replace(/-/g, " ")).join(" / "), name: g.display ?? g.id, ...(isModerator || isInternal ? { description: g.description, aliases: g.aliases } : {}) }));
+    return await reply(res, 200, { groups }), true;
   }
 
+  if (path === ROUTES.groups && method === "POST") {
+    if (!isModerator) return await reply(res, 403, MODERATORS_ONLY), true;
+    const body = await readJsonBody(req);
+    if (!isRecord(body) || typeof body.name !== "string" || !body.name.trim()) throw new HttpError(400, "group name required");
+    const gid = typeof body.id === "string" ? body.id : body.name.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "");
+    if (!GROUP_RE.test(gid)) throw new HttpError(400, "invalid group id");
+    if (state.groups.some((g) => g.id === gid)) throw new HttpError(409, "group already exists");
+    const group: Group = { id: gid, display: body.name.trim(), description: typeof body.description === "string" ? body.description : "" };
+    state.groups.push(group);
+    // A newly created bucket is private until Compliance explicitly edits a rule to admit it.
+    for (const [principal, rule] of state.rules) {
+      const owner = state.principals.get(principal);
+      if (owner?.kind === "agent" && state.principals.get(owner.created_by ?? "")?.tier !== "moderator") continue; // the creator's cap already excludes it; do not put hidden group names in a member-editable agent rule
+      if (rule.exclude.groups.includes(gid)) continue;
+      state.rules.set(principal, { ...rule, exclude: { ...rule.exclude, groups: [...rule.exclude.groups, gid] }, updated_at: nowIso() });
+    }
+    deps.bus.emit({ type: "group.created", group: { id: group.id, name: group.display ?? group.id, description: group.description } });
+    return await reply(res, 200, { ...group, name: group.display }), true;
+  }
   // ---- /api/principals: GETs for moderators and internal clients (ingest resolves who is who,
   // the dispatcher reads an agent's record); writes stay moderator-only. Both gates run before
   // anything is read or looked up.
-  if (path === ROUTES.principals || path.startsWith(`${ROUTES.principals}/`)) {
+  if ((path === ROUTES.principals || path.startsWith(`${ROUTES.principals}/`)) && !path.endsWith("/rule")) {
+    const alias = /^\/api\/principals\/([^/]+)\/scope$/.exec(path);
+    if (alias && method === "GET") {
+      if (!isModerator && !isInternal) return await reply(res, 403, MODERATORS_ONLY), true;
+      const target = decodeURIComponent(alias[1]); const rule = state.rules.get(target); const scope = state.scopes.get(target);
+      return await reply(res, 200, { fact_ids: [...(scope?.fact_ids ?? [])], rule: rule ? { task: rule.task, exclusions: { groups: [...rule.exclude.groups], labels: [...rule.exclude.labels], text: rule.exclude.text ? [rule.exclude.text] : [] } } : null }), true;
+    }
     if (method === "GET") {
-      if (!isModerator && !isInternal) return sendJson(res, 403, MODERATORS_ONLY), true;
+      if (!isModerator && !isInternal) return await reply(res, 403, MODERATORS_ONLY), true;
       if (path === ROUTES.principals) {
-        return sendJson(res, 200, { principals: [...state.principals.values()] }), true;
+        return await reply(res, 200, { principals: [...state.principals.values()].map((p) => ({ ...p, ...(p.created_by ? { creator: p.created_by } : {}) })) }), true;
       }
       const m = /^\/api\/principals\/([^/]+)$/.exec(path);
       if (m) {
         const target = decodeURIComponent(m[1]);
         const principal = state.principals.get(target);
         if (!principal) throw new HttpError(404, `no principal "${target}"`);
-        return sendJson(res, 200, principal), true;
+        return await reply(res, 200, principal), true;
       }
       return false;
     }
-    if (!isModerator) return sendJson(res, 403, MODERATORS_ONLY), true;
+    if (!isModerator) return await reply(res, 403, MODERATORS_ONLY), true;
     if (method === "POST" && path === ROUTES.principals) {
-      return sendJson(res, 200, await addPerson(deps, callerId, await readJsonBody(req))), true;
+      return await reply(res, 200, await addPerson(deps, callerId, await readJsonBody(req))), true;
     }
     const m = /^\/api\/principals\/([^/]+)\/tier$/.exec(path);
     if (method === "POST" && m) {
-      return sendJson(res, 200, changeTier(deps, callerId, decodeURIComponent(m[1]), await readJsonBody(req))), true;
+      return await reply(res, 200, changeTier(deps, callerId, decodeURIComponent(m[1]), await readJsonBody(req))), true;
     }
     return false;
   }
 
   // ---- /api/scope-rules/:principal (moderator; the creator for their own agents; GET also for
   // internal clients, so the dispatcher can read an agent's task before a run).
-  if (path.startsWith(`${ROUTES.scopeRules}/`)) {
-    const target = decodeURIComponent(path.slice(ROUTES.scopeRules.length + 1));
+  if (path.startsWith(`${ROUTES.scopeRules}/`) || /^\/api\/principals\/[^/]+\/rule$/.test(path)) {
+    const target = decodeURIComponent(path.startsWith(`${ROUTES.scopeRules}/`) ? path.slice(ROUTES.scopeRules.length + 1) : path.split("/")[3]);
     const targetPrincipal = state.principals.get(target);
     const isCreator = targetPrincipal?.kind === "agent" && targetPrincipal.created_by === callerId;
     // A member asking about anything that is not their own agent gets the same bytes whether the
     // target exists or not. Members never read their own rule: exclusions are never shown to them.
     if (method === "GET") {
-      if (!isModerator && !isCreator && !isInternal) return sendJson(res, 403, MODERATORS_ONLY), true;
+      if (!isModerator && !isCreator && !isInternal) return await reply(res, 403, MODERATORS_ONLY), true;
       const rule = state.rules.get(target);
       if (!rule) throw new HttpError(404, `no scope rule for "${target}"`);
-      return sendJson(res, 200, rule), true;
+      return await reply(res, 200, rule), true;
     }
-    if (!isModerator && !isCreator) return sendJson(res, 403, MODERATORS_ONLY), true;
+    if (!isModerator && !isCreator) return await reply(res, 403, MODERATORS_ONLY), true;
     if (method === "PUT") {
       if (!targetPrincipal) throw new HttpError(404, `no principal "${target}"`);
       const rule = parseRuleBody(await readJsonBody(req), target, callerId);
-      state.rules.set(target, rule);
       const { scope, added, removed } = await buildScope(deps, targetPrincipal, rule, callerId);
+      state.rules.set(target, rule);
       logAudit(deps, {
         kind: "scope.rule_changed",
         actor: callerId,
@@ -809,14 +874,14 @@ export async function handleScopesRoute(
           deps.bus.emit({ type: "scope.updated", principal: agent.id, reason: "rule_changed", added: r.added, removed: r.removed, size: r.scope.fact_ids.length });
         }
       }
-      return sendJson(res, 200, rule), true;
+      return await reply(res, 200, path.endsWith("/rule") ? { build_id: target } : rule), true;
     }
     return false;
   }
 
   // ---- /api/scopes/:principal and /api/scopes/:principal/facts (moderator, internal).
   if (path.startsWith(`${ROUTES.scopes}/`)) {
-    if (!isModerator && !isInternal) return sendJson(res, 403, MODERATORS_ONLY), true;
+    if (!isModerator && !isInternal) return await reply(res, 403, MODERATORS_ONLY), true;
     if (method !== "GET") return false;
     const m = /^\/api\/scopes\/([^/]+)(\/facts)?$/.exec(path);
     if (!m) return false;
@@ -824,53 +889,55 @@ export async function handleScopesRoute(
     const scope = state.scopes.get(target);
     if (!scope) throw new HttpError(404, `no scope for "${target}"`);
     if (m[2]) {
-      const facts = scope.fact_ids.map((fid) => deps.store.getFact(fid)).filter((f): f is Fact => f !== undefined);
-      return sendJson(res, 200, { facts }), true;
+      const facts = scopeFacts(deps, target);
+      return await reply(res, 200, { facts }), true;
     }
-    return sendJson(res, 200, scope), true;
+    return await reply(res, 200, { ...scope, fact_ids: scopeFacts(deps, target).map((fact) => fact.id) }), true;
   }
 
   // ---- /api/agents (POST: any person for themselves; DELETE: the creator or a moderator).
   if (path === ROUTES.agents && method === "POST") {
-    return sendJson(res, 200, await createAgent(deps, callerId, isModerator, await readJsonBody(req))), true;
+    const created = await createAgent(deps, callerId, isModerator, await readJsonBody(req));
+    return await reply(res, 200, { ...created, build_id: created.id }), true;
   }
   if (path.startsWith(`${ROUTES.agents}/`) && method === "DELETE") {
     const target = decodeURIComponent(path.slice(ROUTES.agents.length + 1));
     const targetPrincipal = state.principals.get(target);
     const isCreator = targetPrincipal?.kind === "agent" && targetPrincipal.created_by === callerId;
-    if (!isModerator && !isCreator) return sendJson(res, 403, NOT_YOUR_AGENT), true;
+    if (!isModerator && !isCreator) return await reply(res, 403, NOT_YOUR_AGENT), true;
     if (!targetPrincipal || targetPrincipal.kind !== "agent") throw new HttpError(404, `no agent "${target}"`);
     state.principals.delete(target);
     state.rules.delete(target);
     state.scopes.delete(target);
     logAudit(deps, { kind: "agent.deleted", actor: callerId, principal: target, detail: `Agent "${targetPrincipal.name}" deleted.` });
     deps.bus.emit({ type: "principal.changed", principal: targetPrincipal, change: "agent_deleted", by: callerId });
-    return sendJson(res, 200, { ok: true }), true;
+    return await reply(res, 200, { ok: true }), true;
   }
 
   // ---- POST /api/facts/:id/file (moderator): refile a fact into a group, with labels.
   {
     const m = /^\/api\/facts\/([^/]+)\/file$/.exec(path);
     if (m && method === "POST") {
-      if (!isModerator) return sendJson(res, 403, MODERATORS_ONLY), true;
-      return sendJson(res, 200, await refileFact(deps, callerId, decodeURIComponent(m[1]), await readJsonBody(req))), true;
+      if (!isModerator) return await reply(res, 403, MODERATORS_ONLY), true;
+      return await reply(res, 200, await refileFact(deps, callerId, decodeURIComponent(m[1]), await readJsonBody(req))), true;
     }
   }
 
   // ---- /api/quarantine (GET: moderator. POST: internal. :id/release: moderator).
   if (path === ROUTES.quarantine && method === "GET") {
-    if (!isModerator) return sendJson(res, 403, MODERATORS_ONLY), true;
+    if (!isModerator) return await reply(res, 403, MODERATORS_ONLY), true;
     const items = [...state.quarantine.values()].sort((a, b) => (a.created_at < b.created_at ? -1 : 1));
-    return sendJson(res, 200, { items }), true;
+    const enriched = await Promise.all(items.filter((item) => item.state === "held").map(async (item) => { const session = await deps.store.getSession(item.session_id); return { ...item, kind: session?.kind ?? "note", source: session?.title ?? "Captured item", author: item.principal ?? session?.principal ?? "", reason: item.excerpt, at: item.created_at }; }));
+    return await reply(res, 200, { items: enriched }), true;
   }
   if (path === ROUTES.quarantine && method === "POST") {
-    if (!isInternal) return sendJson(res, 403, INTERNAL_ONLY), true;
-    return sendJson(res, 200, holdQuarantine(deps, client, await readJsonBody(req))), true;
+    if (!isInternal) return await reply(res, 403, INTERNAL_ONLY), true;
+    return await reply(res, 200, { ...holdQuarantine(deps, client, await readJsonBody(req)), event_emitted: true }), true;
   }
   {
     const m = /^\/api\/quarantine\/([^/]+)\/release$/.exec(path);
     if (m && method === "POST") {
-      if (!isModerator) return sendJson(res, 403, MODERATORS_ONLY), true;
+      if (!isModerator) return await reply(res, 403, MODERATORS_ONLY), true;
       const item = state.quarantine.get(decodeURIComponent(m[1]));
       if (!item) throw new HttpError(404, `no quarantine item "${decodeURIComponent(m[1])}"`);
       if (item.state === "released") throw new HttpError(409, `${item.id} was already released by ${item.released_by ?? "a moderator"}`);
@@ -879,13 +946,13 @@ export async function handleScopesRoute(
       item.released_at = nowIso();
       logAudit(deps, { kind: "quarantine.released", actor: callerId, ...(item.principal ? { principal: item.principal } : {}), detail: `${item.id} (session ${item.session_id}) released.` });
       deps.bus.emit({ type: "quarantine.released", item: structuredClone(item) });
-      return sendJson(res, 200, item), true;
+      return await reply(res, 200, item), true;
     }
   }
 
   // ---- GET /api/audit?principal=&since= (moderator).
   if (path === ROUTES.audit && method === "GET") {
-    if (!isModerator) return sendJson(res, 403, MODERATORS_ONLY), true;
+    if (!isModerator) return await reply(res, 403, MODERATORS_ONLY), true;
     const principal = url.searchParams.get("principal") ?? undefined;
     const since = url.searchParams.get("since") ?? undefined;
     if (since !== undefined && Number.isNaN(Date.parse(since))) throw new HttpError(400, "since must be an ISO 8601 timestamp");
@@ -893,7 +960,7 @@ export async function handleScopesRoute(
     const entries = state.audit
       .filter((e) => (principal === undefined || e.principal === principal) && (sinceIso === undefined || e.at >= sinceIso))
       .sort((a, b) => (a.at < b.at ? -1 : 1));
-    return sendJson(res, 200, { entries }), true;
+    return await reply(res, 200, { entries: entries.map((entry) => ({ ...entry, text: entry.detail })) }), true;
   }
 
   // ---- POST /api/handoff. Internal clients (the dispatcher) ask for anyone. A person asks for
@@ -902,13 +969,13 @@ export async function handleScopesRoute(
   // A person naming anyone else gets the same bytes whether that principal exists or not.
   if (path === ROUTES.handoff && method === "POST") {
     const body = await readJsonBody(req);
-    if (isInternal) return sendJson(res, 200, await runHandoff(deps, client, body)), true;
+    if (isInternal) return await reply(res, 200, await runHandoff(deps, client, body)), true;
     const own = grantFor(deps.grants, client)?.principal;
     const caller = own !== undefined ? state.principals.get(own) : undefined;
-    if (!caller || caller.kind !== "person") return sendJson(res, 403, INTERNAL_ONLY), true;
-    if (isRecord(body) && body.principal !== undefined && body.principal !== own) return sendJson(res, 403, OWN_MEMORY_ONLY), true;
+    if (!caller || caller.kind !== "person") return await reply(res, 403, INTERNAL_ONLY), true;
+    if (isRecord(body) && body.principal !== undefined && body.principal !== own) return await reply(res, 403, OWN_MEMORY_ONLY), true;
     const { candidates: _considered, ...mine } = await runHandoff(deps, client, { ...(isRecord(body) ? body : {}), principal: own });
-    return sendJson(res, 200, mine), true;
+    return await reply(res, 200, mine), true;
   }
 
   // ---- POST /api/dispatch (the agent's creator or a moderator).
@@ -920,17 +987,17 @@ export async function handleScopesRoute(
     const agent = state.principals.get(body.agent);
     const isCreator = agent?.kind === "agent" && agent.created_by === callerId;
     // Same bytes for "not yours" and "no such agent": no existence signal for members.
-    if (!isModerator && !isCreator) return sendJson(res, 403, NOT_YOUR_AGENT), true;
+    if (!isModerator && !isCreator) return await reply(res, 403, NOT_YOUR_AGENT), true;
     if (!agent || agent.kind !== "agent") throw new HttpError(404, `no agent "${body.agent}"`);
     if (body.by !== callerId) throw new HttpError(403, `body.by must be the caller ("${callerId}")`);
     const dispatchId = id("dsp");
-    deps.bus.emit({ type: "dispatch.requested", id: dispatchId, request: { agent: agent.id, by: callerId } });
-    return sendJson(res, 200, { id: dispatchId }), true;
+    deps.bus.emit({ type: "dispatch.requested", id: dispatchId, request: { agent: agent.id, by: callerId, ...(typeof body.task === "string" ? { task: body.task } : {}) } });
+    return await reply(res, 200, { id: dispatchId }), true;
   }
 
   // ---- POST /api/events (internal): re-broadcast one RELAYED_EVENTS event.
   if (path === ROUTES.publish && method === "POST") {
-    if (!isInternal) return sendJson(res, 403, INTERNAL_ONLY), true;
+    if (!isInternal) return await reply(res, 403, INTERNAL_ONLY), true;
     const body = await readJsonBody(req);
     if (!isRecord(body) || !isRecord(body.event)) throw new HttpError(400, "body must be { event }");
     const event = body.event;
@@ -938,9 +1005,20 @@ export async function handleScopesRoute(
       throw new HttpError(400, `event.type must be one of ${RELAYED_EVENTS.join("|")}`);
     }
     if (event.at !== undefined && typeof event.at !== "string") throw new HttpError(400, "event.at must be an ISO 8601 string");
+    if (event.type === "agent.run" && isRecord(event.run)) {
+      const minVersion = state.invalidRunVersions.get(String(event.run.id));
+      if (minVersion !== undefined) {
+        if (typeof event.run.restarts !== "number" || event.run.restarts < minVersion) return await reply(res, 200, { ok: true, ignored: true }), true;
+        state.invalidRunVersions.delete(String(event.run.id));
+      }
+    }
+    if (event.type === "agent.step" || event.type === "agent.inbox") {
+      const payload = event.type === "agent.step" ? event.step : event.item;
+      if (isRecord(payload) && state.invalidRunVersions.has(String(payload.run_id))) return await reply(res, 200, { ok: true, ignored: true }), true;
+    }
     // The event shape beyond the type is lane B's; the server stamps `at` and re-broadcasts.
     const emitted = deps.bus.emit(event as Parameters<EventBus["emit"]>[0]);
-    return sendJson(res, 200, { ok: true, at: emitted.at }), true;
+    return await reply(res, 200, { ok: true, at: emitted.at }), true;
   }
 
   return false;
@@ -951,7 +1029,9 @@ export async function handleScopesRoute(
 /** POST /api/principals (moderator): adds a person; members come with a rule and get a scope. */
 async function addPerson(deps: ScopesDeps, callerId: string, body: unknown): Promise<Principal> {
   if (!isRecord(body)) throw new HttpError(400, "body must be an AddPersonBody object");
-  const { id: personId, name, tier, rule } = body;
+  const { name, tier } = body;
+  const personId = body.id ?? (typeof name === "string" ? name.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "") : undefined);
+  const rule = body.rule ?? (tier === "member" && body.id === undefined ? { task: "Use public market information for assigned work", exclude: { groups: ["deal"], labels: [] } } : undefined);
   if (typeof personId !== "string" || !PERSON_ID_RE.test(personId)) throw new HttpError(400, `id must match ${PERSON_ID_RE} (people go by first name)`);
   if (personId.startsWith("agt_")) throw new HttpError(400, "people never use the agt_ prefix");
   if (deps.world.principals.has(personId)) throw new HttpError(409, `principal "${personId}" already exists`);
@@ -960,15 +1040,18 @@ async function addPerson(deps: ScopesDeps, callerId: string, body: unknown): Pro
   if (tier === "member" && rule === undefined) throw new HttpError(400, "a member needs a rule ({ task, exclude }); moderators see everything and need none");
 
   const principal: Principal = { id: personId, kind: "person", name: name.trim(), tier: tier as PrincipalTier };
+  if (tier === "member") {
+    const clean = parseRuleBody(rule, personId, callerId, "body.rule");
+    await buildScope(deps, principal, clean, callerId);
+    deps.world.rules.set(personId, clean);
+  }
   deps.world.principals.set(personId, principal);
   logAudit(deps, { kind: "person.added", actor: callerId, principal: personId, detail: `${principal.name} added as a ${tier}.` });
   deps.bus.emit({ type: "principal.changed", principal, change: "added", by: callerId });
 
   if (tier === "member") {
-    const clean = parseRuleBody(rule, personId, callerId, "body.rule");
-    deps.world.rules.set(personId, clean);
-    const { scope } = await buildScope(deps, principal, clean, callerId); // logs the scope.built audit row
-    deps.bus.emit({ type: "scope.updated", principal: personId, reason: "built", added: scope.fact_ids, removed: [], size: scope.fact_ids.length });
+    const scope = deps.world.scopes.get(personId)!;
+    deps.bus.emit({ type: "scope.updated", principal: personId, reason: "built", added: [...scope.fact_ids], removed: [], size: scope.fact_ids.length });
   }
   return principal;
 }
@@ -990,7 +1073,9 @@ function changeTier(deps: ScopesDeps, callerId: string, target: string, body: un
 /** POST /api/agents: a member creates agents only for themselves; the scope comes from the creator's. */
 async function createAgent(deps: ScopesDeps, callerId: string, isModerator: boolean, body: unknown): Promise<Principal> {
   if (!isRecord(body)) throw new HttpError(400, "body must be a CreateAgentBody object");
-  const { created_by, name, rule } = body;
+  const created_by = body.created_by ?? callerId;
+  const name = body.name;
+  const rule = body.rule ?? { task: body.task, exclusions: body.exclusions };
   if (typeof created_by !== "string" || created_by === "") throw new HttpError(400, "created_by must be a principal id");
   if (!isModerator && created_by !== callerId) return denyAgentCreate();
   const creator = deps.world.principals.get(created_by);
@@ -1001,10 +1086,11 @@ async function createAgent(deps: ScopesDeps, callerId: string, isModerator: bool
   if (typeof name !== "string" || name.trim() === "") throw new HttpError(400, "name must be a non-empty string");
   const agent: Principal = { id: id("agt"), kind: "agent", name: name.trim(), created_by };
   const clean = parseRuleBody(rule, agent.id, callerId, "body.rule");
+  await buildScope(deps, agent, clean, callerId);
   deps.world.principals.set(agent.id, agent);
   deps.world.rules.set(agent.id, clean);
   logAudit(deps, { kind: "agent.created", actor: callerId, principal: agent.id, detail: `${creator.name} gets agent "${agent.name}"; its scope is built from the creator's only.` });
-  const { scope } = await buildScope(deps, agent, clean, callerId); // logs the scope.built audit row
+  const scope = deps.world.scopes.get(agent.id)!;
   deps.bus.emit({ type: "principal.changed", principal: agent, change: "agent_created", by: callerId });
   deps.bus.emit({ type: "scope.updated", principal: agent.id, reason: "built", added: scope.fact_ids, removed: [], size: scope.fact_ids.length });
   return agent;
@@ -1022,6 +1108,8 @@ function holdQuarantine(deps: ScopesDeps, client: string, body: unknown): Quaran
   if (typeof p !== "number" || !Number.isFinite(p) || p < 0 || p > 1) throw new HttpError(400, "p must be a number in [0, 1]");
   if (typeof excerpt !== "string" || excerpt.trim() === "") throw new HttpError(400, "excerpt must be a non-empty string");
   if (principal !== undefined && (typeof principal !== "string" || principal === "")) throw new HttpError(400, "principal must be a principal id");
+  const existing = [...deps.world.quarantine.values()].find((item) => item.session_id === session_id && item.state === "held");
+  if (existing) return existing;
   const item: QuarantineItem = {
     id: id("qtn"),
     session_id,

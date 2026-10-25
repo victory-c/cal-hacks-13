@@ -1,5 +1,5 @@
 // Member view entrypoint: Ben's agents, memory and feed. Data comes from a MemberApi: the
-// in-browser mock by default, or Canon with `?data=canon&token=<token>` (and `?server=` as on the
+// Canon by default, or labelled fixtures with `?data=mock` (and `?server=` as on the
 // dashboard). Canon decides what exists; this page only lays it out (integration contract rule 1).
 
 import { DOC_TYPES, SCHEDULES } from "./member/contract.ts";
@@ -12,7 +12,7 @@ import {
 } from "./member/logic.ts";
 import type { Filters, Sort } from "./member/logic.ts";
 import { relativeTime } from "./format.ts";
-import { resolveServerUrl, safeStorage } from "./config.ts";
+import { normalizeUrl, resolveServerUrl, safeStorage } from "./config.ts";
 import { byId, h, syncList } from "./dom.ts";
 
 const storage = safeStorage();
@@ -20,14 +20,17 @@ const TOKEN_KEY = "canon.memberToken";
 
 function pickApi(): MemberApi {
   const q = new URLSearchParams(location.search);
-  if (q.get("data") !== "canon") return new MockCanon();
+  if (q.get("data") === "mock") return new MockCanon();
   const fromQuery = q.get("token");
   if (fromQuery) {
     storage.setItem(TOKEN_KEY, fromQuery);
+    q.set("auth", "token");
     q.delete("token"); // keep the token out of the address bar and history
     history.replaceState(null, "", `${location.pathname}?${q}`);
   }
-  return new CanonClient(resolveServerUrl(location.search, storage), storage.getItem(TOKEN_KEY) ?? "");
+  const token = q.get("auth") === "token" ? storage.getItem(TOKEN_KEY) ?? "" : "";
+  const server = q.has("server") || token ? resolveServerUrl(q.toString(), storage, location.origin) : location.origin;
+  return new CanonClient(server, token);
 }
 
 const api = pickApi();
@@ -122,10 +125,17 @@ function onEvent(ev: MemberEvent): void {
   const meId = state.me?.id;
   switch (ev.type) {
     case "fact.saved":
-      if (!state.facts.some((f) => f.id === ev.fact.id)) state.facts.unshift(ev.fact);
+      state.facts = [ev.fact, ...state.facts.filter((fact) => fact.id !== ev.fact.id)];
       renderMemory();
       break;
     case "scope.changed":
+      if (ev.removed.length) {
+        if (ev.principal === meId) state.facts = state.facts.filter((fact) => !ev.removed.includes(fact.id));
+        for (const agent of state.agents.filter((agent) => ev.principal === meId || agent.id === ev.principal)) {
+          agent.outputs = []; agent.files = []; agent.steps = []; agent.inbox = [];
+        }
+        renderMemory(); renderAgents();
+      }
       if (ev.principal === meId) void refreshFacts();
       else void refreshAgents();
       break;
@@ -158,11 +168,12 @@ function agentCard(run: AgentRun): HTMLElement {
         h("div", { class: "atask" }, run.task)),
       h("span", { class: run.status === "failed" ? "pill failed" : "pill" }, STATUS_LABELS[run.status]),
       run.status === "running"
-        ? h("button", { class: "ghost", type: "button", onclick: () => void attempt("stop the agent", () => api.stopAgent(run.id)) }, "Stop")
+        ? api.mode === "mock" && h("button", { class: "ghost", type: "button", onclick: () => void attempt("stop the agent", () => api.stopAgent(run.id)) }, "Stop")
         : h("button", { class: "btn", type: "button", disabled: busy, onclick: () => void attempt("start the agent", () => api.runAgent(run.id)) }, "Run"),
       h("button", { class: "mini", type: "button", "aria-label": `Edit ${run.name}`, onclick: () => openAgentForm(run.id) }, "Edit")),
     h("div", { class: "live", "aria-live": "polite" }, h("span", { class: dotClass, "aria-hidden": "true" }), agentStatusLine(run, Date.now())),
-    h("div", { class: "hint plan" }, agentPlanLine(run), ` · ${plural(run.fact_count, "memory", "memories")}`),
+    h("div", { class: "hint plan" }, api.mode === "mock" ? agentPlanLine(run) : "Run on demand from this agent’s memory", ` · ${plural(run.fact_count, "memory", "memories")}`),
+    api.mode === "canon" && run.files.length > 0 && h("div", { class: "hint" }, `Written files: ${run.files.join(" · ")}`),
     run.outputs.length > 0 && h("div", { class: "output" },
       h("div", { class: "bar", style: "align-items: center" },
         h("h3", { class: "sub" }, "Output"),
@@ -204,6 +215,7 @@ function openAgentForm(target: "new" | string): void {
   state.agentForm = target;
   el.agentFormTitle.textContent = run ? `Edit ${run.name}` : "New agent";
   el.aName.value = run?.name ?? "";
+  el.aName.disabled = api.mode === "canon" && !!run;
   el.aTask.value = run?.task ?? "";
   el.aLeave.value = run?.leave_out ?? "";
   const docs = new Set<string>(run?.docs ?? ["summary"]);
@@ -225,7 +237,7 @@ async function saveAgent(e: Event): Promise<void> {
   if (!name || !task) return;
   const leave = el.aLeave.value.trim();
   const docs = [...el.docChoices.querySelectorAll<HTMLInputElement>("input[name=docs]:checked")].map((b) => b.value as DocType);
-  const body: AgentBody = { name, task, exclusions: { groups: [], labels: [], text: leave ? [leave] : [] }, docs, schedule: el.aSchedule.value as Schedule };
+  const body: AgentBody = { name, task, exclusions: { groups: [], labels: [], text: leave ? [leave] : [] }, docs: api.mode === "mock" ? docs : [], schedule: api.mode === "mock" ? el.aSchedule.value as Schedule : "Only when I press Run" };
   const target = state.agentForm;
   if (target === "new") {
     if ((await attempt("create the agent", () => api.createAgent(body))).ok) local(`You created an agent: ${name}`);
@@ -403,6 +415,12 @@ function wire(): void {
 
 async function start(): Promise<void> {
   wire();
+  const query = new URLSearchParams(location.search);
+  if (api.mode === "canon" && query.get("auth") !== "token" && (!query.has("server") || normalizeUrl(query.get("server")) === location.origin)) {
+    document.querySelector("header.top")!.append(h("a", { class: "mini", href: "/login" }, "Switch demo identity"));
+  }
+  el.docChoices.closest("fieldset")!.hidden = api.mode !== "mock";
+  el.aSchedule.closest("label")!.hidden = api.mode !== "mock";
   el.modeLine.textContent = api.mode === "mock"
     ? "Demo data: Ben Kim’s view of the synthetic Axe Capital world. Triage, relevance and agent runs are simulated in the browser."
     : "Connected to Canon.";

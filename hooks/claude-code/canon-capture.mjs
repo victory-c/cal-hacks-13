@@ -75,7 +75,8 @@ async function main() {
     return debug(`POST ${endpoint} failed: ${why} (is the Bullwark server running?)${tokenNote}`);
   }
   const as = session.principal ? ` as ${session.principal}` : principal.trim() ? ` with no principal (CANON_PRINCIPAL is not an id like dan)` : "";
-  debug(`${payload.hook_event_name ?? "?"} ${session.id} ${messages.length} msgs${as} → ${res.status}${res.ok ? "" : " (server rejected)"}${tokenNote}`);
+  const error = res.ok ? "" : ` (${(await res.text()).replace(/\s+/g, " ").slice(0, 300) || "server rejected"})`;
+  debug(`${payload.hook_event_name ?? "?"} ${session.id} ${messages.length} msgs${as} → ${res.status}${error}${tokenNote}`);
 }
 
 /**
@@ -98,8 +99,11 @@ function resolveConfig() {
     }
   }
   const pick = (name) => process.env[name] || fileEnv[name] || "";
-  const token = pick("CANON_TOKEN_CLAUDE_CODE");
-  return { url: pick("CANON_URL") || DEFAULT_URL, token: token || DEV_TOKEN, devToken: !token, principal: pick("CANON_PRINCIPAL") };
+  const personToken = pick("CANON_PERSON_TOKEN");
+  // A person token owns its captures on the server. A local principal setting must not spoof
+  // someone else or override that binding. Explicit attribution is for operator ingest only.
+  const token = personToken || (pick("CANON_PRINCIPAL") && pick("CANON_TOKEN_INGEST")) || pick("CANON_TOKEN_CLAUDE_CODE");
+  return { url: pick("CANON_URL") || DEFAULT_URL, token: token || DEV_TOKEN, devToken: !token, principal: personToken ? "" : pick("CANON_PRINCIPAL") };
 }
 
 function readStdin() {

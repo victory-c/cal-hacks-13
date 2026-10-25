@@ -32,7 +32,8 @@ function run(events: CanonEvent[], start: State = initialState()): State {
 
 test("EVENT_TYPES lists each type once", () => {
   assert.equal(new Set(EVENT_TYPES).size, EVENT_TYPES.length);
-  assert.equal(EVENT_TYPES.length, 21);
+  // Compile-time exhaustiveness in state.ts checks coverage; aliases are real stream types too.
+  for (const alias of ["item.captured", "scope.build", "scope.changed"]) assert.ok((EVENT_TYPES as readonly string[]).includes(alias));
 });
 
 test("a replayed fact.saved lands on the same row", () => {

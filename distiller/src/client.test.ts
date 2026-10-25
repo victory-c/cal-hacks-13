@@ -8,6 +8,23 @@ import { fakeFact, loadFixture, quiet, readBody, serve } from "./test-helpers.ts
 import { loadContext, onceWarner } from "./worker.ts";
 
 describe("createClient", () => {
+  test("recovery reads pending ended sessions and posts the matching durable receipt", async () => {
+    const fixture = loadFixture();
+    const seen: Array<{ method: string; url: string; body?: string }> = [];
+    const { url, close } = await serve(async (req, res) => {
+      seen.push({ method: req.method ?? "", url: req.url ?? "", body: req.method === "POST" ? await readBody(req) : undefined });
+      res.writeHead(200, { "content-type": "application/json" });
+      res.end(req.method === "GET" ? JSON.stringify({ sessions: [fixture] }) : "{}");
+    });
+    try {
+      const client = createClient({ baseUrl: url, token: "test" });
+      assert.deepEqual(await client.pendingSessions!(), [fixture]);
+      await client.markDistilled!(fixture.id, "a".repeat(64));
+      assert.deepEqual(seen.map(({ method, url }) => [method, url]), [["GET", "/api/sessions?pending=1"], ["POST", `/api/sessions/${fixture.id}/distilled`]]);
+      assert.deepEqual(JSON.parse(seen[1].body!), { fingerprint: "a".repeat(64) });
+    } finally { await close(); }
+  });
+
   test("sends bearer auth and hits the contract routes; parses each response", async () => {
     const fixture = loadFixture();
     const seen: Array<{ method: string; url: string; auth?: string; body?: string }> = [];

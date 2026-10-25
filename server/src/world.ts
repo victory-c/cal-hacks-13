@@ -107,6 +107,7 @@ export function loadDemoWorld(opts: { dir?: string; moment?: WorldMoment } = {})
   const groups: Group[] = world.groups.map((g) => ({
     id: g.id,
     description: g.description,
+    ...(g.display ? { display: g.display } : {}),
     ...(g.code_names && g.code_names.length > 0 ? { aliases: g.code_names } : {}),
   }));
 

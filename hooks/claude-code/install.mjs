@@ -24,7 +24,7 @@ const HOOK_TIMEOUT_S = 15;
 
 // Claude Code sets CLAUDE_PROJECT_DIR for hook commands, so one committed command works in
 // every clone and worktree.
-export const PROJECT_COMMAND = `node "$CLAUDE_PROJECT_DIR/hooks/claude-code/${SCRIPT_NAME}"`;
+export const PROJECT_COMMAND = `node "${"${CLAUDE_PROJECT_DIR}"}/hooks/claude-code/${SCRIPT_NAME}"`;
 
 export function repoSettingsPath() {
   return fileURLToPath(new URL("../../.claude/settings.json", import.meta.url));
@@ -84,6 +84,12 @@ export function writeSettings(settingsPath, path = capturePath(), command = comm
 }
 
 function main(argv) {
+  if (argv.includes("--mcp")) {
+    // Printed, never executed: the user can install at user scope instead of accepting the
+    // committed project MCP server. Keep variable placeholders so no credential is displayed.
+    console.log('claude mcp add --scope user --transport http bullwark "${CANON_URL:-http://127.0.0.1:4100}/mcp" --header "Authorization: Bearer ${CANON_PERSON_TOKEN:-dev-claude-code}"');
+    return;
+  }
   if (argv.includes("--project")) {
     const settingsPath = repoSettingsPath();
     writeSettings(settingsPath, capturePath(), PROJECT_COMMAND);

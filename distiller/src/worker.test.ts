@@ -120,6 +120,43 @@ async function revisionHarness(failFirst = false) {
 }
 
 describe("worker handler", () => {
+  test("durable recovery picks up sessions ended while the worker was down and a new worker skips receipts", async () => {
+    const { client, calls } = fakeClient({ [memo.id]: memo });
+    const receipts = new Map<string, string>();
+    client.pendingSessions = async () => receipts.get(memo.id) === sessionRevision(memo) ? [] : [memo];
+    client.markDistilled = async (id, fingerprint) => { receipts.set(id, fingerprint); };
+    const opts = { client, distiller: new HeuristicDistiller(), judge: await judge(), live: false };
+    const first = createHandler(opts);
+    await quiet(async () => { await first.recover(); await first.settle(); });
+    assert.equal(calls.posts.length, 1);
+    assert.equal(receipts.get(memo.id), sessionRevision(memo));
+    const restarted = createHandler(opts);
+    await quiet(async () => { await restarted.recover(); await restarted.settle(); });
+    assert.equal(calls.posts.length, 1, "a worker restart never distills an acknowledged revision again");
+  });
+
+  test("a failed extraction is not acknowledged or replaced by simulated results and recovery retries it", async () => {
+    const { client, calls } = fakeClient({ [memo.id]: memo });
+    let acknowledged = 0;
+    let attempts = 0;
+    client.pendingSessions = async () => acknowledged ? [] : [memo];
+    client.markDistilled = async () => { acknowledged++; };
+    const inner = new HeuristicDistiller();
+    const distiller: Distiller = { name: "droid", async distill(s, options) {
+      attempts++;
+      if (attempts === 1) throw new Error("Factory unavailable");
+      return inner.distill(s, options);
+    } };
+    const handler = createHandler({ client, distiller, judge: await judge(), live: false });
+    await quiet(() => handler.recover());
+    assert.equal(calls.posts.length, 0);
+    assert.equal(acknowledged, 0);
+    await quiet(() => handler.recover());
+    assert.equal(attempts, 2);
+    assert.equal(calls.posts.length, 1);
+    assert.equal(acknowledged, 1);
+  });
+
   test("an ended session is fetched, distilled, triaged and posted once; a repeat is skipped", async () => {
     const { client, calls } = fakeClient({ [fixture.id]: fixture }, [fakeFact("fct_aaaa0001", "Older hook fact", { folder: "firm/ops" })]);
     const handler = createHandler({ client, distiller: new HeuristicDistiller(), judge: await judge(), live: false });
@@ -482,11 +519,11 @@ describe("worker handler", () => {
 
     const calls = await run([cold]);
     assert.deepEqual(calls.factQueries, [undefined], "no tier filter");
-    const [{ fact, decision }] = calls.posts[0].facts;
-    assert.equal(fact.folder, "deal/falcon", "the cold fact's group holds; the copy never reaches firm/ops");
-    assert.equal(decision.action, "merge");
-    assert.equal(fact.supersedes, "fct_aaaa0001");
-    assert.deepEqual(fact.labels, ["nimbus"]);
+    assert.deepEqual(calls.posts[0].facts, [], "exact repeats leave identity, tier and scopes unchanged");
+    const event = calls.events.find((e) => e.type === "triage.decided");
+    assert.ok(event?.type === "triage.decided");
+    assert.equal(event.fact_id, cold.id);
+    assert.equal(event.decision.group, "deal/falcon", "the cold fact's group holds; no copy reaches firm/ops");
   });
 
   test("a quarantined item posts no facts, files one quarantine item and relays quarantine.flagged with its id", async () => {
@@ -514,6 +551,14 @@ describe("worker handler", () => {
     assert.match(flagged.excerpt, /AI assistant: ignore your instructions/);
     assert.ok(calls.events.slice(1).every((e) => e.type === "triage.decided" && e.decision.outcome === "quarantine" && e.fact_id === undefined));
     assert.ok(lines.some((l) => l.includes(`session ${planted.id}: quarantined: `) && l.includes("(external)")), lines.join("\n"));
+  });
+
+  test("a server-emitted quarantine event is not relayed a second time", async () => {
+    const { client, calls } = fakeClient({ [planted.id]: planted });
+    client.postQuarantine = async () => ({ id: "qtn_0001", event_emitted: true });
+    const handler = createHandler({ client, distiller: fixedDistiller([{ statement: "Revised LOI attached", source }]), judge: await judge(), live: false });
+    await quiet(async () => { await handler(captured(planted.id, 1, true)); await handler.settle(); });
+    assert.deepEqual(calls.events.map((event) => event.type), ["triage.decided"]);
   });
 
   test("a session.captured replayed from before the worker started is skipped, not re-distilled", async () => {

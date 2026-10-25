@@ -23,7 +23,7 @@ PAYLOAD.transcript_path = resolve(HOOKS_DIR, PAYLOAD.transcript_path);
 
 const transcriptText = readFileSync(TRANSCRIPT, "utf8");
 const FIXTURE_LINES = transcriptText.trim().split("\n").length;
-// 13 lines → 4 messages (one per turn): tool_result-only, isMeta, sidechain, system and summary
+// 14 lines → 4 messages (one per turn): tool_result-only, isMeta, sidechain, attachment, system and summary
 // lines are dropped, and the assistant lines between two user prompts merge into one message.
 const EXPECTED_MESSAGES = 4;
 
@@ -55,6 +55,7 @@ test("parseTranscript summarises tools per turn and skips tool_result/isMeta/sid
   assert.doesNotMatch(all, /local-command-caveat/, "isMeta line leaked");
   assert.doesNotMatch(all, /SIDECHAIN/, "isSidechain line leaked");
   assert.doesNotMatch(all, /turn_duration/, "system line leaked");
+  assert.doesNotMatch(all, /INJECTED_MEMORY/, "injected memory must not be captured as a new fact");
 });
 
 test("parseTranscript joins text blocks, drops thinking, survives bad lines", () => {
@@ -157,6 +158,7 @@ test("buildSession v2: kind is always ai_session; principal only when set, trimm
   const anon = buildSession({ payload: PAYLOAD, messages, hookEvent: "Stop" });
   assert.equal(anon.kind, "ai_session");
   assert.equal(anon.kind, KIND);
+  assert.equal(anon.external, false);
   assert.equal("principal" in anon, false, "no principal key when CANON_PRINCIPAL is unset");
 
   const dan = buildSession({ payload: PAYLOAD, messages, hookEvent: "Stop", principal: " Dan " });
@@ -310,6 +312,37 @@ test("e2e: SessionEnd payload carries ended_at", async () => {
   } finally {
     await srv.close();
   }
+});
+
+test("e2e: person token is shared by capture and context; capture source stays Claude Code and the server binds the principal", async () => {
+  const srv = await fakeServer();
+  const root = mkdtempSync(join(tmpdir(), "canon-person-"));
+  writeFileSync(join(root, ".env"), "CANON_PERSON_TOKEN=person-dotenv\nCANON_PRINCIPAL=someone-else\nCANON_TOKEN_CLAUDE_CODE=operator\n");
+  try {
+    await runHook(PAYLOAD, { CANON_URL: srv.url, CANON_REPO_ROOT: root });
+    assert.equal(srv.hits[0].headers.authorization, "Bearer person-dotenv");
+    assert.equal(srv.hits[0].body.client, "claude-code");
+    assert.equal(srv.hits[0].body.external, false);
+    assert.equal("principal" in srv.hits[0].body, false);
+    await runHook(PAYLOAD, { CANON_URL: srv.url, CANON_REPO_ROOT: root, CANON_PERSON_TOKEN: "person-process" });
+    assert.equal(srv.hits[1].headers.authorization, "Bearer person-process");
+  } finally { await srv.close(); }
+});
+
+test("e2e: rejected captures print the server explanation in debug mode", async () => {
+  const server = createHttpServer((req, res) => {
+    req.resume();
+    res.writeHead(403, { "content-type": "application/json" });
+    res.end(JSON.stringify({ error: "principal requires a person or ingest token" }));
+  });
+  await new Promise((resolve) => server.listen(0, "127.0.0.1", resolve));
+  try {
+    const result = await runHook(PAYLOAD, { CANON_URL: `http://127.0.0.1:${server.address().port}`, CANON_DEBUG: "1" });
+    assert.equal(result.code, 0);
+    assert.equal(result.stdout, "");
+    assert.match(result.stderr, /403.*principal requires a person or ingest token/);
+    assert.equal(result.stderr.trim().split("\n").length, 1);
+  } finally { server.closeAllConnections(); await new Promise((resolve) => server.close(resolve)); }
 });
 
 test("e2e v2: CANON_PRINCIPAL (env, then .env) is sent as principal with kind ai_session", async () => {

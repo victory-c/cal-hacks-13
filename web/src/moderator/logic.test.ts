@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 
 import type { Group, ModPrincipal } from "./contract.ts";
-import { excludedFrom, filterAudit, groupClass, includedGroups, modFeedText, peopleTree, stageDetail } from "./logic.ts";
+import { editedRule, excludedFrom, filterAudit, groupClass, includedGroups, modFeedText, peopleTree, stageDetail } from "./logic.ts";
 
 const groups: Group[] = [
   { id: "deal/stonewall", name: "Project Stonewall", description: "" },
@@ -21,6 +21,15 @@ test("seeded groups keep their colour; new groups take the palette in order", ()
 test("included and excluded groups convert both ways, wildcards included", () => {
   assert.deepEqual(includedGroups(["deal/*"], groups), ["market/public", "custom/counsel", "custom/vendors"]);
   assert.deepEqual(excludedFrom(["market/public"], groups), ["deal/stonewall", "custom/counsel", "custom/vendors"]);
+});
+
+test("editing task or group cards preserves labels, prose and exclusions for future groups", () => {
+  const previous = { task: "old task", exclusions: { groups: ["deal/*", "future/private"], labels: ["taylor-mason"], text: ["pending deals"] } };
+  const edited = editedRule("new task", ["market/public", "custom/counsel"], groups, previous);
+  assert.deepEqual(edited, { task: "new task", exclusions: { groups: ["deal/*", "future/private", "custom/vendors"], labels: ["taylor-mason"], text: ["pending deals"] } });
+  assert.deepEqual(editedRule("no memory", [], groups, previous).exclusions.labels, ["taylor-mason"]);
+  assert.ok(!editedRule("explicitly allow the deal", groups.map((g) => g.id), groups, previous).exclusions.groups.includes("deal/*"));
+  assert.deepEqual(includedGroups(["deal"], groups), ["market/public", "custom/counsel", "custom/vendors"]);
 });
 
 test("people come first, each followed by their agents", () => {

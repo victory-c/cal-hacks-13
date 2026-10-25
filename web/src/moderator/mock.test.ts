@@ -137,6 +137,38 @@ test("a new group reaches no one until it is added to a rule", async () => {
   for (const p of (await api.principals()).filter((x) => x.tier !== "moderator")) assert.ok(!p.fact_ids.includes(inbox.id), p.id);
 });
 
+test("different group names that normalize to the same slug get distinct ids", async () => {
+  const api = fast();
+  const first = await api.createGroup("Counsel & Compliance", "");
+  const second = await api.createGroup("Counsel Compliance", "");
+  const third = await api.createGroup("合规", "");
+  assert.notEqual(first.id, second.id);
+  assert.ok(third.id.length > "custom/".length);
+});
+
+test("a running agent resumes automatically after scope narrowing, without revoked documents", async () => {
+  const api = new ModeratorMock({ stepMs: 8, buildMs: 1, triageMs: 1 });
+  const events = collect(api);
+  await api.runAgent("deal-analyst");
+  await api.setRule("deal-analyst", { task: "Draft the Stonewall bid memo", exclusions: { groups: ["deal/stonewall"], labels: [], text: [] } });
+  await wait(100);
+  const run = (await api.agents()).find((agent) => agent.id === "deal-analyst")!;
+  assert.ok(events.some((event) => event.type === "agent.restarted" && event.run.id === run.id));
+  assert.equal(run.status, "done");
+  assert.ok(run.outputs.every((output) => output.lines.every((line) => !/52\.75|Stonewall|1\.9 billion/i.test(line.text))));
+});
+
+test("new facts delivered during a moderator-started run remain in its inbox", async () => {
+  const api = new ModeratorMock({ stepMs: 10, buildMs: 1, triageMs: 1 });
+  await api.runAgent("deal-analyst");
+  await api.addItem({ kind: "memo", source: "Late deal update", text: "Project Stonewall bid terms will use a new tender offer timetable", author: "axe" });
+  await wait(100);
+  const run = (await api.agents()).find((agent) => agent.id === "deal-analyst")!;
+  assert.equal(run.status, "done");
+  assert.equal(run.pending, 1);
+  assert.ok(run.inbox.some((item) => /new tender offer timetable/.test(item.text)));
+});
+
 test("stop ends a run; retiring a fact takes it out of every scope", async () => {
   const api = new ModeratorMock({ stepMs: 40, buildMs: 1, triageMs: 1 });
   await api.runAgent("desk-assistant");

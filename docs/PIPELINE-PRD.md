@@ -1,5 +1,12 @@
 # Pipeline PRD: the core loop, end to end, on Claude Code
 
+> Integration checkpoint (Oct 24): the implementation below has since been joined with Edan's
+> frontend. Principal MCP/REST/capture, persistent scope state, immutable audit, ordered SSE,
+> missing-answer handling and worker catch-up now have regression coverage. See
+> [INTEGRATION.md](INTEGRATION.md) for the current implemented contract; the measured gaps below
+> describe the review baseline and remain useful acceptance criteria. External cloud hosting,
+> real Claude Code process hook verification and the full finance benchmark require separate evidence.
+
 **Updated Sat 10/24, 21:00 PDT.** Owner: Henry (lane A). Victor (B) and Edan (C) own the items
 marked with their lane. Terminal: Claude Code (hooks + MCP), the Canon server, the member view.
 Site: the Axe Capital demo world, standing in for small finance teams.

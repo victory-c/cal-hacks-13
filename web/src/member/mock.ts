@@ -3,7 +3,7 @@
 // for Moss and Jev, sentence splitting for the fact writer, and timed steps for Droid. Everything
 // it returns follows docs/INTEGRATION.md, so switching to Canon is `?data=canon`.
 
-import type { AddItemBody, AgentBody, AgentOutput, AgentRun, DocType, Fact, Me, MemberApi, MemberEvent } from "./contract.ts";
+import type { AddItemBody, AgentBody, AgentOutput, AgentRun, DocType, Fact, Me, MemberApi, MemberEvent, ScopeExclusions } from "./contract.ts";
 import { GROUP_NAMES, ITEMS, ME, seedAgents, seedFacts } from "./fixture.ts";
 import { docLabel } from "./logic.ts";
 
@@ -34,9 +34,11 @@ export function relevance(f: Fact, words: readonly string[]): number {
 export const KEEP = 0.45;
 
 /** Builds an agent's scope from the member's facts: leave-out first (in code), then relevance. */
-export function planScope(facts: readonly Fact[], task: string, leaveOut: string) {
+export function planScope(facts: readonly Fact[], task: string, leaveOut: string, exclusions?: ScopeExclusions) {
   const lw = stems(leaveOut), tw = stems(task);
-  const left = lw.length ? facts.filter((f) => overlap(f, lw) > 0) : [];
+  const left = facts.filter((f) => (lw.length && overlap(f, lw) > 0) ||
+    exclusions?.groups.some((p) => f.group === p || f.group.startsWith(`${p.replace(/\/\*$/, "")}/`)) ||
+    f.labels.some((label) => exclusions?.labels.includes(label)));
   const rest = facts.filter((f) => !left.includes(f));
   const candidates = rest.filter((f) => overlap(f, tw) > 0);
   const kept = candidates.filter((f) => relevance(f, tw) >= KEEP);
@@ -100,6 +102,7 @@ interface AgentState {
   seen: string[];
   pendingIds: string[];
   timers: ReturnType<typeof setTimeout>[];
+  exclusions: ScopeExclusions;
 }
 
 export interface MockOptions {
@@ -137,7 +140,7 @@ export class MockCanon implements MemberApi {
     }
     for (const run of seedAgents()) {
       const plan = planScope(this.store, run.task, run.leave_out);
-      this.agentsById.set(run.id, { run: { ...run, fact_count: plan.kept.length }, factIds: plan.kept, seen: [...plan.kept], pendingIds: [], timers: [] });
+      this.agentsById.set(run.id, { run: { ...run, fact_count: plan.kept.length }, factIds: plan.kept, seen: [...plan.kept], pendingIds: [], timers: [], exclusions: { groups: [], labels: [], text: [] } });
     }
   }
 
@@ -203,7 +206,12 @@ export class MockCanon implements MemberApi {
       if (!a.factIds.includes(id)) continue;
       a.factIds = a.factIds.filter((x) => x !== id);
       a.pendingIds = a.pendingIds.filter((x) => x !== id);
+      const wasRunning = a.run.status === "running" || a.run.status === "restarting";
+      this.clear(a);
+      a.run = { ...a.run, status: wasRunning ? "restarting" : "ready", outputs: [], files: [], finished_at: null, inbox: a.run.inbox.filter((item) => item.text !== f.statement) };
       this.emit({ type: "scope.changed", at: this.at(), principal: a.run.id, added: [], removed: [id] });
+      this.emit({ type: wasRunning ? "agent.restarted" : "agent.step", at: this.at(), run: this.snapshot(a) });
+      if (wasRunning) this.later(a, this.stepMs, () => { a.run.status = "ready"; void this.runAgent(a.run.id); });
     }
   }
 
@@ -227,8 +235,7 @@ export class MockCanon implements MemberApi {
     for (const f of fresh) this.emit({ type: "fact.saved", at, fact: structuredClone(f) });
     // Living scopes: each new fact joins the member's agents whose rule it fits.
     for (const a of this.agentsById.values()) {
-      const tw = stems(a.run.task), lw = stems(a.run.leave_out);
-      const fits = fresh.filter((f) => relevance(f, tw) >= KEEP && !(lw.length && overlap(f, lw) > 0));
+      const fits = fresh.filter((f) => planScope([f], a.run.task, a.run.leave_out, a.exclusions).kept.includes(f.id));
       if (!fits.length) continue;
       a.factIds.push(...fits.map((f) => f.id));
       a.pendingIds.push(...fits.map((f) => f.id));
@@ -250,27 +257,29 @@ export class MockCanon implements MemberApi {
       task: body.task, leave_out: body.exclusions.text.join("; "), docs: body.docs, schedule: body.schedule,
       outputs: [], finished_at: null, fact_count: 0, pending: 0,
     };
-    const a: AgentState = { run, factIds: [], seen: [], pendingIds: [], timers: [] };
+    const a: AgentState = { run, factIds: [], seen: [], pendingIds: [], timers: [], exclusions: structuredClone(body.exclusions) };
     this.agentsById.set(id, a);
     return { id, build_id: this.build(a) };
   }
 
   async updateAgent(id: string, body: AgentBody): Promise<{ build_id: string }> {
     const a = this.agent(id);
-    const wasRunning = a.run.status === "running";
+    const wasRunning = a.run.status === "running" || a.run.status === "restarting";
     this.clear(a);
-    a.run = { ...a.run, name: body.name, task: body.task, leave_out: body.exclusions.text.join("; "), docs: body.docs, schedule: body.schedule };
+    a.exclusions = structuredClone(body.exclusions);
+    // Until the rebuilt scope exists, nothing from the old scope remains a usable document.
+    a.run = { ...a.run, name: body.name, task: body.task, leave_out: body.exclusions.text.join("; "), docs: body.docs, schedule: body.schedule, outputs: [], files: [], finished_at: null, inbox: [] };
     if (wasRunning) {
       a.run.status = "restarting";
       this.emit({ type: "agent.restarted", at: this.at(), run: this.snapshot(a) });
     }
-    return { build_id: this.build(a) };
+    return { build_id: this.build(a, wasRunning) };
   }
 
   /** Runs the four scope-build stages the contract streams as `scope.build`. */
-  private build(a: AgentState): string {
+  private build(a: AgentState, restart = false): string {
     const buildId = this.id("bld");
-    const plan = planScope(this.store.filter((f) => f.status === "hot"), a.run.task, a.run.leave_out);
+    const plan = planScope(this.store.filter((f) => f.status === "hot"), a.run.task, a.run.leave_out, a.exclusions);
     if (a.run.status !== "restarting") a.run.status = "building";
     const stages: [Extract<MemberEvent, { type: "scope.build" }>["stage"], Record<string, number>][] = [
       ["exclusions", { removed: plan.left }],
@@ -281,12 +290,15 @@ export class MockCanon implements MemberApi {
     stages.forEach(([stage, counts], i) => {
       this.later(a, this.buildMs * (i + 1), () => {
         if (stage === "done") {
-          a.factIds = plan.kept;
+          // A new memory may arrive between the first and last stage.
+          a.factIds = planScope(this.store.filter((f) => f.status === "hot"), a.run.task, a.run.leave_out, a.exclusions).kept;
           a.seen = [];
           a.pendingIds = [];
           a.run.status = "ready";
+          counts.facts = a.factIds.length;
         }
         this.emit({ type: "scope.build", at: this.at(), build_id: buildId, principal: a.run.id, stage, counts });
+        if (stage === "done" && restart) void this.runAgent(a.run.id);
       });
     });
     return buildId;
@@ -305,11 +317,13 @@ export class MockCanon implements MemberApi {
     const tw = stems(a.run.task);
     const mine = this.store.filter((f) => f.status === "hot" && a.factIds.includes(f.id)).sort((x, y) => relevance(y, tw) - relevance(x, tw));
     const fresh = mine.filter((f) => !a.seen.includes(f.id));
+    const consumed = new Set(mine.map((f) => f.id));
     const docs: DocType[] = a.run.docs.length ? a.run.docs : ["summary"];
     const texts = [`Reading ${mine.length} ${mine.length === 1 ? "memory" : "memories"}`];
     if (a.pendingIds.length) texts.push(`Picked up ${a.pendingIds.length} new ${a.pendingIds.length === 1 ? "memory" : "memories"}`);
     for (const d of docs) texts.push(`Writing ${docLabel(d).toLowerCase()}`);
-    a.run = { ...a.run, status: "running", steps: [] };
+    a.pendingIds = a.pendingIds.filter((id) => !consumed.has(id));
+    a.run = { ...a.run, status: "running", steps: [], inbox: [] };
     this.emit({ type: "agent.started", at: this.at(), run: this.snapshot(a) });
     texts.forEach((text, i) => {
       this.later(a, this.stepMs * (i + 1), () => {
@@ -326,9 +340,9 @@ export class MockCanon implements MemberApi {
         steps: [...a.run.steps.map((s) => ({ ...s, status: "done" as const })), { id: this.id("stp"), text: `Finished · made ${outputs.length} ${outputs.length === 1 ? "document" : "documents"}`, status: "done", at }],
         files: outputs.map((o) => `${o.type}.md`),
       };
-      a.seen = [...a.factIds];
-      a.pendingIds = [];
+      a.seen = [...consumed];
       this.emit({ type: "agent.finished", at, run: this.snapshot(a) });
+      if (a.pendingIds.length && a.run.schedule === "Whenever new memories arrive") void this.runAgent(a.run.id);
     });
   }
 

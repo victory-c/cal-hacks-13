@@ -60,8 +60,9 @@ Verified on October 24, 2026 against the running local Docker preview:
 - Anthropic's explicitly selectable extraction fallback also completed a live request.
 
 `/health` reports `judge: "jev"` and `retriever: "moss"`; the worker's `distill.finished`
-event confirms `engine: "droid"`. The original facts and sessions were preserved. Provider
-verification does not implement finance scopes, scoped-agent dispatch, or a shared Vultr VM.
+event confirms `engine: "droid"`. The original facts and sessions were preserved. These were the earlier scaffold measurements. The integrated finance scope, console and
+Claude scoped-agent checks are recorded in [SHARED_PREVIEW.md](SHARED_PREVIEW.md). A Vultr VM
+still requires the account review to finish.
 
 The Docker build checks the CLI executable and caches npm packages. If an unreliable connection
 truncates a large CLI download, put an integrity-verified matching-platform tarball from the
@@ -84,7 +85,9 @@ npm run preview:check
 docker compose --env-file .env.preview -f compose.preview.yaml up -d --build --wait
 ```
 
-Open `http://localhost:8080`, sign in as `team` with `PREVIEW_PASSWORD` from your local file.
+Open the configured `PREVIEW_PUBLIC_URL`, sign in as `team` with `PREVIEW_PASSWORD`, and select
+a synthetic demo identity. The Mac currently uses its HTTPS tunnel origin; localhost is only
+the tunnel upstream. Fresh local setups default to `http://localhost:8080`.
 These defaults bind only to loopback. To rehearse without a model key, explicitly set
 `PREVIEW_ALLOW_SIMULATED=1`; the launcher then uses the heuristic distiller and fake judge and
 labels the mode. Set it back to `0` for the real preview.
@@ -116,7 +119,7 @@ The launcher respects provider selection. Factory needs its bundled CLI (`npm ci
 6. Start with the Compose command above. Caddy obtains HTTPS certificates for the configured
    domain and protects the dashboard, events and tokenless reads with the team login. Machine
    clients send their own Canon bearer token to `/api/*` or `/mcp`; the API enforces its existing
-   folder grants. CORS preflight carries no data and is allowed through to the API.
+   principal scope (legacy operator tokens retain folder grants). CORS preflight carries no data and is allowed through to the API.
 7. Check the authenticated `/health`, capture a fresh test session, confirm distiller output and
    the dashboard event feed, then restart and confirm facts remain. Set capture clients' `CANON_URL`
    to the public HTTPS URL and give each its corresponding client token. The browser extension's
@@ -137,7 +140,7 @@ The `canon-data` volume preserves sessions and facts, and `moss-models` preserve
 preserve certificates. Keep the same Compose project name across deployments and back up the data
 volume before replacing the VM. Do not use `down --volumes` on the shared preview.
 
-This deploys the implemented checkout, which still has v1 folder grants. The v2 finance walls,
+This deploys the implemented checkout, which still has v1 principal scope (legacy operator tokens retain folder grants). The v2 finance walls,
 entitlements and compliance flow in the PRD are not implemented by adding keys or deploying it.
 Use synthetic demo data while that work continues. Teammates still edit code through Git branches;
 the preview gives everyone the same running app and data.

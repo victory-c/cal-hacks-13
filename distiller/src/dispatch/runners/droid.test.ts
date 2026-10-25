@@ -8,7 +8,7 @@ import { REPO_ROOT } from "@canon/shared";
 import { POSIX_ONLY, quiet, withEnv } from "../../test-helpers.ts";
 import { createSandbox, realPath, unlockForCleanup } from "../sandbox.ts";
 import { DroidRunner, agentEnv, mapDroidEvent, resolveOsSandbox, seatbeltProfile } from "./droid.ts";
-import { resolveRuntime } from "./index.ts";
+import { createRunner, resolveRuntime } from "./index.ts";
 import { CancelledError, StepError } from "./types.ts";
 import type { StepEvent, StepRequest } from "./types.ts";
 
@@ -132,9 +132,9 @@ describe("DroidRunner against a fake droid on PATH", () => {
     const result = await withDroid({ FAKE_DROID_MODE: "ok" }, async () => (await newRunner()).step(request(sb.dir, events)));
 
     const call = JSON.parse(readFileSync(join(sb.dir, "droid-call.json"), "utf8"));
-    assert.deepEqual(call.args.slice(0, 8), ["exec", "--auto", "low", "-o", "stream-json", "--cwd", sb.dir, "-m"]);
-    assert.equal(call.args[8], "claude-sonnet-5-5");
-    assert.match(call.args[9], /^You are Priya's research agent, an agent in Bullwark/);
+    assert.deepEqual(call.args.slice(0, 10), ["exec", "--auto", "low", "-o", "stream-json", "--disable-builtin-skills", "--only-tools", "Read,LS,Grep,Glob,Create,Edit", "--cwd", sb.dir]);
+    assert.equal(call.args.includes("-m"), false, "Factory chooses its supported account default");
+    assert.match(call.args.at(-1), /^You are Priya's research agent, an agent in Bullwark/);
     assert.equal(call.pwd.endsWith("run_00000d01"), true, "spawned in the sandbox");
     assert.equal(call.env.FACTORY_API_KEY, "fk-test");
     assert.equal(call.env.ANTHROPIC_API_KEY, undefined, "Bullwark's other secrets never reach the agent");
@@ -169,8 +169,8 @@ describe("DroidRunner against a fake droid on PATH", () => {
   });
 
   test("agentEnv drops Bullwark's secrets and settings, values under hidden roots, and PATH entries inside them", { skip: POSIX_ONLY }, () => {
-    const e = agentEnv("/sb/run_1", { PATH: `/usr/bin${delimiter}/repo/node_modules/.bin${delimiter}/repo`, HOME: "/home/x", CANON_URL: "http://x", JEV_API_KEY: "k", NODE_OPTIONS: "--import /repo/x.js", FACTORY_API_KEY: "f" }, ["/repo"]);
-    assert.deepEqual(e, { PATH: "/usr/bin", HOME: "/home/x", FACTORY_API_KEY: "f", PWD: "/sb/run_1" });
+    const e = agentEnv("/sb/run_1", { PATH: `/usr/bin${delimiter}/repo/node_modules/.bin${delimiter}/repo`, HOME: "/home/x", CANON_URL: "http://x", JEV_API_KEY: "k", GITHUB_TOKEN: "must-not-leak", AWS_SECRET_ACCESS_KEY: "must-not-leak", NODE_OPTIONS: "--import /repo/x.js", FACTORY_API_KEY: "f" }, ["/repo"]);
+    assert.deepEqual(e, { PATH: "/usr/bin", HOME: "/sb/run_1", USERPROFILE: "/sb/run_1", FACTORY_API_KEY: "f", PWD: "/sb/run_1" });
   });
 
   test("a non-zero exit is a failed step: the exit code is the public reason, stderr only in the message", { skip: POSIX_ONLY }, async () => {
@@ -264,8 +264,15 @@ describe("DroidRunner against a fake droid on PATH", () => {
       assert.throws(() => new DroidRunner(), /not on PATH/);
       assert.equal(resolveRuntime(), "fake");
     });
-    await withDroid({ DISPATCH_RUNTIME: undefined }, async () => assert.equal(resolveRuntime(), "droid"));
+    await withDroid({ DISPATCH_RUNTIME: undefined }, async () => assert.equal(resolveRuntime(), seatbelt ? "droid" : "claude"));
     await withEnv({ DISPATCH_RUNTIME: "nope" }, async () => assert.throws(() => resolveRuntime(), /must be one of droid\|claude\|fake/));
+  });
+
+  test("production construction refuses Droid without the required OS boundary", async () => {
+    await withDroid({ DISPATCH_OS_SANDBOX: "off" }, async () => {
+      assert.throws(() => createRunner("droid"), /requires a usable OS sandbox/);
+      assert.equal(resolveRuntime(), "claude");
+    });
   });
 });
 

@@ -3,7 +3,7 @@
 
 import { plural } from "../member/logic.ts";
 import { INBOX } from "./contract.ts";
-import type { AuditEntry, BuildStage, Group, ModEvent, ModPrincipal } from "./contract.ts";
+import type { AuditEntry, BuildStage, Group, ModEvent, ModPrincipal, ScopeRule } from "./contract.ts";
 
 /** The seeded groups keep fixed colours; groups Compliance creates take the next from a palette. */
 const FIXED: Record<string, string> = {
@@ -26,11 +26,20 @@ export function groupName(id: string, groups: readonly Group[]): string {
 
 /** Included group ids from a rule's exclusion patterns (`deal/*` style), and back. */
 export function includedGroups(excluded: readonly string[], groups: readonly Group[]): string[] {
-  return groups.filter((g) => !excluded.some((p) => p === g.id || (p.endsWith("/*") && g.id.startsWith(p.slice(0, -1))))).map((g) => g.id);
+  return groups.filter((g) => !excluded.some((p) => p === g.id || g.id.startsWith(`${p.replace(/\/\*$/, "")}/`))).map((g) => g.id);
 }
 
 export function excludedFrom(included: readonly string[], groups: readonly Group[]): string[] {
   return groups.filter((g) => !included.includes(g.id)).map((g) => g.id);
+}
+
+/** Editing the group cards must not silently drop label, prose or future-group exclusions. */
+export function editedRule(task: string, included: readonly string[], groups: readonly Group[], previous: ScopeRule | null): ScopeRule {
+  const matches = (pattern: string, id: string) => pattern === id || id.startsWith(`${pattern.replace(/\/\*$/, "")}/`);
+  const preserved = (previous?.exclusions.groups ?? []).filter((pattern) => !included.some((id) => matches(pattern, id)));
+  const groupsOut = [...preserved];
+  for (const id of excludedFrom(included, groups)) if (!groupsOut.some((pattern) => matches(pattern, id))) groupsOut.push(id);
+  return { task, exclusions: { groups: groupsOut, labels: [...(previous?.exclusions.labels ?? [])], text: [...(previous?.exclusions.text ?? [])] } };
 }
 
 /** People in order, each followed by the agents they created. */

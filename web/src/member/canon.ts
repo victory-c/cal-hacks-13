@@ -4,6 +4,7 @@
 
 import { MEMBER_EVENT_TYPES } from "./contract.ts";
 import type { AddItemBody, AgentBody, AgentRun, Fact, Me, MemberApi, MemberEvent } from "./contract.ts";
+import { subscribeEvents } from "../stream.ts";
 
 export class HttpError extends Error {
   constructor(readonly status: number, message: string) {
@@ -19,7 +20,8 @@ export class CanonClient implements MemberApi {
   private async call<T>(method: string, path: string, body?: unknown): Promise<T> {
     const res = await fetch(`${this.server}${path}`, {
       method,
-      headers: { authorization: `Bearer ${this.token}`, ...(body === undefined ? {} : { "content-type": "application/json" }) },
+      credentials: "same-origin",
+      headers: { ...(this.token ? { authorization: `Bearer ${this.token}` } : {}), ...(body === undefined ? {} : { "content-type": "application/json" }) },
       body: body === undefined ? undefined : JSON.stringify(body),
     });
     if (!res.ok) {
@@ -40,8 +42,8 @@ export class CanonClient implements MemberApi {
   /** PROPOSED: GET /api/groups. Until it exists, groups show a readable form of their id. */
   async groupNames(): Promise<Record<string, string>> {
     try {
-      const { groups } = await this.call<{ groups: { id: string; display: string }[] }>("GET", "/api/groups");
-      return Object.fromEntries(groups.map((g) => [g.id, g.display]));
+      const { groups } = await this.call<{ groups: { id: string; display?: string; name?: string }[] }>("GET", "/api/groups");
+      return Object.fromEntries(groups.map((g) => [g.id, g.display ?? g.name ?? g.id]));
     } catch (e) {
       if (e instanceof HttpError && e.status === 404) return {};
       throw e;
@@ -70,9 +72,10 @@ export class CanonClient implements MemberApi {
 
   async updateAgent(id: string, body: AgentBody): Promise<{ build_id: string }> {
     const path = encodeURIComponent(id);
-    // PROPOSED: PATCH /api/agents/:id for name, docs and schedule; the rule goes through the contract route.
-    await this.call("PATCH", `/api/agents/${path}`, { name: body.name, docs: body.docs, schedule: body.schedule });
-    return this.call("PUT", `/api/principals/${path}/rule`, { task: body.task, exclusions: body.exclusions });
+    // The live dispatcher currently edits tasks and exclusions, while naming and schedules are
+    // fixed after creation. Preserve group and label barriers the text-only editor cannot show.
+    const previous = await this.call<{ exclude: { groups: string[]; labels: string[] } }>("GET", `/api/scope-rules/${path}`);
+    return this.call("PUT", `/api/principals/${path}/rule`, { task: body.task, exclusions: { ...body.exclusions, groups: previous.exclude.groups, labels: previous.exclude.labels } });
   }
 
   /** PROPOSED: DELETE /api/agents/:id. */
@@ -81,7 +84,9 @@ export class CanonClient implements MemberApi {
   }
 
   async runAgent(id: string): Promise<void> {
-    await this.call("POST", `/api/agents/${encodeURIComponent(id)}/run`, {});
+    const agent = (await this.agents()).find((a) => a.id === id);
+    if (!agent) throw new HttpError(404, "agent not found");
+    await this.call("POST", `/api/agents/${encodeURIComponent(id)}/run`, { task: agent.task });
   }
 
   /** PROPOSED: POST /api/agents/:id/stop. */
@@ -89,23 +94,32 @@ export class CanonClient implements MemberApi {
     await this.call("POST", `/api/agents/${encodeURIComponent(id)}/stop`);
   }
 
-  /**
-   * EventSource cannot send an Authorization header, so the token rides in the query string here.
-   * The contract needs to say how /events authenticates (open question in web/README.md).
-   */
   subscribe(onEvent: (ev: MemberEvent) => void, onStatus: (s: "connecting" | "live" | "reconnecting") => void): () => void {
-    onStatus("connecting");
-    const es = new EventSource(`${this.server}/events?token=${encodeURIComponent(this.token)}`);
-    es.onopen = () => onStatus("live");
-    es.onerror = () => onStatus("reconnecting");
-    const handler = (e: MessageEvent<string>) => {
-      try {
-        onEvent(JSON.parse(e.data) as MemberEvent);
-      } catch {
-        // a malformed event is dropped; the next snapshot refetch corrects state
-      }
-    };
-    for (const t of MEMBER_EVENT_TYPES) es.addEventListener(t, handler as EventListener);
-    return () => es.close();
+    let active = true;
+    const emit = (event: MemberEvent) => { if (active) onEvent(event); };
+    const close = subscribeEvents<Record<string, any>>(this.server, this.token, [...MEMBER_EVENT_TYPES, "agent.run", "principal.changed", "fact.retired"], (event) => {
+      void (async () => {
+        const at = String(event.at ?? "");
+        if (event.type === "fact.saved") {
+          // SSE carries canonical storage facts; only the current scoped REST projection is a
+          // displayable memory. Replayed saves can refer to facts since revoked or retired.
+          const fact = (await this.facts()).find((fact) => fact.id === event.fact?.id);
+          if (fact) emit({ type: "fact.saved", at, fact });
+        } else if (event.type === "fact.retired") {
+          emit({ type: "scope.changed", at, principal: (await this.me()).id, added: [], removed: [] });
+        } else if (event.type === "principal.changed") {
+          emit({ type: "scope.changed", at, principal: "", added: [], removed: [] });
+        } else if (event.type.startsWith("agent.")) {
+          const agents = await this.agents();
+          const principal = event.run?.agent ?? event.run?.id;
+          const runId = event.step?.run_id ?? event.item?.run_id ?? event.run?.id;
+          const run = agents.find((agent) => agent.id === principal || (agent as AgentRun & { run?: { id: string } }).run?.id === runId);
+          if (!run) return;
+          const type = event.type === "agent.run" ? (run.status === "done" || run.status === "failed" || run.status === "stopped" ? "agent.finished" : "agent.started") : event.type;
+          emit({ type, at, run } as MemberEvent);
+        } else emit(event as MemberEvent);
+      })().catch(() => { /* a reconnect/current snapshot restores state after a failed refresh */ });
+    }, onStatus);
+    return () => { active = false; close(); };
   }
 }

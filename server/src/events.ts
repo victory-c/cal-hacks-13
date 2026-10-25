@@ -26,20 +26,22 @@ export class EventBus {
   private readonly ring: Array<{ id: number; event: CanonEvent }> = [];
   private readonly listeners = new Set<Listener>();
   private seq = 0;
+  private delivering = false;
+  private readonly pending: CanonEvent[] = [];
 
   constructor(private readonly limit: number = EVENT_REPLAY_LIMIT) {}
 
   emit(input: EventInput): CanonEvent {
-    const event = { ...input, at: input.at ?? nowIso() } as CanonEvent;
-    this.ring.push({ id: ++this.seq, event });
+    const event = structuredClone({ ...input, at: input.at ?? nowIso(), event_id: ++this.seq }) as CanonEvent;
+    this.ring.push({ id: this.seq, event });
     if (this.ring.length > this.limit) this.ring.shift();
-    for (const fn of this.listeners) {
-      try {
-        fn(event);
-      } catch (err) {
-        // One bad listener must not stop the others or the caller.
-        console.warn(`[events] listener threw on ${event.type}: ${err instanceof Error ? err.message : String(err)}`);
-      }
+    this.pending.push(event);
+    if (!this.delivering) {
+      this.delivering = true;
+      try { while (this.pending.length) {
+        const next = this.pending.shift()!;
+        for (const fn of this.listeners) { try { fn(next); } catch (err) { console.warn(`[events] listener threw on ${next.type}: ${String(err)}`); } }
+      } } finally { this.delivering = false; }
     }
     return event;
   }
@@ -84,7 +86,7 @@ export class EventBus {
     // Live events after the replay carry the same monotonically increasing id.
     const unsubscribe = this.subscribe((e) => {
       const v = viewOf(filter, e);
-      if (v) res.write(formatSseEvent(v, String(this.seq)));
+      if (v) res.write(formatSseEvent(v, String(e.event_id)));
     });
     const heartbeat = setInterval(() => res.write(": ping\n\n"), HEARTBEAT_MS);
     heartbeat.unref();

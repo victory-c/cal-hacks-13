@@ -1,84 +1,78 @@
 # Shared HTTPS preview
 
-The tested `main` revision `3a8bc07` is accessible through an authenticated HTTPS tunnel to the
-existing local Docker stack. This is a team preview hosted on Victor's Mac, not a Vultr VM.
-The exact URL and team login are in the host's private file
-`~/.config/bullwark/preview-access.txt` (mode 600). Share only that URL and team password privately
-with teammates; browser viewers do not need sponsor API keys.
+The finance integration runs on the existing **Mac Docker preview**, through its authenticated
+HTTPS tunnel. It is not a Vultr VM. The public URL and team password are in the private host file
+`~/.config/bullwark/preview-access.txt` (mode 600); share those privately with teammates. Browser
+viewers do not need any sponsor API key.
 
-## Current operation
+## Access and identities
 
-- ngrok forwards HTTPS to `http://127.0.0.1:8080`; the API and worker ports stay unpublished.
-- The existing Bullwark sign-in protects dashboard files, API reads, health and SSE. Machine clients
-use their own Canon bearer token and retain the implemented folder grants.
-- `.env.preview` has `PREVIEW_PUBLIC_URL` equal to the tunnel's HTTPS origin and `PREVIEW_SITE=:80`.
-This gives the login form the correct Origin check, redirects the dashboard to the shared API,
-and produces Secure, HttpOnly, SameSite=Strict cookies. Use the HTTPS URL for browser login;
-`localhost:8080` is the tunnel upstream and is no longer the configured browser login origin.
-- ngrok HTTP inspection is disabled so its local inspector does not record passwords, bearer
-headers or request bodies. Provider keys remain in the ignored host environment file.
-- Docker volumes preserve the file store and Moss model cache. Existing records were retained.
+Sign in as `team`, enter the preview password, and choose Wags, Axe, Ben or Dollar Bill. Wags opens
+the moderator console; the others open the member view. **Switch demo identity** returns to the
+selector. The shared password permits selecting any synthetic identity; this is team demonstration
+access, not individual employee authentication.
 
-On this host, `~/Library/LaunchAgents/com.bullwark.preview-tunnel.plist` starts the existing ngrok
-binary with the assigned HTTPS URL, restarts it if it exits, and wraps it with `caffeinate -s`.
-The host must stay powered, connected and awake, with Docker running. The power assertion applies
-on AC power; it does not make a closed or powered-off laptop a cloud server. Logs are in
-`~/Library/Logs/Bullwark/`. The LaunchAgent and credential file are local operational configuration,
-not repository secrets or committed runtime files.
+The gateway keeps each Canon token on the server and attaches it to API requests. Canon enforces
+that principal's scope. Machine clients use their own bearer token. Use the same
+`CANON_PERSON_TOKEN` for Claude Code capture, before-prompt context and the committed `.mcp.json`.
+Never give a teammate the distiller/dispatcher token or the whole host environment file.
+
+- Pages default to live data. `?data=mock` selects explicitly labelled offline fixtures.
+- SSE uses authenticated fetch with headers/cookies; tokens stay out of URLs.
+- Member sessions cannot download moderator bundles or benchmark results, including encoded paths.
+- Unknown/absent API credentials receive 401; member administrative actions receive 403.
+- Missing judge answers cannot admit facts or weaken exclusions. Raw private source headlines are
+  omitted from facts shown to other members. Agent reads stay inside the creator's current scope
+  even while a child scope rebuild is pending.
+
+## Measured verification, October 24, 2026
+
+The final integration passed **736 automated tests**, workspace TypeScript checks and builds.
+The test suite includes a real HTTP capture → archive → writer → triage → living scope → MCP
+round trip, worker catch-up after an outage, durable duplicate receipts and a server restart.
+Providers in that regression are labelled simulations; it is not live provider evidence.
+
+Separate live checks against the HTTPS preview passed **32 authentication, role, static asset,
+privacy, health and MCP assertions**. Real Jev and Moss returned three public facts for Dollar Bill;
+the response omitted hidden-candidate and missing-context fields. Moderator and member pages loaded
+in the browser without console errors.
+
+A new synthetic person-bound session `ses_6d0d7182` passed through the configured real Factory
+extractor and Jev triage. It produced a hot research fact attributed to Axe, visible to scopes
+whose rules fit. The seeded `desk-assistant` then completed a real Claude run in two runtime
+invocations, producing `out/result.md` and saving its output as Dollar Bill's captured memory.
+The member console showed the run as Done. This verifies the Claude fallback, not Linux Droid
+agent isolation. Factory remains the real extraction provider.
+
+These checks do not establish the full 360-cell finance benchmark, native Claude Code process
+hook execution, automatic scheduling or live agent Stop/document configuration. Unsupported live
+controls are hidden or disabled. The source contract and package READMEs describe current behavior.
+
+## Operation and persistence
+
+ngrok forwards HTTPS to `http://127.0.0.1:8080`; API/worker ports stay unpublished. Its local
+HTTP inspector is disabled. The configured origin produces Secure, HttpOnly, SameSite=Strict
+cookies and validates login origins. Sponsor keys stay in ignored `.env.preview`.
+
+The Compose project and existing data/model volumes were retained. A private tar backup was made
+before adding the finance fixtures; existing captures were preserved. People, scopes, rules,
+quarantine, agent telemetry and audit persist under the data volume. Fixture sessions already
+represented by seeded facts receive receipts, avoiding unnecessary paid extraction on restart.
+
+On this host `~/Library/LaunchAgents/com.bullwark.preview-tunnel.plist` supervises ngrok and wraps
+it with `caffeinate -s`. The Mac must stay powered, connected and awake, with Docker running.
+Logs are in `~/Library/Logs/Bullwark/`.
 
 ```bash
-# App/proxy health
+npm run preview:setup # preserves credentials, adds any missing principal/worker tokens
+npm run preview:check
+# Build/update while retaining the Compose project and data volumes:
+docker compose --env-file .env.preview -f compose.preview.yaml up -d --build --wait
 docker compose --env-file .env.preview -f compose.preview.yaml ps
-# Tunnel supervisor status
-launchctl print gui/$(id -u)/com.bullwark.preview-tunnel
-# Start it again after an explicit stop (if not already loaded)
-launchctl bootstrap gui/$(id -u) ~/Library/LaunchAgents/com.bullwark.preview-tunnel.plist
-# Stop public access while keeping local Docker data
+# Stop public access without deleting Docker data:
 launchctl bootout gui/$(id -u)/com.bullwark.preview-tunnel
 ```
 
-After updating app code, preserve the Compose project and data volumes:
-
-```bash
-git pull --ff-only
-docker compose --env-file .env.preview -f compose.preview.yaml up -d --build --wait
-```
-
-## Measured verification
-
-On October 24, 2026 (October 25 UTC), the HTTPS endpoint passed **36/36 authenticated/public
-HTTP and MCP checks**, plus **14 independent unauthenticated route checks**:
-
-- Login succeeded with the actual HTTPS Origin and set a Secure/HttpOnly/SameSite cookie.
-Wrong passwords, foreign origins and unknown bearer tokens were rejected.
-- Dashboard HTML, JavaScript and CSS were delivered after login. API/MCP/SSE requests without
-a team session or valid client token returned 401. Public source/asset requests exposed only the
-login page. Private facts and raw transcripts were excluded from unauthorized views.
-- New synthetic session `ses_d0b366b1` traversed public capture → Factory → Jev → stored facts.
-The worker saved seven real Jev-judged facts (five hot, two cold), retiring four previous facts
-by normal merge/supersede decisions. Worker time was 20,488 ms; capture-to-visible wall time
-was 21,592 ms. No preexisting record was manually removed.
-- Public MCP search returned authorized Moss results. The context request considered eleven
-candidates and returned one fact (10 estimated tokens within a 300-token budget), with a measured
-server latency of 159 ms. It reported `enough: false`, so this is connectivity/retrieval evidence,
-not a claim that the broad architecture question was fully answered.
-- Public SSE delivered extraction completion events with raw plans omitted.
-
-A separate 18-second public SSE check received a newly emitted capture event and the server's
-15-second heartbeat. The session was reposted with its existing message count; the worker
-recognized the duplicate and did not repeat extraction. The ngrok agent is supervised by the
-active macOS LaunchAgent, and its public URL remained unchanged after supervision was enabled.
-
-Browser automation remains disabled in Work settings, so rendered appearance and manual
-click-through have not been visually verified. Earlier local regression results are in
-[LOCAL_TEST_REPORT.md](LOCAL_TEST_REPORT.md).
-
-## Remaining hosting work
-
-Vultr MLH account activation, confirmed credit/spending and VM credentials were unavailable on this
-host. No paid VM was created. For hosting independent of this Mac, use the existing single-VM
-Docker deployment in [PREVIEW.md](PREVIEW.md), transfer the secret file securely, and set its
-public origin to the VM's HTTPS URL. No app migration is needed.
-
-The preview runs the current folder-grant implementation. Henry's scope branch and the full
-finance demo remain separate integration work; they were not deployed by enabling this tunnel.
+A new isolated Vultr sponsor VM remains blocked by account review. The user is seeking onsite
+Vultr/MLH assistance. No Vultr resource was created and no support email was sent. Do not reuse
+Hermes or another existing server. See [VULTR_DEPLOYMENT.md](VULTR_DEPLOYMENT.md).

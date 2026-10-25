@@ -58,7 +58,7 @@ export function stems(text: string): string[] {
 }
 
 export function excludedGroup(id: string, patterns: readonly string[]): boolean {
-  return patterns.some((p) => p === id || (p.endsWith("/*") && id.startsWith(p.slice(0, -1))));
+  return patterns.some((p) => p === id || id.startsWith(`${p.replace(/\/\*$/, "")}/`));
 }
 
 /** Simulated triage: a group for the sentence, or the inbox when nothing points anywhere. */
@@ -174,6 +174,11 @@ export class ModeratorMock implements ModeratorApi {
     return words.filter((w) => h.includes(w)).length;
   }
 
+  private excluded(f: Fact, rule: ScopeRule): boolean {
+    return excludedGroup(f.group, rule.exclusions.groups) || f.labels.some((label) => rule.exclusions.labels.includes(label)) ||
+      rule.exclusions.text.some((text) => this.overlap(f, stems(text)) > 0);
+  }
+
   /** Simulated relevance, rounded so 0.15 + 0.3 reaches the 0.45 threshold. */
   relevance(f: Fact, words: readonly string[]): number {
     return words.length ? Math.min(0.95, Math.round((0.15 + 0.3 * this.overlap(f, words)) * 100) / 100) : 0;
@@ -187,7 +192,7 @@ export class ModeratorMock implements ModeratorApi {
     else if (p.rule) {
       const base = p.kind === "agent" ? this.hot().filter((f) => this.fresh(this.person(p.creator!), memo).includes(f.id)) : this.hot();
       const tw = stems(p.rule.task);
-      out = base.filter((f) => f.group !== INBOX && !excludedGroup(f.group, p.rule!.exclusions.groups) && this.relevance(f, tw) >= KEEP).map((f) => f.id);
+      out = base.filter((f) => f.group !== INBOX && !this.excluded(f, p.rule!) && this.relevance(f, tw) >= KEEP).map((f) => f.id);
     }
     memo.set(p.id, out);
     return out;
@@ -211,7 +216,7 @@ export class ModeratorMock implements ModeratorApi {
       else {
         const kept = p.fact_ids.filter((id) => {
           const f = byId.get(id);
-          return f && f.group !== INBOX && !excludedGroup(f.group, p.rule!.exclusions.groups) && (p.kind !== "agent" || (next.get(p.creator!) ?? []).includes(id));
+          return f && f.group !== INBOX && !this.excluded(f, p.rule!) && (p.kind !== "agent" || (next.get(p.creator!) ?? []).includes(id));
         });
         scope = [...kept, ...fresh.filter((id) => !kept.includes(id))];
       }
@@ -241,12 +246,12 @@ export class ModeratorMock implements ModeratorApi {
   /** The agent lost facts: a running agent restarts, and documents built from the old scope are withdrawn. */
   private narrowed(id: string, lost: number): void {
     const run = this.runs.get(id)!;
-    const wasRunning = run.status === "running";
+    const wasRunning = run.status === "running" || run.status === "restarting";
     this.clear(id);
     const note = `Scope narrowed by ${lost} ${lost === 1 ? "fact" : "facts"}: earlier documents withdrawn`;
-    Object.assign(run, { status: wasRunning ? "restarting" : "ready", outputs: [], files: [], steps: [{ id: this.nid("stp"), text: note, status: "done", at: this.now() }] });
+    Object.assign(run, { status: wasRunning ? "restarting" : "ready", outputs: [], files: [], finished_at: null, inbox: [], pending: 0, steps: [{ id: this.nid("stp"), text: note, status: "done", at: this.now() }] });
     this.emit({ type: wasRunning ? "agent.restarted" : "agent.step", at: this.now(), run: this.snapshot(id) });
-    if (wasRunning) this.later(id, this.stepMs, () => { run.status = "ready"; this.emit({ type: "agent.step", at: this.now(), run: this.snapshot(id) }); });
+    if (wasRunning) this.later(id, this.stepMs, () => { run.status = "ready"; void this.runAgent(id); });
   }
 
   private snapshot(id: string): AgentRun {
@@ -293,7 +298,12 @@ export class ModeratorMock implements ModeratorApi {
     const clean = name.trim();
     if (!clean) throw err(400, "a group needs a name");
     if (this.groupList.some((g) => g.name.toLowerCase() === clean.toLowerCase())) throw err(409, `a group named “${clean}” already exists`);
-    const g: Group = { id: `custom/${clean.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "")}`, name: clean, description: description.trim() };
+    const slug = clean.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "") || "group";
+    const base = `custom/${slug}`;
+    let id = base;
+    let suffix = 2;
+    while (this.groupList.some((group) => group.id === id)) id = `${base}-${suffix++}`;
+    const g: Group = { id, name: clean, description: description.trim() };
     this.groupList.push(g);
     // Rules list what is excluded, so a new group joins every rule's exclusions: it reaches no one until Compliance adds it.
     for (const p of this.people) if (p.rule) p.rule.exclusions.groups.push(g.id);
@@ -326,7 +336,7 @@ export class ModeratorMock implements ModeratorApi {
     const buildId = this.nid("bld");
     const base = p.kind === "agent" ? this.hot().filter((f) => this.person(p.creator!).fact_ids.includes(f.id)) : this.hot().filter((f) => f.group !== INBOX);
     const tw = stems(rule.task);
-    const afterEx = base.filter((f) => !excludedGroup(f.group, rule.exclusions.groups));
+    const afterEx = base.filter((f) => !this.excluded(f, rule));
     const removedGroups = [...new Set(base.filter((f) => !afterEx.includes(f)).map((f) => this.gname(f.group)))];
     const cands = afterEx.filter((f) => this.overlap(f, tw) > 0);
     const kept = cands.filter((f) => this.relevance(f, tw) >= KEEP);
@@ -419,9 +429,10 @@ export class ModeratorMock implements ModeratorApi {
     if (!run) throw err(404, "not found");
     if (run.status === "running" || run.status === "restarting") throw err(409, "busy");
     const docs = run.docs.length ? run.docs : (["summary"] as DocType[]);
+    const mine = structuredClone(this.hot().filter((f) => this.person(id).fact_ids.includes(f.id)));
     const texts = ["Asking Bullwark for context", `Reading ${this.person(id).fact_ids.length} facts in its folder`, ...docs.map((d) => `Writing ${docLabel(d).toLowerCase()}`)];
     this.clear(id);
-    Object.assign(run, { status: "running", steps: [], pending: 0 });
+    Object.assign(run, { status: "running", steps: [], pending: 0, inbox: [] });
     this.emit({ type: "agent.started", at: this.now(), run: this.snapshot(id) });
     texts.forEach((text, i) => {
       this.later(id, this.stepMs * (i + 1), () => {
@@ -433,10 +444,9 @@ export class ModeratorMock implements ModeratorApi {
     });
     this.later(id, this.stepMs * (texts.length + 1), () => {
       const at = this.now();
-      const mine = this.hot().filter((f) => this.person(id).fact_ids.includes(f.id));
       const outputs = docs.map((d) => writeDoc(d, mine, [], docs));
       Object.assign(run, {
-        status: "done", outputs, finished_at: at, files: outputs.map((o) => `${o.type}.md`), inbox: [],
+        status: "done", outputs, finished_at: at, files: outputs.map((o) => `${o.type}.md`),
         steps: [...run.steps.map((s) => ({ ...s, status: "done" as const })), { id: this.nid("stp"), text: `Finished · made ${outputs.length} documents`, status: "done", at }],
       });
       this.emit({ type: "agent.finished", at, run: this.snapshot(id) });

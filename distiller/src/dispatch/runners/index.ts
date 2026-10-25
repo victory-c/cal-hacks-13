@@ -6,7 +6,7 @@
 import { AGENT_RUNTIMES, env } from "@canon/shared";
 import type { AgentRuntime } from "@canon/shared";
 import { ClaudeRunner } from "./claude.ts";
-import { DroidRunner } from "./droid.ts";
+import { DroidRunner, resolveOsSandbox } from "./droid.ts";
 import { FakeRunner } from "./fake.ts";
 import { onPath } from "./types.ts";
 import type { Runner } from "./types.ts";
@@ -22,7 +22,7 @@ export function resolveRuntime(explicit?: string): AgentRuntime {
     }
     return pick as AgentRuntime;
   }
-  if (onPath("droid") && env("FACTORY_API_KEY")) return "droid";
+  if (onPath("droid") && env("FACTORY_API_KEY") && resolveOsSandbox() === "seatbelt") return "droid";
   if (env("ANTHROPIC_API_KEY")) return "claude";
   return "fake";
 }
@@ -31,6 +31,7 @@ export function resolveRuntime(explicit?: string): AgentRuntime {
 export function createRunner(runtime: AgentRuntime): Runner {
   switch (runtime) {
     case "droid":
+      if (resolveOsSandbox() !== "seatbelt") throw new Error("Droid dispatch requires a usable OS sandbox. Use DISPATCH_RUNTIME=claude here; its tools are confined to the run folder. Factory extraction remains available with DISTILLER=droid.");
       return new DroidRunner();
     case "claude":
       return new ClaudeRunner();

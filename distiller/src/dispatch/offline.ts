@@ -184,7 +184,7 @@ function specToFact(spec: FactSpec, s: CapturedSession, groups: readonly Group[]
 }
 
 function addAgentTo(world: OfflineWorld, a: { id: string; name: string; created_by: string; groups: string[]; task: string }): OfflineAgent {
-  if (!AGENT_ID_RE.test(a.id)) throw new Error(`"${a.id}" is not an agent id (agt_ + lowercase slug)`);
+  if (!AGENT_ID_RE.test(a.id)) throw new Error(`"${a.id}" is not an agent id (safe lowercase principal id required)`);
   if (world.people.some((p) => p.principal.id === a.id) || world.agents.some((x) => x.principal.id === a.id)) throw new Error(`${a.id} already exists in the offline world`);
   if (!world.people.some((p) => p.principal.id === a.created_by)) {
     throw new Error(`the offline world has no person "${a.created_by}" (people: ${world.people.map((p) => p.principal.id).join(", ")})`);

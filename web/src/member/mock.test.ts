@@ -98,6 +98,64 @@ test("retiring a memory takes it out of agents' memory too", async () => {
   assert.ok((await api.agents())[0]!.fact_count <= before);
 });
 
+test("revoking a fact withdraws completed documents and restarts a running agent without it", async () => {
+  const api = new MockCanon({ stepMs: 4, buildMs: 1, triageMs: 1 });
+  const { id } = await api.createAgent(body({ task: "Taylor Mason asset management sector fee pressure", docs: ["memo"] }));
+  await wait();
+  await api.runAgent(id);
+  await wait();
+  const before = (await api.agents()).find((agent) => agent.id === id)!;
+  assert.ok(before.outputs.length);
+  const target = (await api.facts()).find((fact) => before.outputs.some((output) => output.lines.some((line) => line.text.includes(fact.statement))))!;
+  assert.ok(target);
+  await api.retireFact(target.id);
+  assert.deepEqual((await api.agents()).find((agent) => agent.id === id)!.outputs, []);
+  const events = collect(api);
+  await api.runAgent(id);
+  const another = (await api.facts()).find((fact) => planScope([fact], before.task, "").kept.length > 0)!;
+  await api.retireFact(another.id);
+  await wait(70);
+  assert.ok(events.some((event) => event.type === "agent.restarted" && event.run.id === id));
+  const after = (await api.agents()).find((agent) => agent.id === id)!;
+  assert.equal(after.status, "done");
+  assert.ok(after.outputs.every((output) => output.lines.every((line) => !line.text.includes(another.statement) && !line.text.includes(target.statement))));
+});
+
+test("facts arriving during a run stay pending for the next run", async () => {
+  const api = new MockCanon({ stepMs: 8, buildMs: 1, triageMs: 1 });
+  const { id } = await api.createAgent(body({ task: "Track fee pressure across managers", docs: ["changes"] }));
+  await wait();
+  await api.runAgent(id);
+  const text = "Management fee pressure across listed managers deepened again today";
+  await api.addItem({ kind: "note", source: "Late update", text });
+  await wait(60);
+  const after = (await api.agents()).find((agent) => agent.id === id)!;
+  assert.equal(after.status, "done");
+  assert.equal(after.pending, 1);
+  await api.runAgent(id);
+  await wait(60);
+  const rerun = (await api.agents()).find((agent) => agent.id === id)!;
+  assert.equal(rerun.pending, 0);
+  assert.ok(rerun.outputs[0]!.lines.some((line) => line.text === text));
+});
+
+test("editing an agent never keeps documents from its previous scope", async () => {
+  const api = fast();
+  await api.runAgent("research-analyst");
+  await wait();
+  assert.ok((await api.agents())[0]!.outputs.length);
+  await api.updateAgent("research-analyst", body({ task: "Taylor Mason outflows", exclusions: { groups: [], labels: ["taylor-mason"], text: [] } }));
+  assert.deepEqual((await api.agents())[0]!.outputs, []);
+  await wait();
+  await api.runAgent("research-analyst");
+  await wait();
+  const permitted = seedFacts().filter((fact) => !fact.labels.includes("taylor-mason"));
+  const allowed = permitted.map((fact) => fact.statement);
+  for (const output of (await api.agents())[0]!.outputs) for (const line of output.lines) {
+    assert.ok(allowed.some((statement) => line.text.includes(statement)) || /Nothing/.test(line.text));
+  }
+});
+
 test("documents only quote the agent's own facts, and empty ones say so", () => {
   const facts = seedFacts().slice(0, 3);
   const doc = writeDoc("trends", facts, [], ["trends"]);

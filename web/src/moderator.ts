@@ -1,9 +1,9 @@
 // Moderator console entrypoint: people and scopes, agents, memory (with the inbox and
 // quarantine), the feed, handoffs and audit. Data comes from a ModeratorApi: the in-browser mock
-// by default, or Canon with `?data=canon&token=<moderator token>` (and `?server=`). Canon decides;
+// with `?data=mock`, or Canon at this origin by default (and optional `?server=`). Canon decides;
 // this page lays it out and sends commands (integration contract rule 1).
 
-import { resolveServerUrl, safeStorage } from "./config.ts";
+import { normalizeUrl, resolveServerUrl, safeStorage } from "./config.ts";
 import { byId, h, syncList } from "./dom.ts";
 import { relativeTime } from "./format.ts";
 import type { AgentRun, Fact } from "./member/contract.ts";
@@ -15,7 +15,7 @@ import type { Filters, Sort } from "./member/logic.ts";
 import { CanonModClient } from "./moderator/canon.ts";
 import { INBOX } from "./moderator/contract.ts";
 import type { AuditEntry, Group, Handoff, HeldItem, ModEvent, ModPrincipal, ModeratorApi } from "./moderator/contract.ts";
-import { STAGES, excludedFrom, filterAudit, groupClass, groupName, includedGroups, modFeedText, peopleTree, stageDetail } from "./moderator/logic.ts";
+import { STAGES, editedRule, filterAudit, groupClass, groupName, includedGroups, modFeedText, peopleTree, stageDetail } from "./moderator/logic.ts";
 import { DEMO_ITEMS, ModeratorMock } from "./moderator/mock.ts";
 
 const storage = safeStorage();
@@ -24,14 +24,17 @@ const NEW = "__new";
 
 function pickApi(): ModeratorApi {
   const q = new URLSearchParams(location.search);
-  if (q.get("data") !== "canon") return new ModeratorMock();
+  if (q.get("data") === "mock") return new ModeratorMock();
   const fromQuery = q.get("token");
   if (fromQuery) {
     storage.setItem(TOKEN_KEY, fromQuery);
+    q.set("auth", "token");
     q.delete("token"); // keep the token out of the address bar and history
     history.replaceState(null, "", `${location.pathname}?${q}`);
   }
-  return new CanonModClient(resolveServerUrl(location.search, storage), storage.getItem(TOKEN_KEY) ?? "");
+  const token = q.get("auth") === "token" ? storage.getItem(TOKEN_KEY) ?? "" : "";
+  const server = q.has("server") || token ? resolveServerUrl(q.toString(), storage, location.origin) : location.origin;
+  return new CanonModClient(server, token);
 }
 
 const api = pickApi();
@@ -55,6 +58,7 @@ const S = {
   rInc: new Set<string>(),
   builds: new Map<string, Map<string, Extract<ModEvent, { type: "scope.build" }>>>(),
   editing: null as string | null,
+  editStatement: "",
   editTo: "",
   selecting: false,
   picked: new Set<string>(),
@@ -259,7 +263,7 @@ function renderGroupCards(): void {
     const box = h("input", { class: "gcheck", type: "checkbox", checked: on, onchange: () => { if (on) S.rInc.delete(g.id); else S.rInc.add(g.id); renderGroupCards(); } });
     return h("label", { class: `gcard${on ? " on" : ""}` }, box, h("span", { class: `gdot ${gcls(g.id)}`, "aria-hidden": "true" }), h("span", { class: "gname" }, g.name), h("span", { class: "gstate" }, on ? "✓ In scope" : "Not included"));
   }), h("button", { class: "gcard addcard", type: "button", onclick: () => openNg({ kind: "rule" }) }, h("span", { class: "gname", style: "text-align: center" }, "+ New group")));
-  el.saveRule.disabled = !el.rTask.value.trim() || S.rInc.size === 0;
+  el.saveRule.disabled = !el.rTask.value.trim();
   el.ruleTitle.textContent = p ? `${p.rule ? "Edit" : "Build"} ${p.name}’s scope` : "";
 }
 
@@ -287,8 +291,8 @@ async function saveRule(e: Event): Promise<void> {
   e.preventDefault();
   const p = selected();
   const task = el.rTask.value.trim();
-  if (!p || !task || !S.rInc.size) return;
-  const rule = { task, exclusions: { groups: excludedFrom([...S.rInc], S.groups), labels: [], text: [] } };
+  if (!p || !task) return;
+  const rule = editedRule(task, [...S.rInc], S.groups, p.rule);
   S.builds.delete(p.id);
   if ((await attempt("save the rule", () => api.setRule(p.id, rule))).ok) closeRule();
 }
@@ -337,12 +341,13 @@ function agentCard(run: AgentRun): HTMLElement {
       h("div", { style: "flex: 1; min-width: 220px" }, h("div", { class: "aname" }, run.name), h("div", { class: "atask" }, run.task)),
       h("span", { class: run.status === "failed" ? "pill failed" : "pill" }, STATUS_LABELS[run.status]),
       run.status === "running"
-        ? h("button", { class: "ghost", type: "button", onclick: () => void attempt("stop the agent", () => api.stopAgent(run.id)) }, "Stop")
+        ? api.mode === "mock" && h("button", { class: "ghost", type: "button", onclick: () => void attempt("stop the agent", () => api.stopAgent(run.id)) }, "Stop")
         : h("button", { class: "btn", type: "button", disabled: busy || run.fact_count === 0, onclick: () => void attempt("start the agent", () => api.runAgent(run.id)) }, "Run"),
       h("button", { class: "mini", type: "button", onclick: () => { S.sel = run.id; closeRule(); renderPeople(); renderSelected(); el.people.scrollIntoView({ behavior: "smooth", block: "start" }); } }, "Scope")),
     h("div", { class: "live", "aria-live": "polite" }, h("span", { class: busy ? "dot on" : run.status === "done" ? "dot ok" : "dot", "aria-hidden": "true" }),
       run.fact_count === 0 && !busy ? "Waiting: its creator’s scope gives it nothing yet" : agentStatusLine(run, Date.now())),
-    h("div", { class: "hint plan" }, agentPlanLine(run).replace(/^Only when I press Run · /, ""), ` · ${plural(run.fact_count, "fact")}`),
+    h("div", { class: "hint plan" }, api.mode === "mock" ? agentPlanLine(run).replace(/^Only when I press Run · /, "") : "Run on demand from this agent’s memory", ` · ${plural(run.fact_count, "fact")}`),
+    api.mode === "canon" && run.files.length > 0 && h("div", { class: "hint" }, `Written files: ${run.files.join(" · ")}`),
     run.outputs.length > 0 && h("div", { class: "output" },
       h("div", { class: "bar", style: "align-items: center" }, h("h3", { class: "sub" }, "Output"), h("span", { class: "files" }, run.files.join(" · "))),
       h("ul", { class: "list" }, run.outputs.map((o) => {
@@ -370,7 +375,8 @@ function renderAgents(): void {
 
 function editForm(f: Fact): HTMLElement {
   const box = h("textarea", { rows: 2, "aria-label": "Memory" }) as HTMLTextAreaElement;
-  box.value = f.statement;
+  box.value = S.editStatement;
+  box.addEventListener("input", () => { S.editStatement = box.value; });
   const to = h("select", null) as HTMLSelectElement;
   fillGroupPicker(to, S.editTo || f.group, false);
   to.addEventListener("change", () => {
@@ -384,8 +390,8 @@ function editForm(f: Fact): HTMLElement {
       e.preventDefault();
       const statement = box.value.trim();
       if (!statement) return;
-      if (statement !== f.statement) await attempt("save the memory", () => api.editFact(f.id, statement));
-      if (to.value && to.value !== f.group) await attempt("file the memory", () => api.fileFacts([f.id], to.value));
+      if (statement !== f.statement && !(await attempt("save the memory", () => api.editFact(f.id, statement))).ok) return;
+      if (to.value && to.value !== f.group && !(await attempt("file the memory", () => api.fileFacts([f.id], to.value))).ok) return;
       S.editing = null;
       S.editTo = "";
       await refreshAll();
@@ -407,7 +413,7 @@ function memoryRow(f: Fact, cls: string, byDate: boolean): HTMLElement {
       S.selecting && h("input", { class: "pickbox", type: "checkbox", checked: S.picked.has(f.id), "aria-label": "Select this fact", onchange: () => { if (S.picked.has(f.id)) S.picked.delete(f.id); else S.picked.add(f.id); renderMemory(); } }),
       h("span", { class: "st" }, h("span", { class: "kind" }, kindLabel(f.source_kind)), f.statement, h("span", { class: "trail" }, `${byDate ? `${gname(f.group)} · ` : ""}${sourceTitle(f)}`)),
       h("span", { class: "date" }, fmtDay(f.learned_at)),
-      h("button", { class: "mini", type: "button", "aria-label": "Edit memory", onclick: () => { S.editing = f.id; S.editTo = ""; renderMemory(); } }, "Edit")));
+      h("button", { class: "mini", type: "button", "aria-label": "Edit memory", onclick: () => { S.editing = f.id; S.editStatement = f.statement; S.editTo = ""; renderMemory(); } }, "Edit")));
 }
 
 function renderMemory(): void {
@@ -594,7 +600,7 @@ function wire(): void {
   });
   el.toggleRule.addEventListener("click", () => (S.ruleOpen ? closeRule() : openRule()));
   el.cancelRule.addEventListener("click", closeRule);
-  el.rTask.addEventListener("input", () => { el.saveRule.disabled = !el.rTask.value.trim() || S.rInc.size === 0; });
+  el.rTask.addEventListener("input", () => { el.saveRule.disabled = !el.rTask.value.trim(); });
   el.ruleForm.addEventListener("submit", (e) => void saveRule(e));
 
   ngForm.addEventListener("submit", (e) => void createGroup(e));
@@ -668,6 +674,10 @@ function wire(): void {
 
 async function start(): Promise<void> {
   wire();
+  const query = new URLSearchParams(location.search);
+  if (api.mode === "canon" && query.get("auth") !== "token" && (!query.has("server") || normalizeUrl(query.get("server")) === location.origin)) {
+    document.querySelector("header.top")!.append(h("a", { class: "mini", href: "/login" }, "Switch demo identity"));
+  }
   el.modeLine.textContent = api.mode === "mock"
     ? "Demo data: the synthetic Axe Capital world at the start of the demo. Triage, relevance, scope builds and agent runs are simulated in the browser."
     : "Connected to Canon.";

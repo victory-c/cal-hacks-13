@@ -6,7 +6,7 @@ import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import type { CallToolResult } from "@modelcontextprotocol/sdk/types.js";
 import { z } from "zod";
 
-import { DEFAULT_BUDGET_TOKENS, MCP_TOOLS, THRESHOLDS, canRead, cutToBudget, newSessionId, nowIso, timed } from "@canon/shared";
+import { DEFAULT_BUDGET_TOKENS, MCP_TOOLS, THRESHOLDS, canRead, folderAllows, cutToBudget, newSessionId, nowIso, timed } from "@canon/shared";
 import type {
   Answer,
   CapturedSession,
@@ -28,6 +28,8 @@ import type {
 import type { EventBus } from "./events.ts";
 import type { Retriever } from "./retrieval/index.ts";
 import type { FileStore } from "./store.ts";
+import { runHandoff, scopeFacts } from "./scopes.ts";
+import type { ScopeState } from "./scopes.ts";
 
 export interface McpDeps {
   client: string;
@@ -36,6 +38,8 @@ export interface McpDeps {
   retriever: Retriever;
   bus: EventBus;
   judge: Judge;
+  world?: ScopeState;
+  grants?: readonly Grant[];
 }
 
 /** How many candidates retrieval hands to Jev. One batched judge call covers all of them. */
@@ -48,6 +52,14 @@ const ENOUGH_ID = "enough";
 // ------------------------------------------------------------------ canon_context
 
 export async function runContext(deps: McpDeps, input: ContextInput): Promise<ContextOutput> {
+  const principal = deps.grant.principal;
+  if (deps.world && principal && deps.world.principals.has(principal)) {
+    const result = await runHandoff({ ...deps, world: deps.world, grants: deps.grants ?? [deps.grant] }, deps.client, { ...input, principal });
+    const enough = result.facts.length > 0;
+    deps.bus.emit({ type: "context.served", client: deps.client, task: input.task, fact_ids: result.facts.map((f) => f.id), candidates: result.facts.length, tokens: result.tokens, latency_ms: result.latency_ms, enough });
+    await deps.world.flush();
+    return { facts: result.facts, profile: result.profile, tokens: result.tokens, latency_ms: result.latency_ms, enough };
+  }
   const t0 = performance.now();
   const task = input.task.trim();
   const budget = input.budget_tokens ?? DEFAULT_BUDGET_TOKENS;
@@ -136,6 +148,14 @@ function noulAnswers(answers: Answer[]): Map<string, number> {
 // ------------------------------------------------------------------- canon_search
 
 export async function runSearch(deps: McpDeps, input: SearchInput): Promise<SearchOutput> {
+  if (deps.world && deps.grant.principal && deps.world.principals.has(deps.grant.principal)) {
+    const scope = scopeFacts({ ...deps, world: deps.world, grants: deps.grants ?? [deps.grant] }, deps.grant.principal);
+    const pool = scope.filter((fact) => !input.folders?.length || folderAllows(input.folders, fact.folder));
+    if (!pool.length) return { facts: [] };
+    const allowed = new Map(pool.map((f) => [f.id, f]));
+    const hits = await deps.retriever.search(input.query, { folders: [...new Set(pool.map((f) => f.folder))], k: pool.length });
+    return { facts: hits.flatMap((hit) => { const canonical = allowed.get(hit.fact.id); if (!canonical) return []; const { jev_keep: _judge, supersedes: _old, ...safe } = canonical; return [safe as Fact]; }).slice(0, SEARCH_LIMIT) };
+  }
   // Requested folders are intersected with the grant. A folder outside it is dropped silently and
   // the answer is an ordinary (possibly empty) result: no refusal, nothing that says it exists
   // (CLAUDE.md). Moderators still see the probe as access.denied on the event stream.
@@ -164,10 +184,12 @@ export async function runSave(deps: McpDeps, input: SaveInput): Promise<SaveOutp
     ended_at: now,
     title: input.text.slice(0, 80),
     messages: [{ role: "user", content: input.text }],
-    meta: { folder_hint: input.folder },
+    meta: { folder_hint: input.folder, source: "canon_save" },
+    kind: "note",
+    external: false,
     // Same binding as POST /api/sessions: a per-person client's saves are its principal's own
     // memories, so the distilled facts carry that author and join their scope.
-    ...(deps.grant.principal !== undefined ? { principal: deps.grant.principal } : {}),
+    ...(deps.grant.principal !== undefined ? { principal: deps.world?.principals.get(deps.grant.principal)?.created_by ?? deps.grant.principal } : {}),
   };
   await deps.store.putSession(session);
   deps.bus.emit({
@@ -180,6 +202,10 @@ export async function runSave(deps: McpDeps, input: SaveInput): Promise<SaveOutp
 // ------------------------------------------------------------------- canon_whoami
 
 export function runWhoami(deps: McpDeps): WhoamiOutput {
+  if (deps.world && deps.grant.principal) {
+    const who = deps.world.principals.get(deps.grant.principal);
+    if (who) return { client: deps.client, principal: who.id, name: who.name, ...(who.tier ? { tier: who.tier } : {}), ...(who.created_by ? { created_by: who.created_by } : {}), ...(who.tier !== "moderator" && deps.world.rules.get(who.id) ? { task: deps.world.rules.get(who.id)!.task } : {}) };
+  }
   return { client: deps.client, read: [...deps.grant.read], write: [...deps.grant.write] };
 }
 
@@ -211,7 +237,7 @@ export function createMcpServer(deps: McpDeps): McpServer {
     MCP_TOOLS.search,
     {
       title: "Search stored facts",
-      description: "Search the user's stored facts within the folders this client may read. Optional folders narrow the search.",
+      description: "Search the facts in your memory. Optional folders narrow the search.",
       inputSchema: {
         query: z.string().min(1),
         folders: z.array(z.string()).optional().describe('e.g. ["career/skills"]'),
@@ -239,7 +265,7 @@ export function createMcpServer(deps: McpDeps): McpServer {
     MCP_TOOLS.whoami,
     {
       title: "Who am I",
-      description: "The folders this client can read and write.",
+      description: "Your identity and standing task.",
       inputSchema: {},
     },
     async () => ok({ ...runWhoami(deps) }),

@@ -1,9 +1,8 @@
 # `@canon/server` — MCP + REST + SSE, fact store, cold archive, grants, retrieval
 
-**Owner:** lane A, Henry Lai. This README describes the implemented file-backed server and
-its local fallbacks. Tiers, groups and labels, scope rules, the scope builder, living scopes and
-audit records are tracked in `../docs/PRD.md` and `../STATUS.md`. Existing folder grants are not
-scopes; do not claim information barriers from this scaffold.
+**Owner:** lane A, Henry Lai. Canon enforces principal scopes across REST, MCP, hooks and agent
+sandboxes. Operators without a principal retain the original folder-grant scaffold. The implemented
+pipeline is tracked in `../docs/PIPELINE-PRD.md`; offline tests use labelled simulated providers.
 
 ## Run, seed, test
 
@@ -63,8 +62,9 @@ tests still run on the earlier Falcon world (`../distiller/fixtures/world/`, `fi
 or the client id itself (`maya=dev-maya` → `maya`). Moderator routes answer every non-moderator with
 one constant `403 { "error": "moderators only" }` **before anything is looked up**, so the same bytes
 come back whether the target exists or not — no refusals that reveal, no existence signals. World
-state (people, rules, scopes, quarantine, audit) lives in memory per server, loaded from the demo
-world (above); facts come from the regular store.
+state (people, rules, scopes, groups, quarantine and append-only audit) is restored from `world/`
+under the data directory. Snapshots are atomic and queued; writes finish before mutation responses.
+Initial fixture scopes are built only when no persisted scope exists. Shutdown drains living joins.
 
 **Scope builder and living scopes (A4+A6, `src/scopes.ts` + `src/scope-judge.ts`).** A build is:
 excluded groups (prefix) and labels removed **in code** → one retriever query for the task, result
@@ -99,6 +99,9 @@ result is an ordinary (possibly empty) list, never a refusal, and moderators see
 ```
 facts/<folder>/<id>.md     one fact per markdown file (shared serializeFactFile / parseFactFile)
 sessions/<id>.json         raw CapturedSession, the cold archive
+world/*.json              principals, groups, rules, scopes and quarantine snapshots
+world/audit.jsonl         append-only scope and handoff audit
+receipts/<session>.json   durable distillation content fingerprint
 ```
 
 Writes are tmp + rename. `FileStore.loadAll()` skips unparsable files with a warning. Only `hot`
@@ -136,3 +139,26 @@ for the distiller. `src/seed.ts` copies `fixtures/` (sample data, see `fixtures/
 Store round-trip, auth, event ring buffer, keyword scoping, `canon_context` budget cut with a
 `FakeJudge` override, seed + fixtures, and `app.test.ts`: real HTTP on port 0 covering every route plus
 the MCP endpoint through the SDK `Client`.
+
+## Integrated console and person clients
+
+A grant with `principal` uses that person's fixed scope for both MCP and REST. Moderators see all hot
+facts; members and agents receive no candidate counts, missing-context hints, exclusions or out-of-scope
+fact identifiers. An agent's readable facts are intersected with its creator's current scope on every
+read. Operator tokens retain folder grants. Capture tokens naming a principal preserve the source
+client (for example `claude-code`), bind authorship and session ownership to that principal, and reject
+impersonation. Only ingest and internal clients can attribute captures to another existing principal.
+
+The console routes include `GET /api/me`, scoped `GET /api/facts` and `GET /api/groups`,
+`POST /api/items`, scoped fact edits and retirement, agent list/create/run, moderator inbox/handoffs,
+and the `PUT /api/principals/:id/rule` alias. The moderator creates groups closed to existing members
+until their rules are changed. SSE emits scope and item aliases; member replay/live views use the same
+scope boundary. A scope narrowing immediately clears old agent traces and rejects late events until a
+new run or incremented restart arrives. Agent documents and recurring schedules are not configured by
+these routes; runs are on demand. Console output summaries come from actual runtime result steps.
+
+Internal workers use `GET /api/sessions?pending=1` and
+`POST /api/sessions/:id/distilled { fingerprint }` to recover ended captures after reconnect or restart.
+The fingerprint hashes messages, principal, kind and external status; a receipt cannot acknowledge a
+session revision that changed while it was being distilled. Quarantine holds are idempotent per held
+session and report `event_emitted: true` to avoid duplicate relay events.
