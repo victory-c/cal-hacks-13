@@ -8,7 +8,7 @@ Built at Cal Hacks 13.0.
 |---|---|---|
 | **Is** | The control room people use | The agentic backend that does the work |
 | **Does** | Moderator console, member view, finance wording, the demo | Capture, facts and groups, tiers and scopes, handoffs, agents, MCP, audit |
-| **Spec** | [`docs/BULLWARK-PRD.md`](docs/BULLWARK-PRD.md) | [`docs/CANON-PRD.md`](docs/CANON-PRD.md) |
+| **Spec** | [`docs/BULLWARK-PRD.md`](docs/BULLWARK-PRD.md) | [`docs/CANON-PRD.md`](docs/CANON-PRD.md); the end-to-end loop and its gaps: [`docs/PIPELINE-PRD.md`](docs/PIPELINE-PRD.md) |
 | **Code** | `web/` | `server/`, `distiller/`, `hooks/`, `extension/`, `shared/` |
 
 Bullwark decides what to show; Canon decides who may see what. They meet only through
