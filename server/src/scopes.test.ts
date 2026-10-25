@@ -8,7 +8,7 @@
 // tests can both steer single answers (a "maybe") and prove what the judge was never asked.
 
 import assert from "node:assert/strict";
-import { mkdtemp, rm } from "node:fs/promises";
+import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { after, before, describe, test } from "node:test";
@@ -892,6 +892,26 @@ describe("world fixtures (the contract in distiller/fixtures/world)", () => {
       const name = code.charAt(0).toUpperCase() + code.slice(1);
       assert.ok(g.aliases?.includes(name), `${g.id} must list its code name "${name}" as an alias`);
       assert.ok(g.aliases?.includes(`Project ${name}`), `${g.id} must list "Project ${name}" as an alias`);
+    }
+  });
+});
+
+describe("world persistence", () => {
+  test("one failed snapshot write rejects for its caller only; the next flush still lands", async () => {
+    const dir = await mkdtemp(join(tmpdir(), "canon-flush-"));
+    try {
+      const world = new ScopeState(loadWorldFixtures(), dir);
+      // A file where the world/ folder belongs makes this one write fail, as a locked file would.
+      await writeFile(join(dir, "world"), "in the way\n");
+      await assert.rejects(world.flush(), "the caller that queued the failed write sees it");
+
+      await rm(join(dir, "world"));
+      await world.flush();
+      const principals = JSON.parse(await readFile(join(dir, "world", "principals.json"), "utf8")) as { principals: Principal[] };
+      assert.ok(principals.principals.length > 0, "the next snapshot is written whole");
+      await world.flush();
+    } finally {
+      await rm(dir, { recursive: true, force: true });
     }
   });
 });

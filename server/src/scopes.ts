@@ -167,12 +167,17 @@ export class ScopeState {
     }
   }
 
-  /** One queue for snapshots and append-only audit. A failed write remains visible to callers. */
+  /**
+   * One queue for snapshots and append-only audit. A failed write rejects for the caller that
+   * queued it, but never for the writes after it: each snapshot is the whole state, so the next
+   * one repairs whatever the failed one left behind. (Chaining onto a rejected promise would
+   * otherwise fail every later flush, and every request that awaits one, until a restart.)
+   */
   flush(): Promise<void> {
     if (!this.dir) return Promise.resolve();
     const snapshot = structuredClone({ principals: [...this.principals.values()], rules: [...this.rules.values()], scopes: [...this.scopes.values()], groups: this.groups, items: [...this.quarantine.values()], audit: this.audit, agents: { runs: [...this.agentRuns], steps: [...this.agentSteps], inbox: [...this.agentInbox], invalid_versions: [...this.invalidRunVersions], stops: [...this.agentStops] } });
     const dir = join(this.dir, "world");
-    this.writes = this.writes.then(async () => {
+    this.writes = this.writes.catch(() => {}).then(async () => {
       await mkdir(dir, { recursive: true });
       for (const [name, key] of [["groups", "groups"], ["rules", "rules"], ["scopes", "scopes"], ["quarantine", "items"], ["principals", "principals"]] as const) await writeAtomic(join(dir, `${name}.json`), JSON.stringify({ [key]: snapshot[key] }) + "\n");
       await writeAtomic(join(dir, "agents.json"), JSON.stringify(snapshot.agents) + "\n");
@@ -406,6 +411,18 @@ export function scopeFacts(deps: ScopesDeps, principalId: string): Fact[] {
   if (!scope) return [];
   const creatorIds = creator?.kind === "agent" && creator.created_by ? new Set(scopeFacts(deps, creator.created_by).map((f) => f.id)) : undefined;
   return scope.fact_ids.map((fid) => deps.store.getFact(fid)).filter((f): f is Fact => f !== undefined && f.tier === "hot" && (!creatorIds || creatorIds.has(f.id)));
+}
+
+/**
+ * The groups a person can see, the same list GET /api/groups gives them: every group for a
+ * moderator, else the groups their scope holds a fact in. An agent's creator picks its memory from
+ * these, so nothing outside this list is ever offered, named or counted to them. Never `inbox`.
+ */
+export function visibleGroups(deps: ScopesDeps, principalId: string): Group[] {
+  const who = deps.world.principals.get(principalId);
+  if (who?.kind === "person" && who.tier === "moderator") return deps.world.groups.filter((g) => g.id !== INBOX);
+  const held = new Set(scopeFacts(deps, principalId).map((f) => f.folder));
+  return deps.world.groups.filter((g) => g.id !== INBOX && held.has(g.id));
 }
 
 /**
@@ -916,11 +933,11 @@ export async function handleScopesRoute(
         const existing = state.rules.get(target);
         if (!existing) throw new HttpError(404, `no scope rule for "${target}"`);
         if (!isRecord(input) || input.preserve_exclusions !== true || input.exclude !== undefined || input.exclusions !== undefined) {
-          throw new HttpError(400, "a creator rule edit must send { task, preserve_exclusions: true }");
+          throw new HttpError(400, "a creator rule edit must send { task, preserve_exclusions: true, exclude_groups? }");
         }
         // The member can edit the task, but moderator-set barriers stay byte-for-byte intact and
         // retain their setter identity. Otherwise a task edit would expose or erase a hidden wall.
-        rule = parseRuleBody({ task: input.task, exclude: existing.exclude }, target, existing.set_by);
+        rule = parseRuleBody({ task: input.task, exclude: { ...existing.exclude, groups: creatorExclusions(deps, callerId, existing, input.exclude_groups) } }, target, existing.set_by);
       } else {
         rule = parseRuleBody(input, target, callerId);
       }
@@ -1139,6 +1156,24 @@ function changeTier(deps: ScopesDeps, callerId: string, target: string, body: un
   logAudit(deps, { kind: "tier.changed", actor: callerId, principal: target, detail: `${principal.name} is now a ${principal.tier}.` });
   deps.bus.emit({ type: "principal.changed", principal, change: "tier_changed", by: callerId });
   return principal;
+}
+
+/**
+ * A creator's choice of which of their own groups their agent leaves out (`exclude_groups` on a
+ * rule edit; absent = keep the groups as they are). Only groups the creator can see are theirs to
+ * choose: every other exclusion on the rule is kept as it is. When a moderator set the rule last,
+ * the creator may only add exclusions, never lift one, so a wall Compliance put on the agent stays
+ * up. Nothing about the result is returned to the creator but the scope it builds.
+ */
+function creatorExclusions(deps: ScopesDeps, creator: string, existing: ScopeRule, requested: unknown): string[] {
+  if (requested === undefined) return existing.exclude.groups;
+  if (!Array.isArray(requested) || !requested.every((g) => typeof g === "string" && GROUP_RE.test(g))) {
+    throw new HttpError(400, 'exclude_groups must be group paths like "market/public"');
+  }
+  const visible = new Set(visibleGroups(deps, creator).map((g) => g.id));
+  const notTheirs = existing.exclude.groups.filter((g) => !visible.has(g));
+  const kept = existing.set_by === creator ? [] : existing.exclude.groups.filter((g) => visible.has(g));
+  return [...new Set([...notTheirs, ...kept, ...(requested as string[]).filter((g) => visible.has(g))])];
 }
 
 /** POST /api/agents: a member creates agents only for themselves; the scope comes from the creator's. */

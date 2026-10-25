@@ -50,8 +50,30 @@ export interface AgentStep {
   file?: string;
   /** Real token counts from the runtime, when it reports them. Never estimated. */
   tokens?: { input: number; output: number };
+  /**
+   * kind "file", for a file the run saved to its creator's memory (a deliverable in out/, or a
+   * note in out/memories/): its text, at most AGENT_CONTENT_MAX_CHARS. The creator's member view
+   * shows it; Canon withholds it once any of `fact_ids` has left the agent's scope.
+   */
+  content?: string;
+  /** With `content`: the fact files the run's folder held when it saved this. */
+  fact_ids?: string[];
   at: string;
 }
+
+/**
+ * An agent saves what its creator should remember (a finding, a decision, its progress) as short
+ * notes in this folder of its sandbox. Each note is posted to the creator's memory after the step
+ * that wrote it, as a `note` the fact writer reads like anything else they wrote; the rest of out/
+ * is the run's deliverable, shown to the creator and saved when the run is done.
+ */
+export const AGENT_MEMORY_DIR = "out/memories";
+/** Notes past this many in one run stay in the run's record only. */
+export const AGENT_MEMORY_MAX_NOTES = 5;
+/** Longest note saved to memory, in characters; a longer one is cut at a line break. */
+export const AGENT_MEMORY_MAX_CHARS = 2_000;
+/** Longest deliverable text carried on an agent.step for the member view. */
+export const AGENT_CONTENT_MAX_CHARS = 16_000;
 
 /**
  * What live routing delivers to a running agent between steps. new_fact: a fact that joined its
@@ -85,3 +107,10 @@ export interface DispatchRequest {
   /** Who asked: the agent's creator or a moderator. */
   by: string;
 }
+
+/**
+ * POST /api/sessions answers 409 with this error when a dispatcher save carries `meta.fact_ids`
+ * and one of them has left the agent's scope. The dispatcher treats it as a narrowing: nothing
+ * from that folder is saved, and the run restarts in a fresh one.
+ */
+export const AGENT_SCOPE_CHANGED = "agent scope changed";
